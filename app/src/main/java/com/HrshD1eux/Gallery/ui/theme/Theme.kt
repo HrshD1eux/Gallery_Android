@@ -1,0 +1,64 @@
+package com.HrshD1eux.Gallery.ui.theme
+
+import android.os.Build
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+
+private val DarkColorScheme = darkColorScheme(
+    primary = Color(0xFF6366F1), // Indigo
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFF4F46E5),
+    secondary = Color(0xFF06B6D4), // Cyan
+    onSecondary = Color.White,
+    background = Color(0xFF090D16), // Dark slate
+    onBackground = Color(0xFFF8FAFC),
+    surface = Color(0xFF151D30),
+    onSurface = Color(0xFFF8FAFC),
+    surfaceVariant = Color(0xFF222E4A),
+    onSurfaceVariant = Color(0xFFCBD5E1),
+    error = Color(0xFFEF4444)
+)
+
+private val LightColorScheme = lightColorScheme(
+    primary = Color(0xFF4F46E5),
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFC7D2FE),
+    secondary = Color(0xFF0891B2),
+    onSecondary = Color.White,
+    background = Color(0xFFF8FAFC),
+    onBackground = Color(0xFF0F172A),
+    surface = Color.White,
+    onSurface = Color(0xFF0F172A),
+    surfaceVariant = Color(0xFFF1F5F9),
+    onSurfaceVariant = Color(0xFF475569),
+    error = Color(0xFFDC2626)
+)
+
+@Composable
+fun GalleryTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    dynamicColor: Boolean = true,
+    content: @Composable () -> Unit
+) {
+    val colorScheme = when {
+        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+            val context = LocalContext.current
+            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        }
+        darkTheme -> DarkColorScheme
+        else -> LightColorScheme
+    }
+
+    MaterialTheme(
+        colorScheme = colorScheme,
+        typography = Typography,
+        content = content
+    )
+}

@@ -1,0 +1,22 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Solid background -->
+    <path
+        android:fillColor="#FF212121"
+        android:pathData="M0,0 h108 v108 h-108 z"/>
+    <!-- Gallery frame outline -->
+    <path
+        android:fillColor="#FF424242"
+        android:pathData="M24,24 h60 v60 h-60 z"/>
+    <!-- Abstract landscape style vector representation -->
+    <path
+        android:fillColor="#FF00B0FF"
+        android:pathData="M30,70 l14,-22 l10,12 l12,-16 l12,26 z"/>
+    <!-- Sun representation -->
+    <path
+        android:fillColor="#FFFFD54F"
+        android:pathData="M68,38 A6,6 0 1,1 56,38 A6,6 0 1,1 68,38"/>
+</vector>
