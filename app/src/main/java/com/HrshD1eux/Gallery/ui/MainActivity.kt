@@ -44,6 +44,8 @@ import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.DriveFileMove
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -295,6 +297,20 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                             viewModel.currentScreen = Screen.Albums
                         }) {
                             Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "All Media")
+                        }
+                    }
+                },
+                actions = {
+                    if (currentScreen == Screen.Photos) {
+                        IconButton(onClick = { viewModel.toggleSortMode() }) {
+                            Icon(
+                                imageVector = if (viewModel.sortMode == TimelineSortMode.DATE_GROUPED) {
+                                    Icons.Default.GridView
+                                } else {
+                                    Icons.Default.DateRange
+                                },
+                                contentDescription = if (viewModel.sortMode == TimelineSortMode.DATE_GROUPED) "Switch to Flat Grid" else "Switch to Date Grouped"
+                            )
                         }
                     }
                 },
