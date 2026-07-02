@@ -46,6 +46,8 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.CropSquare
+import androidx.compose.material.icons.filled.ViewStream
 import androidx.compose.material.icons.filled.DriveFileMove
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -249,22 +251,19 @@ fun MainScreenLayout(viewModel: MainViewModel) {
         pageCount = { screens.size }
     )
 
-    // Sync from screen change to pager page
+    // Sync from screen change to pager page (instant smooth snap)
     LaunchedEffect(currentScreen) {
         val page = screens.indexOf(currentScreen).coerceAtLeast(0)
         if (mainPagerState.currentPage != page) {
-            mainPagerState.animateScrollToPage(page)
+            mainPagerState.scrollToPage(page)
         }
     }
 
-    // Sync from pager page to screen change
-    LaunchedEffect(mainPagerState.currentPage) {
-        val targetScreen = screens.getOrNull(mainPagerState.currentPage)
+    // Sync from user swipe gesture to screen change when settled
+    LaunchedEffect(mainPagerState.settledPage) {
+        val targetScreen = screens.getOrNull(mainPagerState.settledPage)
         if (targetScreen != null && viewModel.currentScreen != targetScreen) {
             viewModel.currentScreen = targetScreen
-            if (targetScreen == Screen.Albums) {
-                viewModel.loadBuckets()
-            }
         }
     }
 
@@ -302,14 +301,25 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                 },
                 actions = {
                     if (currentScreen == Screen.Photos) {
+                        IconButton(onClick = { viewModel.toggleGridStyle() }) {
+                            Icon(
+                                imageVector = if (viewModel.gridStyle == GridStyle.SQUARE) {
+                                    Icons.Default.CropSquare
+                                } else {
+                                    Icons.Default.GridView
+                                },
+                                contentDescription = "Toggle Grid Style"
+                            )
+                        }
+
                         IconButton(onClick = { viewModel.toggleSortMode() }) {
                             Icon(
                                 imageVector = if (viewModel.sortMode == TimelineSortMode.DATE_GROUPED) {
-                                    Icons.Default.GridView
-                                } else {
                                     Icons.Default.DateRange
+                                } else {
+                                    Icons.Default.ViewStream
                                 },
-                                contentDescription = if (viewModel.sortMode == TimelineSortMode.DATE_GROUPED) "Switch to Flat Grid" else "Switch to Date Grouped"
+                                contentDescription = "Toggle Sort Mode"
                             )
                         }
                     }
@@ -358,9 +368,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                                     Icon(imageVector = Icons.Default.DriveFileMove, contentDescription = "Move to Album")
                                 }
                                 IconButton(onClick = {
-                                    val selected = viewModel.mediaItems.value.filter { selectionState.selectedIds.contains(it.id) }
-                                    selected.forEach { viewModel.toggleTrashed(context, it) }
-                                    selectionState.clear()
+                                    viewModel.deleteSelectedMedia(context)
                                 }) {
                                     Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete")
                                 }
@@ -414,7 +422,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                 when (screens[page]) {
                     Screen.Photos -> TimelineScreen(viewModel = viewModel)
                     Screen.Albums -> AlbumsScreen(viewModel = viewModel)
-                    Screen.Search -> SearchScreen()
+                    Screen.Search -> SearchScreen(viewModel = viewModel)
                 }
             }
 

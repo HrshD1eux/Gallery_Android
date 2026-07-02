@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.DriveFileMove
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -66,6 +67,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -122,6 +124,7 @@ fun PhotoViewerScreen(
     var showChrome by remember { mutableStateOf(true) }
     var showInfoSheet by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
+    var rotationDegrees by remember(pagerState.currentPage) { mutableFloatStateOf(0f) }
     var showShareDialog by remember { mutableStateOf(false) }
     var stripMetadataOnShare by remember { mutableStateOf(true) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
@@ -190,9 +193,12 @@ fun PhotoViewerScreen(
                     if (item.isVideo) {
                         VideoPlayerContainer(
                             uri = item.uri,
+                            title = item.path.substringAfterLast('/'),
                             isSelectedPage = (page == pagerState.currentPage),
                             showChrome = showChrome,
                             onTap = { showChrome = !showChrome },
+                            rotationDegrees = rotationDegrees,
+                            onRotationChange = { rotationDegrees = it },
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
@@ -206,6 +212,9 @@ fun PhotoViewerScreen(
                             contentScale = ContentScale.Fit,
                             modifier = Modifier
                                 .fillMaxSize()
+                                .graphicsLayer {
+                                    rotationZ = rotationDegrees
+                                }
                                 .zoomable(
                                     state = zoomState,
                                     onTap = { showChrome = !showChrome }
@@ -241,6 +250,10 @@ fun PhotoViewerScreen(
                     modifier = Modifier.align(Alignment.CenterEnd),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    IconButton(onClick = { rotationDegrees = (rotationDegrees + 90f) % 360f }) {
+                        Icon(imageVector = Icons.Default.RotateRight, contentDescription = "Rotate", tint = Color.White)
+                    }
+
                     IconButton(onClick = { showInfoSheet = true }) {
                         Icon(imageVector = Icons.Default.Info, contentDescription = "Info", tint = Color.White)
                     }
