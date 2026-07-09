@@ -3,6 +3,7 @@ package com.HrshD1eux.Gallery.ui.viewer
 import android.net.Uri
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -10,8 +11,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,12 +25,14 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.PlayCircle
-import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.SubtitlesOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -41,7 +43,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -50,10 +51,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem as Media3Item
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -63,6 +65,7 @@ import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import java.util.Locale
+import kotlin.math.abs
 
 fun formatVideoTime(ms: Long): String {
     if (ms <= 0L) return "00:00"
@@ -86,8 +89,6 @@ fun VideoPlayerContainer(
     isSelectedPage: Boolean,
     showChrome: Boolean,
     onTap: () -> Unit,
-    rotationDegrees: Float = 0f,
-    onRotationChange: ((Float) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -96,10 +97,18 @@ fun VideoPlayerContainer(
     var isPlaying by remember { mutableStateOf(false) }
     var currentPosition by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
-    var isSeeking by remember { mutableStateOf(false) }
-    var sliderPosition by remember { mutableFloatStateOf(0f) }
+
+    // Bulletproof Seeking State
+    var isUserSeeking by remember { mutableStateOf(false) }
+    var dragPositionMs by remember { mutableLongStateOf(0L) }
+    var pendingSeekTargetMs by remember { mutableStateOf<Long?>(null) }
+
     var resizeModeState by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var isLocked by remember { mutableStateOf(false) }
+    var subtitlesEnabled by remember { mutableStateOf(true) }
+
+    // Double-tap gesture feedback overlay state
+    var doubleTapOverlayText by remember { mutableStateOf<String?>(null) }
 
     DisposableEffect(uri) {
         val player = ExoPlayer.Builder(context).build().apply {
@@ -108,9 +117,31 @@ fun VideoPlayerContainer(
             prepare()
             playWhenReady = isSelectedPage
         }
+
+        val listener = object : Player.Listener {
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int
+            ) {
+                if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+                    currentPosition = newPosition.positionMs
+                    pendingSeekTargetMs = null
+                }
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) {
+                    pendingSeekTargetMs = null
+                    currentPosition = player.currentPosition.coerceAtLeast(0L)
+                }
+            }
+        }
+        player.addListener(listener)
         exoPlayer = player
 
         onDispose {
+            player.removeListener(listener)
             player.stop()
             player.clearMediaItems()
             player.release()
@@ -129,31 +160,77 @@ fun VideoPlayerContainer(
         }
     }
 
-    // Ticker coroutine to update playback position smoothly
+    // Ticker coroutine to update playback position smoothly without overwriting active user seeks
     LaunchedEffect(exoPlayer, isSelectedPage) {
         val player = exoPlayer ?: return@LaunchedEffect
         while (isActive) {
             isPlaying = player.isPlaying
-            if (!isSeeking) {
-                currentPosition = player.currentPosition.coerceAtLeast(0L)
+            val target = pendingSeekTargetMs
+            if (!isUserSeeking) {
+                if (target != null) {
+                    val pos = player.currentPosition.coerceAtLeast(0L)
+                    if (pos >= target || abs(pos - target) < 500L) {
+                        pendingSeekTargetMs = null
+                        currentPosition = pos
+                    } else {
+                        currentPosition = target
+                    }
+                } else {
+                    currentPosition = player.currentPosition.coerceAtLeast(0L)
+                }
             }
-            duration = player.duration.coerceAtLeast(0L)
+            val dur = player.duration
+            if (dur > 0L) {
+                duration = dur
+            }
             delay(200)
+        }
+    }
+
+    // Dismiss gesture feedback overlay after 800ms
+    LaunchedEffect(doubleTapOverlayText) {
+        if (doubleTapOverlayText != null) {
+            delay(800)
+            doubleTapOverlayText = null
         }
     }
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = {
-                    if (!isLocked) {
-                        onTap()
+            .pointerInput(isLocked) {
+                detectTapGestures(
+                    onTap = {
+                        if (!isLocked) {
+                            onTap()
+                        }
+                    },
+                    onDoubleTap = { offset ->
+                        if (!isLocked) {
+                            exoPlayer?.let { player ->
+                                val width = size.width
+                                val basePos = pendingSeekTargetMs ?: currentPosition
+                                if (offset.x < width / 2) {
+                                    // Rewind 10 seconds
+                                    val newPos = (basePos - 10000L).coerceAtLeast(0L)
+                                    pendingSeekTargetMs = newPos
+                                    currentPosition = newPos
+                                    player.seekTo(newPos)
+                                    doubleTapOverlayText = "◀◀ 10s Rewind"
+                                } else {
+                                    // Fast Forward 10 seconds
+                                    val targetMax = if (player.duration > 0) player.duration else Long.MAX_VALUE
+                                    val newPos = (basePos + 10000L).coerceAtMost(targetMax)
+                                    pendingSeekTargetMs = newPos
+                                    currentPosition = newPos
+                                    player.seekTo(newPos)
+                                    doubleTapOverlayText = "10s Fast Forward ▶▶"
+                                }
+                            }
+                        }
                     }
-                }
-            )
+                )
+            }
     ) {
         exoPlayer?.let { player ->
             AndroidView(
@@ -176,11 +253,7 @@ fun VideoPlayerContainer(
                 onRelease = { view ->
                     view.player = null
                 },
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        rotationZ = rotationDegrees
-                    }
+                modifier = Modifier.fillMaxSize()
             )
         }
 
@@ -202,27 +275,44 @@ fun VideoPlayerContainer(
             }
         }
 
-        // Lock button floating on left side
-        if (showChrome || isLocked) {
+        // Double-tap gesture feedback overlay indicator
+        doubleTapOverlayText?.let { text ->
             Box(
                 modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .padding(start = 16.dp)
+                    .align(Alignment.Center)
+                    .background(Color.Black.copy(alpha = 0.7f), CircleShape)
+                    .padding(horizontal = 20.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White
+                )
+            }
+        }
+
+        // If screen is locked, show a single Lock icon on top-left to unlock
+        if (isLocked) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .padding(16.dp)
             ) {
                 IconButton(
-                    onClick = { isLocked = !isLocked },
-                    modifier = Modifier.background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                    onClick = { isLocked = false },
+                    modifier = Modifier.background(Color.Black.copy(alpha = 0.6f), CircleShape)
                 ) {
                     Icon(
-                        imageVector = if (isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
-                        contentDescription = if (isLocked) "Unlock controls" else "Lock controls",
-                        tint = if (isLocked) Color(0xFFFF5722) else Color.White
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = "Unlock controls",
+                        tint = Color(0xFFFF5722)
                     )
                 }
             }
         }
 
-        // Custom Video Controls Overlay matching Screenshot 2
+        // Custom Video Controls Overlay matching Screenshot 2 (Zero Overlap)
         AnimatedVisibility(
             visible = showChrome && !isLocked,
             enter = fadeIn() + slideInVertically { it },
@@ -237,14 +327,20 @@ fun VideoPlayerContainer(
                     .background(Color.Black.copy(alpha = 0.65f))
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                // Time Indicators: Left = Current Position, Right = Total Duration
+                // Display time position: Left = Current Position, Right = Total Duration
+                val displayPosMs = when {
+                    isUserSeeking -> dragPositionMs
+                    pendingSeekTargetMs != null -> pendingSeekTargetMs!!
+                    else -> currentPosition
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = formatVideoTime(if (isSeeking) sliderPosition.toLong() else currentPosition),
+                        text = formatVideoTime(displayPosMs),
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White
                     )
@@ -255,22 +351,29 @@ fun VideoPlayerContainer(
                     )
                 }
 
-                // Custom Orange Seek Slider
-                val maxSeek = if (duration > 0L) duration.toFloat() else 1f
-                val currentSeek = if (isSeeking) sliderPosition else currentPosition.toFloat().coerceIn(0f, maxSeek)
+                // Custom Orange Seek Slider (Indestructible state tracking & zero-reset protection)
+                val maxSeekMs = if (duration > 0L) duration.toFloat() else 1000f
+                val sliderValueFloat = displayPosMs.toFloat().coerceIn(0f, maxSeekMs)
 
                 Slider(
-                    value = currentSeek,
+                    value = sliderValueFloat,
                     onValueChange = { pos ->
-                        isSeeking = true
-                        sliderPosition = pos
+                        if (duration > 0L) {
+                            isUserSeeking = true
+                            dragPositionMs = pos.toLong().coerceIn(0L, duration)
+                        }
                     },
                     onValueChangeFinished = {
-                        exoPlayer?.seekTo(sliderPosition.toLong())
-                        currentPosition = sliderPosition.toLong()
-                        isSeeking = false
+                        if (duration > 0L) {
+                            val targetMs = dragPositionMs.coerceIn(0L, duration)
+                            pendingSeekTargetMs = targetMs
+                            currentPosition = targetMs
+                            exoPlayer?.seekTo(targetMs)
+                            isUserSeeking = false
+                        }
                     },
-                    valueRange = 0f..maxSeek,
+                    valueRange = 0f..maxSeekMs,
+                    enabled = duration > 0L,
                     colors = SliderDefaults.colors(
                         thumbColor = Color(0xFFFF5722),
                         activeTrackColor = Color(0xFFFF5722),
@@ -281,33 +384,61 @@ fun VideoPlayerContainer(
                         .height(28.dp)
                 )
 
-                // Custom Player Control Bar (Screenshot 2 style)
+                // Custom Player Control Bar (No Rotate button, clean controls)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Subtitles / Audio Tracks
-                    IconButton(onClick = { /* Toggle subtitles/audio */ }) {
+                    // Subtitles / Audio Tracks Button
+                    IconButton(onClick = {
+                        exoPlayer?.let { player ->
+                            val textTracksExist = player.currentTracks.groups.any { group ->
+                                group.type == C.TRACK_TYPE_TEXT
+                            }
+                            if (textTracksExist) {
+                                subtitlesEnabled = !subtitlesEnabled
+                                val builder = player.trackSelectionParameters.buildUpon()
+                                builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !subtitlesEnabled)
+                                player.trackSelectionParameters = builder.build()
+                                Toast.makeText(
+                                    context,
+                                    if (subtitlesEnabled) "Subtitles Enabled" else "Subtitles Disabled",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            } else {
+                                Toast.makeText(context, "No subtitles available in video", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }) {
                         Icon(
-                            imageVector = Icons.Default.Subtitles,
+                            imageVector = if (subtitlesEnabled) Icons.Default.Subtitles else Icons.Default.SubtitlesOff,
                             contentDescription = "Subtitles",
                             tint = Color.White
                         )
                     }
 
-                    // Rotate
-                    IconButton(onClick = { onRotationChange?.invoke((rotationDegrees + 90f) % 360f) }) {
+                    // Fast Rewind 10s Button
+                    IconButton(onClick = {
+                        exoPlayer?.let { player ->
+                            val basePos = pendingSeekTargetMs ?: currentPosition
+                            val newPos = (basePos - 10000L).coerceAtLeast(0L)
+                            pendingSeekTargetMs = newPos
+                            currentPosition = newPos
+                            player.seekTo(newPos)
+                            doubleTapOverlayText = "◀◀ 10s Rewind"
+                        }
+                    }) {
                         Icon(
-                            imageVector = Icons.Default.RotateRight,
-                            contentDescription = "Rotate",
+                            imageVector = Icons.Default.FastRewind,
+                            contentDescription = "Rewind 10s",
                             tint = Color.White
                         )
                     }
 
-                    // Center Play / Pause Big Button
+                    // Center Big Play / Pause Button
                     IconButton(
                         onClick = {
                             exoPlayer?.let { player ->
@@ -329,6 +460,25 @@ fun VideoPlayerContainer(
                         )
                     }
 
+                    // Fast Forward 10s Button
+                    IconButton(onClick = {
+                        exoPlayer?.let { player ->
+                            val basePos = pendingSeekTargetMs ?: currentPosition
+                            val targetMax = if (player.duration > 0) player.duration else Long.MAX_VALUE
+                            val newPos = (basePos + 10000L).coerceAtMost(targetMax)
+                            pendingSeekTargetMs = newPos
+                            currentPosition = newPos
+                            player.seekTo(newPos)
+                            doubleTapOverlayText = "10s Fast Forward ▶▶"
+                        }
+                    }) {
+                        Icon(
+                            imageVector = Icons.Default.FastForward,
+                            contentDescription = "Forward 10s",
+                            tint = Color.White
+                        )
+                    }
+
                     // Aspect Ratio / Fit Screen mode
                     IconButton(onClick = {
                         resizeModeState = when (resizeModeState) {
@@ -344,11 +494,11 @@ fun VideoPlayerContainer(
                         )
                     }
 
-                    // Lock Button
+                    // Lock Screen Controls Button
                     IconButton(onClick = { isLocked = true }) {
                         Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = "Lock",
+                            imageVector = Icons.Default.LockOpen,
+                            contentDescription = "Lock Controls",
                             tint = Color.White
                         )
                     }

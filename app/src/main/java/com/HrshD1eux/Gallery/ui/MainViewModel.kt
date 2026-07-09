@@ -97,6 +97,7 @@ class MainViewModel @Inject constructor(
         }
 
     private val _currentCategoryName = MutableStateFlow<String?>(savedStateHandle.get<String>("current_category_name"))
+    val currentCategoryNameFlow: StateFlow<String?> = _currentCategoryName.asStateFlow()
     var currentCategoryName: String?
         get() = _currentCategoryName.value
         set(value) {
@@ -590,6 +591,54 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    fun restoreSelectedMedia(context: Context) {
+        val selectedIds = selectionState.selectedIds.toSet()
+        if (selectedIds.isEmpty()) return
+        viewModelScope.launch {
+            val trashedItems = trashed.value.filter { selectedIds.contains(it.id) }
+            trashedItems.forEach { item ->
+                repository.toggleTrashed(item)
+            }
+            selectionState.clear()
+        }
+    }
+
+    fun deleteSelectedMediaPermanently(context: Context) {
+        val selectedItems = trashed.value.filter { selectionState.selectedIds.contains(it.id) }
+        if (selectedItems.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    val activity = context as? android.app.Activity
+                    if (activity != null) {
+                        pendingBatchActionItems = selectedItems
+                        val uris = selectedItems.map { it.uri }
+                        val pendingIntent = android.provider.MediaStore.createDeleteRequest(
+                            context.contentResolver,
+                            uris
+                        )
+                        activity.startIntentSenderForResult(
+                            pendingIntent.intentSender,
+                            1001,
+                            null,
+                            0,
+                            0,
+                            0
+                        )
+                    }
+                } else {
+                    selectedItems.forEach { item ->
+                        context.contentResolver.delete(item.uri, null, null)
+                        repository.deleteMetadataPermanently(item.id)
+                    }
+                    selectionState.clear()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
     fun handleActivityResult(requestCode: Int, resultCode: Int) {
         val item = pendingActionItem
         val batchItems = pendingBatchActionItems
@@ -597,7 +646,15 @@ class MainViewModel @Inject constructor(
         if (resultCode == android.app.Activity.RESULT_OK) {
             when (requestCode) {
                 1001 -> {
-                    if (item != null) {
+                    if (batchItems != null) {
+                        viewModelScope.launch {
+                            batchItems.forEach { batchItem ->
+                                repository.deleteMetadataPermanently(batchItem.id)
+                            }
+                            selectionState.clear()
+                            pendingBatchActionItems = null
+                        }
+                    } else if (item != null) {
                         viewModelScope.launch {
                             repository.deleteMetadataPermanently(item.id)
                             if (activeMediaItem?.id == item.id) {

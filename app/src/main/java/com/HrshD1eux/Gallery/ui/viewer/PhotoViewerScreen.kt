@@ -45,7 +45,6 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.DriveFileMove
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -124,7 +123,6 @@ fun PhotoViewerScreen(
     var showChrome by remember { mutableStateOf(true) }
     var showInfoSheet by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
-    var rotationDegrees by remember(pagerState.currentPage) { mutableFloatStateOf(0f) }
     var showShareDialog by remember { mutableStateOf(false) }
     var stripMetadataOnShare by remember { mutableStateOf(true) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
@@ -197,8 +195,6 @@ fun PhotoViewerScreen(
                             isSelectedPage = (page == pagerState.currentPage),
                             showChrome = showChrome,
                             onTap = { showChrome = !showChrome },
-                            rotationDegrees = rotationDegrees,
-                            onRotationChange = { rotationDegrees = it },
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
@@ -212,9 +208,6 @@ fun PhotoViewerScreen(
                             contentScale = ContentScale.Fit,
                             modifier = Modifier
                                 .fillMaxSize()
-                                .graphicsLayer {
-                                    rotationZ = rotationDegrees
-                                }
                                 .zoomable(
                                     state = zoomState,
                                     onTap = { showChrome = !showChrome }
@@ -250,10 +243,6 @@ fun PhotoViewerScreen(
                     modifier = Modifier.align(Alignment.CenterEnd),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { rotationDegrees = (rotationDegrees + 90f) % 360f }) {
-                        Icon(imageVector = Icons.Default.RotateRight, contentDescription = "Rotate", tint = Color.White)
-                    }
-
                     IconButton(onClick = { showInfoSheet = true }) {
                         Icon(imageVector = Icons.Default.Info, contentDescription = "Info", tint = Color.White)
                     }
@@ -342,7 +331,13 @@ fun PhotoViewerScreen(
                             Icon(imageVector = Icons.Default.DriveFileMove, contentDescription = "Move to Album", tint = Color.White)
                         }
 
-                        IconButton(onClick = { showDeleteConfirmDialog = true }) {
+                        IconButton(onClick = {
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                                viewModel.toggleTrashed(context, item)
+                            } else {
+                                showDeleteConfirmDialog = true
+                            }
+                        }) {
                             Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete", tint = Color.White)
                         }
                     }

@@ -21,6 +21,8 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
@@ -40,6 +42,8 @@ import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.RestoreFromTrash
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
@@ -353,24 +357,38 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                                 text = "${selectionState.selectedIds.size} Selected",
                                 style = MaterialTheme.typography.titleMedium
                             )
+                            val categoryName by viewModel.currentCategoryNameFlow.collectAsState()
+                            val trashedList by viewModel.trashed.collectAsState()
+                            val selectedIds = selectionState.selectedIds
+                            val isViewingTrash = categoryName == "Trash" || (selectedIds.isNotEmpty() && trashedList.any { selectedIds.contains(it.id) })
+
                             Row {
-                                IconButton(onClick = { showSelectionShareDialog = true }) {
-                                    Icon(imageVector = Icons.Default.Share, contentDescription = "Share")
-                                }
-                                IconButton(onClick = {
-                                    val selected = viewModel.mediaItems.value.filter { selectionState.selectedIds.contains(it.id) }
-                                    selected.forEach { viewModel.toggleHidden(context, it) }
-                                    selectionState.clear()
-                                }) {
-                                    Icon(imageVector = Icons.Default.VisibilityOff, contentDescription = "Hide")
-                                }
-                                 IconButton(onClick = { showMoveToAlbumDialog = true }) {
-                                    Icon(imageVector = Icons.Default.DriveFileMove, contentDescription = "Move to Album")
-                                }
-                                IconButton(onClick = {
-                                    viewModel.deleteSelectedMedia(context)
-                                }) {
-                                    Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete")
+                                if (isViewingTrash) {
+                                    IconButton(onClick = { viewModel.restoreSelectedMedia(context) }) {
+                                        Icon(imageVector = Icons.Default.RestoreFromTrash, contentDescription = "Restore")
+                                    }
+                                    IconButton(onClick = { viewModel.deleteSelectedMediaPermanently(context) }) {
+                                        Icon(imageVector = Icons.Default.DeleteForever, contentDescription = "Delete Permanently", tint = MaterialTheme.colorScheme.error)
+                                    }
+                                } else {
+                                    IconButton(onClick = { showSelectionShareDialog = true }) {
+                                        Icon(imageVector = Icons.Default.Share, contentDescription = "Share")
+                                    }
+                                    IconButton(onClick = {
+                                        val selected = viewModel.mediaItems.value.filter { selectionState.selectedIds.contains(it.id) }
+                                        selected.forEach { viewModel.toggleHidden(context, it) }
+                                        selectionState.clear()
+                                    }) {
+                                        Icon(imageVector = Icons.Default.VisibilityOff, contentDescription = "Hide")
+                                    }
+                                    IconButton(onClick = { showMoveToAlbumDialog = true }) {
+                                        Icon(imageVector = Icons.Default.DriveFileMove, contentDescription = "Move to Album")
+                                    }
+                                    IconButton(onClick = {
+                                        viewModel.deleteSelectedMedia(context)
+                                    }) {
+                                        Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete")
+                                    }
                                 }
                                 IconButton(onClick = { selectionState.clear() }) {
                                     Icon(imageVector = Icons.Default.Close, contentDescription = "Cancel")
@@ -416,6 +434,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
         ) {
             HorizontalPager(
                 state = mainPagerState,
+                beyondBoundsPageCount = 2,
                 modifier = Modifier.fillMaxSize(),
                 userScrollEnabled = viewModel.activeMediaItem == null
             ) { page ->
@@ -428,8 +447,8 @@ fun MainScreenLayout(viewModel: MainViewModel) {
 
             AnimatedVisibility(
                 visible = viewModel.activeMediaItem != null,
-                enter = fadeIn(),
-                exit = fadeOut()
+                enter = fadeIn() + scaleIn(initialScale = 0.94f),
+                exit = fadeOut() + scaleOut(targetScale = 0.94f)
             ) {
                 PhotoViewerScreen(viewModel = viewModel)
             }
