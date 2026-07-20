@@ -1,5 +1,7 @@
 package com.HrshD1eux.Gallery.ui.albums
 
+import android.content.Context
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +25,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FloatingActionButton
@@ -61,17 +64,7 @@ fun AlbumsScreen(
     val videosCount by viewModel.videosCount.collectAsState()
 
     val context = LocalContext.current
-    val prefs = remember(context) { context.getSharedPreferences("vault_prefs", android.content.Context.MODE_PRIVATE) }
-    var storedPinHash by remember { mutableStateOf(prefs.getString("vault_pin_hash", null)) }
-    var storedSaltBase64 by remember { mutableStateOf(prefs.getString("vault_salt", null)) }
-    var legacyPin by remember { mutableStateOf(prefs.getString("vault_pin", null)) }
-    val isPinConfigured = storedPinHash != null || legacyPin != null
-
     var showHiddenLockedDialog by remember { mutableStateOf(false) }
-    var pinInput by remember { mutableStateOf("") }
-    var pinConfirmInput by remember { mutableStateOf("") }
-    var isSettingPinMode by remember { mutableStateOf(false) }
-    var pinErrorMessage by remember { mutableStateOf<String?>(null) }
 
     var showCreateAlbumDialog by remember { mutableStateOf(false) }
     var newAlbumName by remember { mutableStateOf("") }
@@ -83,6 +76,34 @@ fun AlbumsScreen(
                 .padding(horizontal = 16.dp),
             contentPadding = PaddingValues(top = 16.dp, bottom = 100.dp)
         ) {
+        // Search Bar at top of Albums
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp)
+                    .background(
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = MaterialTheme.shapes.medium
+                    )
+                    .clickable { viewModel.currentScreen = com.HrshD1eux.Gallery.ui.Screen.Search }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = "Search",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "Search photos, videos, albums...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
         // Smart Albums header
         item {
             Text(
@@ -123,14 +144,41 @@ fun AlbumsScreen(
             )
         }
 
-        // Smart Album: Hidden
-        item {
-            AlbumRowItem(
-                icon = Icons.Default.Lock,
-                title = "Hidden Vault",
-                count = hidden.size,
-                onClick = { showHiddenLockedDialog = true }
-            )
+        // Smart Album: Hidden (Only visible if Stealth Mode is disabled)
+        val isStealthMode = context.getSharedPreferences("vault_prefs", Context.MODE_PRIVATE)
+            .getBoolean("vault_stealth_mode", false)
+        if (!isStealthMode) {
+            item {
+                AlbumRowItem(
+                    icon = Icons.Default.Lock,
+                    title = "Hidden Vault",
+                    count = hidden.size,
+                    onClick = {
+                        val activity = context as? android.app.Activity
+                        val isBiometricEnabled = context.getSharedPreferences("vault_prefs", Context.MODE_PRIVATE)
+                            .getBoolean("vault_biometric_enabled", false)
+                        if (isBiometricEnabled && activity != null) {
+                            com.HrshD1eux.Gallery.core.util.BiometricAuthHelper.authenticate(
+                                activity = activity,
+                                title = "Unlock Hidden Vault",
+                                subtitle = "Use fingerprint or face unlock to access your hidden photos",
+                                onSuccess = {
+                                    viewModel.unlockVault()
+                                    viewModel.currentBucketId = null
+                                    viewModel.currentBucketName = null
+                                    viewModel.currentCategoryName = "Hidden Vault"
+                                    viewModel.currentScreen = com.HrshD1eux.Gallery.ui.Screen.Photos
+                                },
+                                onError = { _ ->
+                                    showHiddenLockedDialog = true
+                                }
+                            )
+                        } else {
+                            showHiddenLockedDialog = true
+                        }
+                    }
+                )
+            }
         }
 
         // Smart Album: Trash
@@ -181,8 +229,8 @@ fun AlbumsScreen(
             }
         }
     }
-        
-        FloatingActionButton(
+
+    FloatingActionButton(
             onClick = { showCreateAlbumDialog = true },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -235,167 +283,21 @@ fun AlbumsScreen(
                 }
             )
         }
-    }
 
-    if (showHiddenLockedDialog) {
-        AlertDialog(
-            onDismissRequest = { 
+        if (showHiddenLockedDialog) {
+        com.HrshD1eux.Gallery.ui.vault.VaultUnlockDialog(
+            onDismiss = { showHiddenLockedDialog = false },
+            onUnlockSuccess = {
+                viewModel.unlockVault()
                 showHiddenLockedDialog = false
-                pinInput = ""
-                pinConfirmInput = ""
-                pinErrorMessage = null
-                isSettingPinMode = false
-            },
-            title = {
-                Text(
-                    text = if (!isPinConfigured) {
-                        if (isSettingPinMode) "Confirm Vault PIN" else "Set Vault PIN"
-                    } else {
-                        "Enter Vault PIN"
-                    },
-                    style = MaterialTheme.typography.titleLarge
-                )
-            },
-            text = {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = if (!isPinConfigured) {
-                            if (isSettingPinMode) "Re-enter your 4-digit PIN to confirm" else "Create a 4-digit PIN to secure your Hidden Vault"
-                        } else {
-                            "Enter security PIN to access the Hidden Vault"
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
-
-                    OutlinedTextField(
-                        value = pinInput,
-                        onValueChange = { newValue ->
-                            if (newValue.all { it.isDigit() } && newValue.length <= 4) {
-                                pinInput = newValue
-                            }
-                        },
-                        label = { Text("4-Digit PIN") },
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    if (pinErrorMessage != null) {
-                        Text(
-                            text = pinErrorMessage!!,
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(top = 8.dp)
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        pinErrorMessage = null
-                        if (pinInput.length != 4) {
-                            pinErrorMessage = "PIN must be exactly 4 digits"
-                            return@Button
-                        }
-
-                        if (!isPinConfigured) {
-                            if (!isSettingPinMode) {
-                                // Transition to confirmation stage
-                                pinConfirmInput = pinInput
-                                pinInput = ""
-                                isSettingPinMode = true
-                            } else {
-                                if (pinInput == pinConfirmInput) {
-                                    val salt = com.HrshD1eux.Gallery.core.util.VaultCrypto.generateSalt()
-                                    val saltBase64 = android.util.Base64.encodeToString(salt, android.util.Base64.NO_WRAP)
-                                    val pinHash = com.HrshD1eux.Gallery.core.util.VaultCrypto.hashPin(pinInput, salt)
-                                    prefs.edit()
-                                        .putString("vault_pin_hash", pinHash)
-                                        .putString("vault_salt", saltBase64)
-                                        .remove("vault_pin")
-                                        .apply()
-                                    storedPinHash = pinHash
-                                    storedSaltBase64 = saltBase64
-                                    legacyPin = null
-                                    pinInput = ""
-                                    isSettingPinMode = false
-                                    
-                                    // Grant access and navigate inside
-                                    showHiddenLockedDialog = false
-                                    viewModel.currentBucketId = null
-                                    viewModel.currentBucketName = null
-                                    viewModel.currentCategoryName = "Hidden Vault"
-                                    viewModel.currentScreen = com.HrshD1eux.Gallery.ui.Screen.Photos
-                                } else {
-                                    pinErrorMessage = "PINs do not match. Try again."
-                                    pinInput = ""
-                                    isSettingPinMode = false
-                                }
-                            }
-                        } else {
-                            var isValid = false
-                            if (storedPinHash != null && storedSaltBase64 != null) {
-                                val salt = android.util.Base64.decode(storedSaltBase64, android.util.Base64.NO_WRAP)
-                                val inputHash = com.HrshD1eux.Gallery.core.util.VaultCrypto.hashPin(pinInput, salt)
-                                isValid = (inputHash == storedPinHash)
-                            } else if (legacyPin != null && pinInput == legacyPin) {
-                                // Automatically upgrade legacy plaintext PIN to SHA-256 hash
-                                val salt = com.HrshD1eux.Gallery.core.util.VaultCrypto.generateSalt()
-                                val saltBase64 = android.util.Base64.encodeToString(salt, android.util.Base64.NO_WRAP)
-                                val pinHash = com.HrshD1eux.Gallery.core.util.VaultCrypto.hashPin(pinInput, salt)
-                                prefs.edit()
-                                    .putString("vault_pin_hash", pinHash)
-                                    .putString("vault_salt", saltBase64)
-                                    .remove("vault_pin")
-                                    .apply()
-                                storedPinHash = pinHash
-                                storedSaltBase64 = saltBase64
-                                legacyPin = null
-                                isValid = true
-                            }
-
-                            if (isValid) {
-                                showHiddenLockedDialog = false
-                                pinInput = ""
-                                viewModel.currentBucketId = null
-                                viewModel.currentBucketName = null
-                                viewModel.currentCategoryName = "Hidden Vault"
-                                viewModel.currentScreen = com.HrshD1eux.Gallery.ui.Screen.Photos
-                            } else {
-                                pinErrorMessage = "Incorrect PIN"
-                                pinInput = ""
-                            }
-                        }
-                    }
-                ) {
-                    Text(
-                        text = if (!isPinConfigured) {
-                            if (isSettingPinMode) "Confirm" else "Next"
-                        } else {
-                            "Unlock"
-                        }
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        showHiddenLockedDialog = false
-                        pinInput = ""
-                        pinConfirmInput = ""
-                        pinErrorMessage = null
-                        isSettingPinMode = false
-                    }
-                ) {
-                    Text("Cancel")
-                }
+                viewModel.currentBucketId = null
+                viewModel.currentBucketName = null
+                viewModel.currentCategoryName = "Hidden Vault"
+                viewModel.currentScreen = com.HrshD1eux.Gallery.ui.Screen.Photos
             }
         )
     }
+}
 }
 
 @Composable

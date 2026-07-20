@@ -40,9 +40,11 @@ import androidx.compose.material.icons.filled.RestoreFromTrash
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.DriveFileMove
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -92,19 +94,17 @@ fun PhotoViewerScreen(
     val context = LocalContext.current
     val visibleMediaItems by viewModel.visibleMediaItems.collectAsState()
 
-    val mediaItems = remember(visibleMediaItems, viewModel.activeMediaItem) {
-        val active = viewModel.activeMediaItem
-        if (active != null && visibleMediaItems.none { it.id == active.id }) {
-            listOf(active) + visibleMediaItems
+    val activeItem = viewModel.activeMediaItem ?: return
+
+    val mediaItems = remember(visibleMediaItems, activeItem.id) {
+        if (visibleMediaItems.none { it.id == activeItem.id }) {
+            listOf(activeItem) + visibleMediaItems
         } else {
             visibleMediaItems
         }
     }
-    
-    val activeItem = viewModel.activeMediaItem ?: return
 
-    // Find current index to center the pager
-    val initialIndex = remember(activeItem) {
+    val initialIndex = remember(activeItem.id) {
         mediaItems.indexOfFirst { it.id == activeItem.id }.coerceAtLeast(0)
     }
     
@@ -113,10 +113,19 @@ fun PhotoViewerScreen(
         pageCount = { mediaItems.size }
     )
 
-    // Sync active item state in ViewModel when swiping
-    LaunchedEffect(pagerState.currentPage) {
-        if (pagerState.currentPage in mediaItems.indices) {
-            viewModel.activeMediaItem = mediaItems[pagerState.currentPage]
+    // Scroll to the tapped media item whenever activeItem changes
+    LaunchedEffect(activeItem.id) {
+        val targetIndex = mediaItems.indexOfFirst { it.id == activeItem.id }
+        if (targetIndex >= 0 && pagerState.currentPage != targetIndex) {
+            pagerState.scrollToPage(targetIndex)
+        }
+    }
+
+    // Sync active item state in ViewModel only when user finishes swiping to a settled page
+    LaunchedEffect(pagerState.settledPage) {
+        val currentMedia = mediaItems.getOrNull(pagerState.settledPage)
+        if (currentMedia != null && currentMedia.id != viewModel.activeMediaItem?.id) {
+            viewModel.activeMediaItem = currentMedia
         }
     }
 
@@ -128,6 +137,9 @@ fun PhotoViewerScreen(
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var showDeletePermanentlyConfirmDialog by remember { mutableStateOf(false) }
     var showMoveToAlbumDialog by remember { mutableStateOf(false) }
+    var showRenameDialog by remember { mutableStateOf(false) }
+    var renameInputText by remember { mutableStateOf("") }
+    var showVaultConfirmDialog by remember { mutableStateOf(false) }
 
     val infoSheetState = rememberModalBottomSheetState()
     val zoomState = rememberZoomState()
@@ -173,6 +185,8 @@ fun PhotoViewerScreen(
         // Main Horizontal Pager
         HorizontalPager(
             state = pagerState,
+            key = { page -> mediaItems.getOrNull(page)?.id ?: page },
+            beyondBoundsPageCount = 1,
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer(
@@ -184,6 +198,17 @@ fun PhotoViewerScreen(
         ) { page ->
             val item = mediaItems.getOrNull(page)
             if (item != null) {
+                val imageRequest = remember(item.uri) {
+                    coil.request.ImageRequest.Builder(context)
+                        .data(item.uri)
+                        .crossfade(true)
+                        .diskCachePolicy(coil.request.CachePolicy.ENABLED)
+                        .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                        .error(android.R.drawable.ic_menu_report_image)
+                        .fallback(android.R.drawable.ic_menu_report_image)
+                        .build()
+                }
+
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
@@ -199,11 +224,7 @@ fun PhotoViewerScreen(
                         )
                     } else {
                         AsyncImage(
-                            model = coil.request.ImageRequest.Builder(LocalContext.current)
-                                .data(item.uri)
-                                .error(android.R.drawable.ic_menu_report_image)
-                                .fallback(android.R.drawable.ic_menu_report_image)
-                                .build(),
+                            model = imageRequest,
                             contentDescription = null,
                             contentScale = ContentScale.Fit,
                             modifier = Modifier
@@ -258,6 +279,21 @@ fun PhotoViewerScreen(
                         ) {
                             val item = mediaItems.getOrNull(pagerState.currentPage) ?: activeItem
                             DropdownMenuItem(
+                                text = { Text("Rename") },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Edit,
+                                        contentDescription = null
+                                    )
+                                },
+                                onClick = {
+                                    showMoreMenu = false
+                                    renameInputText = java.io.File(item.path).nameWithoutExtension
+                                    showRenameDialog = true
+                                }
+                            )
+
+                            DropdownMenuItem(
                                 text = { Text(if (item.isHidden) "Unhide from Vault" else "Move to Vault") },
                                 leadingIcon = {
                                     Icon(
@@ -267,7 +303,11 @@ fun PhotoViewerScreen(
                                 },
                                 onClick = {
                                     showMoreMenu = false
-                                    viewModel.toggleHidden(context, item)
+                                    if (item.isHidden) {
+                                        viewModel.toggleHidden(context, item)
+                                    } else {
+                                        showVaultConfirmDialog = true
+                                    }
                                 }
                             )
                         }
@@ -323,12 +363,18 @@ fun PhotoViewerScreen(
                             )
                         }
 
+                        if (item is com.HrshD1eux.Gallery.data.model.MediaItem.Photo) {
+                            IconButton(onClick = { viewModel.editingMediaItem = item }) {
+                                Icon(imageVector = Icons.Default.Edit, contentDescription = "Edit", tint = Color.White)
+                            }
+                        }
+
                         IconButton(onClick = { showShareDialog = true }) {
                             Icon(imageVector = Icons.Default.Share, contentDescription = "Share", tint = Color.White)
                         }
 
                         IconButton(onClick = { showMoveToAlbumDialog = true }) {
-                            Icon(imageVector = Icons.Default.DriveFileMove, contentDescription = "Move to Album", tint = Color.White)
+                            Icon(imageVector = Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = "Move to Album", tint = Color.White)
                         }
 
                         IconButton(onClick = {
@@ -444,6 +490,40 @@ fun PhotoViewerScreen(
             )
         }
 
+        if (showRenameDialog) {
+            val item = mediaItems.getOrNull(pagerState.currentPage) ?: activeItem
+            AlertDialog(
+                onDismissRequest = { showRenameDialog = false },
+                title = { Text("Rename Media") },
+                text = {
+                    OutlinedTextField(
+                        value = renameInputText,
+                        onValueChange = { renameInputText = it },
+                        label = { Text("File Name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            if (renameInputText.isNotBlank()) {
+                                showRenameDialog = false
+                                viewModel.renameMedia(context, item, renameInputText.trim())
+                            }
+                        }
+                    ) {
+                        Text("Rename")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showRenameDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
         if (showMoveToAlbumDialog) {
             val item = mediaItems.getOrNull(pagerState.currentPage) ?: activeItem
             var createNewAlbumInMove by remember { mutableStateOf(false) }
@@ -516,6 +596,50 @@ fun PhotoViewerScreen(
                             tempNewAlbumName = ""
                         }
                     ) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        if (showVaultConfirmDialog) {
+            val item = mediaItems.getOrNull(pagerState.currentPage) ?: activeItem
+            AlertDialog(
+                onDismissRequest = { showVaultConfirmDialog = false },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                },
+                title = { Text("Move to Encrypted Vault?") },
+                text = {
+                    Column {
+                        Text(
+                            text = "This photo/video will be encrypted with hardware AES-256-GCM and stored safely in your private Vault.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "⚠️ Notice: The original unencrypted file will be removed from public device storage so other apps cannot see it.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showVaultConfirmDialog = false
+                            viewModel.toggleHidden(context, item)
+                        }
+                    ) {
+                        Text("Move to Vault")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showVaultConfirmDialog = false }) {
                         Text("Cancel")
                     }
                 }

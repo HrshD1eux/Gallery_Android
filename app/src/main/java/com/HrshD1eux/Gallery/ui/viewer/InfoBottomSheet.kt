@@ -11,17 +11,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.NoEncryption
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -44,6 +43,8 @@ import java.util.Date
 import java.util.Locale
 
 data class ExifDetails(
+    val fileName: String,
+    val filePath: String,
     val dateTaken: String?,
     val cameraModel: String?,
     val resolution: String?,
@@ -90,6 +91,24 @@ fun InfoBottomSheet(
             )
 
             details?.let { info ->
+                // File Name
+                InfoRow(
+                    icon = Icons.AutoMirrored.Filled.InsertDriveFile,
+                    title = "File Name",
+                    subtitle = info.fileName
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Path
+                InfoRow(
+                    icon = Icons.Default.Folder,
+                    title = "Path",
+                    subtitle = info.filePath
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
                 // Date Section
                 InfoRow(
                     icon = Icons.Default.Info,
@@ -204,8 +223,13 @@ private fun formatDateTaken(rawExifDate: String?, timestampMs: Long): String {
 
 private fun readExifDetails(item: MediaItem): ExifDetails {
     val file = File(item.path)
+    val fileName = file.name.ifEmpty { item.uri.lastPathSegment ?: "Unknown" }
+    val filePath = if (file.exists()) file.absolutePath else item.path
+
     if (!file.exists()) {
         return ExifDetails(
+            fileName = fileName,
+            filePath = filePath,
             dateTaken = formatDateTaken(null, item.dateTaken),
             cameraModel = null,
             resolution = "${item.width} × ${item.height}",
@@ -230,6 +254,8 @@ private fun readExifDetails(item: MediaItem): ExifDetails {
         val formattedDate = formatDateTaken(rawDate, item.dateTaken)
 
         ExifDetails(
+            fileName = fileName,
+            filePath = filePath,
             dateTaken = formattedDate,
             cameraModel = modelText,
             resolution = resolutionText,
@@ -241,6 +267,8 @@ private fun readExifDetails(item: MediaItem): ExifDetails {
         )
     } catch (e: Exception) {
         ExifDetails(
+            fileName = fileName,
+            filePath = filePath,
             dateTaken = formatDateTaken(null, item.dateTaken),
             cameraModel = null,
             resolution = "${item.width} × ${item.height}",

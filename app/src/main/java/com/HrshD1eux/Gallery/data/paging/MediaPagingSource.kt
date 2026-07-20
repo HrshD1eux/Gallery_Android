@@ -7,7 +7,8 @@ import com.HrshD1eux.Gallery.data.repository.MediaRepository
 
 class MediaPagingSource(
     private val repository: MediaRepository,
-    private val bucketId: Long? = null
+    private val bucketId: Long? = null,
+    private val sortOrder: com.HrshD1eux.Gallery.ui.SortOrder = com.HrshD1eux.Gallery.ui.SortOrder.NEWEST_FIRST
 ) : PagingSource<Int, MediaItem>() {
 
     override suspend fun load(params: LoadParams<Int>): LoadResult<Int, MediaItem> {
@@ -15,7 +16,7 @@ class MediaPagingSource(
         val limit = params.loadSize
 
         return try {
-            val items = repository.loadMediaPaged(limit = limit, offset = offset, bucketId = bucketId)
+            val items = repository.loadMediaPaged(limit = limit, offset = offset, bucketId = bucketId, sortOrder = sortOrder)
             val nextKey = if (items.size < limit) null else offset + items.size
             val prevKey = if (offset == 0) null else (offset - limit).coerceAtLeast(0)
 

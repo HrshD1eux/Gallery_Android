@@ -20,6 +20,8 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 
+private const val QUERY_ARG_MATCH_NOMEDIA = "android:query-arg-match-nomedia"
+
 class MediaStoreDataSource @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
@@ -50,7 +52,8 @@ class MediaStoreDataSource @Inject constructor(
         limit: Int,
         offset: Int,
         bucketId: Long? = null,
-        includeTrashed: Boolean = false
+        includeTrashed: Boolean = false,
+        isAscending: Boolean = false
     ): List<MediaItem> = withContext(Dispatchers.IO) {
         val mediaList = mutableListOf<MediaItem>()
 
@@ -96,16 +99,20 @@ class MediaStoreDataSource @Inject constructor(
             putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
             putStringArray(
                 ContentResolver.QUERY_ARG_SORT_COLUMNS,
-                arrayOf(MediaStore.Files.FileColumns.DATE_TAKEN, MediaStore.Files.FileColumns.DATE_ADDED)
+                arrayOf(MediaStore.Files.FileColumns.DATE_ADDED, MediaStore.Files.FileColumns.DATE_TAKEN)
             )
             putInt(
                 ContentResolver.QUERY_ARG_SORT_DIRECTION,
-                ContentResolver.QUERY_SORT_DIRECTION_DESCENDING
+                if (isAscending) ContentResolver.QUERY_SORT_DIRECTION_ASCENDING else ContentResolver.QUERY_SORT_DIRECTION_DESCENDING
             )
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
                 putInt(
                     MediaStore.QUERY_ARG_MATCH_TRASHED,
                     if (includeTrashed) MediaStore.MATCH_INCLUDE else MediaStore.MATCH_DEFAULT
+                )
+                putInt(
+                    QUERY_ARG_MATCH_NOMEDIA,
+                    MediaStore.MATCH_INCLUDE
                 )
             }
         }
@@ -135,11 +142,10 @@ class MediaStoreDataSource @Inject constructor(
                 val path = it.getString(dataCol) ?: ""
                 val mimeType = it.getString(mimeCol) ?: "image/jpeg"
                 
-                // Fallback to DATE_ADDED * 1000 (DATE_ADDED is in seconds) if DATE_TAKEN is missing
-                var dateTaken = it.getLong(dateCol)
-                if (dateTaken <= 0) {
-                    dateTaken = it.getLong(addedCol) * 1000
-                }
+                val rawDateTaken = it.getLong(dateCol)
+                val addedSecs = it.getLong(addedCol)
+                val addedMs = if (addedSecs > 0) addedSecs * 1000L else 0L
+                val dateTaken = if (rawDateTaken > 100000000000L) maxOf(rawDateTaken, addedMs) else addedMs
                 
                 val size = it.getLong(sizeCol)
                 val width = it.getInt(widthCol)
@@ -211,13 +217,26 @@ class MediaStoreDataSource @Inject constructor(
         val selection = "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}, ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO})"
 
         val cursor = try {
-            contentResolver.query(
-                collection,
-                arrayOf(MediaStore.Files.FileColumns._ID),
-                selection,
-                null,
-                null
-            )
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                val queryArgs = Bundle().apply {
+                    putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+                    putInt(QUERY_ARG_MATCH_NOMEDIA, MediaStore.MATCH_INCLUDE)
+                }
+                contentResolver.query(
+                    collection,
+                    arrayOf(MediaStore.Files.FileColumns._ID),
+                    queryArgs,
+                    null
+                )
+            } else {
+                contentResolver.query(
+                    collection,
+                    arrayOf(MediaStore.Files.FileColumns._ID),
+                    selection,
+                    null,
+                    null
+                )
+            }
         } catch (e: Exception) {
             null
         }
@@ -281,6 +300,10 @@ class MediaStoreDataSource @Inject constructor(
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
                     putInt(
                         MediaStore.QUERY_ARG_MATCH_TRASHED,
+                        MediaStore.MATCH_INCLUDE
+                    )
+                    putInt(
+                        QUERY_ARG_MATCH_NOMEDIA,
                         MediaStore.MATCH_INCLUDE
                     )
                 }
@@ -371,6 +394,9 @@ class MediaStoreDataSource @Inject constructor(
 
         val queryArgs = Bundle().apply {
             putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                putInt(QUERY_ARG_MATCH_NOMEDIA, MediaStore.MATCH_INCLUDE)
+            }
         }
 
         val bucketCounts = mutableMapOf<Long, Int>()
@@ -421,6 +447,264 @@ class MediaStoreDataSource @Inject constructor(
             buckets.add(BucketInfo(id, bucketNames[id] ?: "Unknown", count))
         }
         buckets.sortedByDescending { it.count }
+    }
+
+    /**
+     * Searches MediaStore for media items matching query across file path/name, bucket display name, and MIME type.
+     */
+    suspend fun searchMedia(query: String): List<MediaItem> = withContext(Dispatchers.IO) {
+        if (query.isBlank()) return@withContext emptyList()
+        val mediaList = mutableListOf<MediaItem>()
+        val collection = MediaStore.Files.getContentUri("external")
+
+        val projectionList = mutableListOf(
+            MediaStore.Files.FileColumns._ID,
+            MediaStore.Files.FileColumns.DATA,
+            MediaStore.Files.FileColumns.MIME_TYPE,
+            MediaStore.Files.FileColumns.DATE_TAKEN,
+            MediaStore.Files.FileColumns.DATE_ADDED,
+            MediaStore.Files.FileColumns.SIZE,
+            MediaStore.Files.FileColumns.WIDTH,
+            MediaStore.Files.FileColumns.HEIGHT,
+            MediaStore.Files.FileColumns.DURATION,
+            MediaStore.Files.FileColumns.BUCKET_ID,
+            MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME,
+            MediaStore.Files.FileColumns.MEDIA_TYPE
+        )
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            projectionList.add("is_trashed")
+        }
+        val projection = projectionList.toTypedArray()
+
+        val cleanQuery = "%${query.trim()}%"
+        val selection = "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}, ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO}) AND (${MediaStore.Files.FileColumns.DATA} LIKE ? OR ${MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME} LIKE ? OR ${MediaStore.Files.FileColumns.MIME_TYPE} LIKE ?)"
+        val selectionArgs = arrayOf(cleanQuery, cleanQuery, cleanQuery)
+
+        val queryArgs = Bundle().apply {
+            putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+            putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
+            putStringArray(
+                ContentResolver.QUERY_ARG_SORT_COLUMNS,
+                arrayOf(MediaStore.Files.FileColumns.DATE_TAKEN, MediaStore.Files.FileColumns.DATE_ADDED)
+            )
+            putInt(
+                ContentResolver.QUERY_ARG_SORT_DIRECTION,
+                ContentResolver.QUERY_SORT_DIRECTION_DESCENDING
+            )
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                putInt(QUERY_ARG_MATCH_NOMEDIA, MediaStore.MATCH_INCLUDE)
+            }
+        }
+
+        val cursor = try {
+            contentResolver.query(collection, projection, queryArgs, null)
+        } catch (e: Exception) {
+            null
+        }
+
+        cursor?.use {
+            val idCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
+            val dataCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATA)
+            val mimeCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE)
+            val dateCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_TAKEN)
+            val addedCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_ADDED)
+            val sizeCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
+            val widthCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.WIDTH)
+            val heightCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.HEIGHT)
+            val durCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DURATION)
+            val bucketIdCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.BUCKET_ID)
+            val bucketNameCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME)
+            val mediaTypeCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MEDIA_TYPE)
+
+            while (it.moveToNext()) {
+                val id = it.getLong(idCol)
+                val path = it.getString(dataCol) ?: ""
+                val mimeType = it.getString(mimeCol) ?: "image/jpeg"
+                var dateTaken = it.getLong(dateCol)
+                if (dateTaken <= 0) {
+                    dateTaken = it.getLong(addedCol) * 1000
+                }
+                val size = it.getLong(sizeCol)
+                val width = it.getInt(widthCol)
+                val height = it.getInt(heightCol)
+                val bucketIdVal = it.getLong(bucketIdCol)
+                val bucketName = it.getString(bucketNameCol) ?: "Unknown"
+                val mediaType = it.getInt(mediaTypeCol)
+
+                val isTrashedSystem = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    val trashedCol = it.getColumnIndex("is_trashed")
+                    if (trashedCol != -1) it.getInt(trashedCol) == 1 else false
+                } else {
+                    false
+                }
+
+                val uri = if (mediaType == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO) {
+                    ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
+                } else {
+                    ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
+                }
+
+                if (mediaType == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO) {
+                    val duration = it.getLong(durCol)
+                    mediaList.add(
+                        MediaItem.Video(
+                            id = id, uri = uri, path = path, mimeType = mimeType,
+                            dateTaken = dateTaken, size = size, width = width, height = height,
+                            durationMs = duration, bucketId = bucketIdVal, bucketName = bucketName,
+                            isTrashed = isTrashedSystem
+                        )
+                    )
+                } else {
+                    mediaList.add(
+                        MediaItem.Photo(
+                            id = id, uri = uri, path = path, mimeType = mimeType,
+                            dateTaken = dateTaken, size = size, width = width, height = height,
+                            bucketId = bucketIdVal, bucketName = bucketName,
+                            isTrashed = isTrashedSystem
+                        )
+                    )
+                }
+            }
+        }
+        mediaList
+    }
+
+    /**
+     * Scans secondary media directories (e.g. WhatsApp, Telegram, Pictures, Download) for unindexed media files,
+     * triggering MediaScannerConnection scan for any unindexed files found.
+     */
+    suspend fun scanSecondaryMediaDirectories(): Int = withContext(Dispatchers.IO) {
+        var scannedCount = 0
+        try {
+            val externalStorage = android.os.Environment.getExternalStorageDirectory() ?: return@withContext 0
+            val validExtensions = setOf(
+                "jpg", "jpeg", "png", "webp", "gif", "heic", "heif", "bmp", "dng",
+                "mp4", "mkv", "mov", "avi", "webm", "3gp", "ts", "flv", "m4v"
+            )
+
+            val secondaryPaths = listOf(
+                java.io.File(externalStorage, "Android/media/com.whatsapp/WhatsApp/Media"),
+                java.io.File(externalStorage, "Android/media/com.whatsapp.w4b/WhatsApp Business/Media"),
+                java.io.File(externalStorage, "Android/media/org.telegram.messenger/Telegram"),
+                java.io.File(externalStorage, "Android/media/org.telegram.messenger.web/Telegram"),
+                java.io.File(externalStorage, "WhatsApp/Media"),
+                java.io.File(externalStorage, "WhatsApp Business/Media"),
+                java.io.File(externalStorage, "Telegram"),
+                java.io.File(externalStorage, "Pictures"),
+                java.io.File(externalStorage, "DCIM"),
+                java.io.File(externalStorage, "Download"),
+                java.io.File(externalStorage, "Downloads"),
+                java.io.File(externalStorage, "Movies"),
+                java.io.File(externalStorage, "Documents")
+            )
+
+            val unindexedFiles = mutableListOf<String>()
+            secondaryPaths.filter { it.exists() && it.isDirectory }.forEach { dir ->
+                dir.walkTopDown().maxDepth(12).forEach { file ->
+                    if (file.isFile && validExtensions.contains(file.extension.lowercase(java.util.Locale.getDefault()))) {
+                        unindexedFiles.add(file.absolutePath)
+                    }
+                }
+            }
+
+            if (unindexedFiles.isNotEmpty()) {
+                scannedCount = unindexedFiles.size
+                unindexedFiles.chunked(500).forEach { chunk ->
+                    android.media.MediaScannerConnection.scanFile(
+                        context,
+                        chunk.toTypedArray(),
+                        null,
+                        null
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        scannedCount
+    }
+
+    /**
+     * Efficiently queries date boundaries across the entire MediaStore library to produce
+     * a pre-indexed date-to-position mapping for O(1) timeline fast scrubbing.
+     */
+    suspend fun getDatePositionIndex(bucketId: Long? = null, isAscending: Boolean = false): List<com.HrshD1eux.Gallery.data.repository.DatePositionHeader> = withContext(Dispatchers.IO) {
+        val result = mutableListOf<com.HrshD1eux.Gallery.data.repository.DatePositionHeader>()
+        val collection = MediaStore.Files.getContentUri("external")
+        val projection = arrayOf(
+            MediaStore.Files.FileColumns.DATE_TAKEN,
+            MediaStore.Files.FileColumns.DATE_ADDED
+        )
+        val selection = if (bucketId != null) {
+            "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}, ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO}) AND ${MediaStore.Files.FileColumns.BUCKET_ID} = ?"
+        } else {
+            "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}, ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO})"
+        }
+        val selectionArgs = if (bucketId != null) arrayOf(bucketId.toString()) else null
+
+        val queryArgs = Bundle().apply {
+            putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+            putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
+            putStringArray(
+                ContentResolver.QUERY_ARG_SORT_COLUMNS,
+                arrayOf(MediaStore.Files.FileColumns.DATE_ADDED, MediaStore.Files.FileColumns.DATE_TAKEN)
+            )
+            putInt(
+                ContentResolver.QUERY_ARG_SORT_DIRECTION,
+                if (isAscending) ContentResolver.QUERY_SORT_DIRECTION_ASCENDING else ContentResolver.QUERY_SORT_DIRECTION_DESCENDING
+            )
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                putInt(QUERY_ARG_MATCH_NOMEDIA, MediaStore.MATCH_INCLUDE)
+            }
+        }
+
+        val cursor = try {
+            contentResolver.query(collection, projection, queryArgs, null)
+        } catch (e: Exception) {
+            null
+        }
+
+        val zoneId = java.time.ZoneId.systemDefault()
+        val today = java.time.LocalDate.now(zoneId)
+        val yesterday = today.minusDays(1)
+        val sameYearFormatter = java.time.format.DateTimeFormatter.ofPattern("EEE, d MMM", java.util.Locale.getDefault())
+        val otherYearFormatter = java.time.format.DateTimeFormatter.ofPattern("EEE, d MMM yyyy", java.util.Locale.getDefault())
+
+        fun getHeaderTitle(dateMs: Long): String {
+            val ms = if (dateMs > 0) dateMs else System.currentTimeMillis()
+            val localDate = java.time.Instant.ofEpochMilli(ms).atZone(zoneId).toLocalDate()
+            return when (localDate) {
+                today -> "Today"
+                yesterday -> "Yesterday"
+                else -> if (localDate.year == today.year) {
+                    localDate.format(sameYearFormatter)
+                } else {
+                    localDate.format(otherYearFormatter)
+                }
+            }
+        }
+
+        cursor?.use {
+            val dateCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_TAKEN)
+            val addedCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_ADDED)
+            var currentHeader = ""
+            var itemIndex = 0
+
+            while (it.moveToNext()) {
+                val rawDateTaken = it.getLong(dateCol)
+                val addedSecs = it.getLong(addedCol)
+                val addedMs = if (addedSecs > 0) addedSecs * 1000L else 0L
+                val dateTaken = if (rawDateTaken > 100000000000L) maxOf(rawDateTaken, addedMs) else addedMs
+
+                val headerTitle = getHeaderTitle(dateTaken)
+                if (headerTitle != currentHeader) {
+                    currentHeader = headerTitle
+                    result.add(com.HrshD1eux.Gallery.data.repository.DatePositionHeader(headerTitle, itemIndex))
+                }
+                itemIndex++
+            }
+        }
+        result
     }
 }
 

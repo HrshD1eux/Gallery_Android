@@ -46,6 +46,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import androidx.compose.ui.platform.LocalContext
+import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.compose.itemKey
 import com.HrshD1eux.Gallery.data.model.MediaItem
 import com.HrshD1eux.Gallery.data.model.formattedDuration
 import com.HrshD1eux.Gallery.data.model.isVideo
@@ -58,7 +60,7 @@ fun TimelineScreen(
     viewModel: MainViewModel,
     modifier: Modifier = Modifier
 ) {
-    val flatTimelineList by viewModel.flatTimelineList.collectAsState()
+    val lazyPagingItems = viewModel.pagingDataFlow.collectAsLazyPagingItems()
     val selectionState = viewModel.selectionState
 
     // 2. Pinch-to-zoom: continuous cell width
@@ -78,7 +80,7 @@ fun TimelineScreen(
                 }
             }
     ) {
-        if (flatTimelineList.isEmpty()) {
+        if (lazyPagingItems.itemCount == 0) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -105,63 +107,67 @@ fun TimelineScreen(
                     modifier = Modifier.fillMaxSize()
                 ) {
                     items(
-                        count = flatTimelineList.size,
+                        count = lazyPagingItems.itemCount,
                         key = { index ->
-                            when (val item = flatTimelineList[index]) {
+                            val item = lazyPagingItems.peek(index)
+                            when (item) {
                                 is TimelineItem.Header -> "header_${item.title}"
-                                is TimelineItem.Media -> "media_${item.item.id}"
+                                is TimelineItem.Media -> item.item.id
+                                null -> index
                             }
                         },
                         span = { index ->
-                            when (flatTimelineList[index]) {
-                                is TimelineItem.Header -> StaggeredGridItemSpan.FullLine
-                                is TimelineItem.Media -> StaggeredGridItemSpan.SingleLane
+                            val item = lazyPagingItems.peek(index)
+                            if (item is TimelineItem.Header) {
+                                StaggeredGridItemSpan.FullLine
+                            } else {
+                                StaggeredGridItemSpan.SingleLane
                             }
                         }
                     ) { index ->
-                        if (index >= flatTimelineList.size - 20) {
-                            LaunchedEffect(flatTimelineList.size) {
-                                viewModel.loadNextPage()
-                            }
-                        }
-                        when (val item = flatTimelineList[index]) {
-                            is TimelineItem.Header -> {
-                                TimelineHeader(title = item.title)
-                            }
-                            is TimelineItem.Media -> {
-                                val mediaItem = item.item
-                                val isSelected = selectionState.selectedIds.contains(mediaItem.id)
-                                val naturalRatio = if (mediaItem.width > 0 && mediaItem.height > 0) {
-                                    mediaItem.width.toFloat() / mediaItem.height.toFloat()
-                                } else {
-                                    1f
+                        val item = lazyPagingItems[index]
+                        if (item != null) {
+                            when (item) {
+                                is TimelineItem.Header -> {
+                                    TimelineHeader(title = item.title)
                                 }
-                                val cellRatio = if (viewModel.gridStyle == com.HrshD1eux.Gallery.ui.GridStyle.SQUARE) 1f else naturalRatio
-                                MediaGridCell(
-                                    item = mediaItem,
-                                    isSelected = isSelected,
-                                    inSelectionMode = selectionState.inSelectionMode,
-                                    aspectRatio = cellRatio,
-                                    onClick = {
-                                        if (selectionState.inSelectionMode) {
-                                            selectionState.toggle(mediaItem.id)
-                                        } else {
-                                            viewModel.activeMediaItem = mediaItem
-                                        }
-                                    },
-                                    onLongClick = {
-                                        selectionState.toggle(mediaItem.id)
+                                is TimelineItem.Media -> {
+                                    val mediaItem = item.item
+                                    val isSelected = selectionState.selectedIds.contains(mediaItem.id)
+                                    val naturalRatio = if (mediaItem.width > 0 && mediaItem.height > 0) {
+                                        mediaItem.width.toFloat() / mediaItem.height.toFloat()
+                                    } else {
+                                        1f
                                     }
-                                )
+                                    val cellRatio = if (viewModel.gridStyle == com.HrshD1eux.Gallery.ui.GridStyle.SQUARE) 1f else naturalRatio
+                                    MediaGridCell(
+                                        item = mediaItem,
+                                        isSelected = isSelected,
+                                        inSelectionMode = selectionState.inSelectionMode,
+                                        aspectRatio = cellRatio,
+                                        onClick = {
+                                            if (selectionState.inSelectionMode) {
+                                                selectionState.toggle(mediaItem.id)
+                                            } else {
+                                                viewModel.activeMediaItem = mediaItem
+                                            }
+                                        },
+                                        onLongClick = {
+                                            selectionState.toggle(mediaItem.id)
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
                 }
 
                 // Floating scroll scrubber on the right edge
+                val dateHeaders by viewModel.datePositionHeaders.collectAsState()
                 TimelineScrubber(
                     gridState = gridState,
-                    flatList = flatTimelineList,
+                    headers = dateHeaders,
+                    totalItemCount = lazyPagingItems.itemCount,
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
                         .padding(vertical = 16.dp)
@@ -197,6 +203,20 @@ fun MediaGridCell(
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val imageRequest = remember(item.uri) {
+        coil.request.ImageRequest.Builder(context)
+            .data(item.uri)
+            .crossfade(true)
+            .size(280, 280)
+            .diskCachePolicy(coil.request.CachePolicy.ENABLED)
+            .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+            .precision(coil.size.Precision.INEXACT)
+            .error(android.R.drawable.ic_menu_report_image)
+            .fallback(android.R.drawable.ic_menu_report_image)
+            .build()
+    }
+
     Box(
         modifier = modifier
             .aspectRatio(aspectRatio)
@@ -207,13 +227,7 @@ fun MediaGridCell(
             )
     ) {
         AsyncImage(
-            model = coil.request.ImageRequest.Builder(LocalContext.current)
-                .data(item.uri)
-                .crossfade(true)
-                .size(320, 320)
-                .error(android.R.drawable.ic_menu_report_image)
-                .fallback(android.R.drawable.ic_menu_report_image)
-                .build(),
+            model = imageRequest,
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
             contentScale = ContentScale.Crop

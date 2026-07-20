@@ -25,27 +25,27 @@ class MediaRepositoryImpl @Inject constructor(
     private val metadataDao: MetadataDao
 ) : MediaRepository {
 
-    override fun getMediaFlow(bucketId: Long?): Flow<List<MediaItem>> {
+    override fun getMediaFlow(bucketId: Long?, sortOrder: com.HrshD1eux.Gallery.ui.SortOrder): Flow<List<MediaItem>> {
         return mediaStoreDataSource.observeMediaStore()
             .flatMapLatest {
                 flow {
-                    val media = loadMediaPaged(limit = 200, offset = 0, bucketId = bucketId)
+                    val media = loadMediaPaged(limit = 200, offset = 0, bucketId = bucketId, sortOrder = sortOrder)
                     emit(media)
                 }
             }
             .flowOn(Dispatchers.IO)
     }
 
-    override suspend fun loadMediaPaged(limit: Int, offset: Int, bucketId: Long?): List<MediaItem> = withContext(Dispatchers.IO) {
+    override suspend fun loadMediaPaged(limit: Int, offset: Int, bucketId: Long?, sortOrder: com.HrshD1eux.Gallery.ui.SortOrder): List<MediaItem> = withContext(Dispatchers.IO) {
         var currentOffset = offset
         val resultList = mutableListOf<MediaItem>()
         var reachedEnd = false
+        val isAscending = (sortOrder == com.HrshD1eux.Gallery.ui.SortOrder.OLDEST_FIRST)
         
         while (resultList.size < limit && !reachedEnd) {
             val remaining = limit - resultList.size
-            val rawMedia = mediaStoreDataSource.fetchMedia(limit = remaining, offset = currentOffset, bucketId = bucketId)
+            val rawMedia = mediaStoreDataSource.fetchMedia(limit = remaining, offset = currentOffset, bucketId = bucketId, isAscending = isAscending)
             if (rawMedia.isEmpty()) {
-                reachedEnd = true
                 break
             }
             val ids = rawMedia.map { it.id }
@@ -63,7 +63,11 @@ class MediaRepositoryImpl @Inject constructor(
                 break
             }
         }
-        resultList
+        if (isAscending) {
+            resultList.sortedBy { it.dateTaken }
+        } else {
+            resultList.sortedByDescending { it.dateTaken }
+        }
     }
 
     override fun observeMediaChanges(): Flow<Unit> {
@@ -305,46 +309,41 @@ class MediaRepositoryImpl @Inject constructor(
         }
     }
 
-    override fun getHiddenMediaFlow(): Flow<List<MediaItem>> {
-        return metadataDao.getAllMetadataFlow()
-            .onStart { syncVaultMetadata() }
-            .map { metadataList ->
-                val cacheDir = java.io.File(context.cacheDir, "vault_cache").apply { mkdirs() }
-                metadataList.filter { it.isHidden && !it.isTrashed }.map { entity ->
-                    val vaultFile = java.io.File(entity.vaultPath)
-                    val decryptedCacheFile = java.io.File(cacheDir, "decrypted_${entity.mediaId}")
-                    
-                    val uri = if (vaultFile.exists()) {
-                        if (!decryptedCacheFile.exists() || decryptedCacheFile.length() == 0L) {
-                            try {
-                                vaultFile.inputStream().use { input ->
-                                    decryptedCacheFile.outputStream().use { output ->
-                                        com.HrshD1eux.Gallery.core.util.VaultCrypto.decrypt(input, output)
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                // Fallback for legacy unencrypted vault file
-                                try {
-                                    vaultFile.inputStream().use { input ->
-                                        decryptedCacheFile.outputStream().use { output ->
-                                            input.copyTo(output)
-                                        }
-                                    }
-                                } catch (ex: Exception) {
-                                    ex.printStackTrace()
-                                }
-                            }
-                        }
-                        android.net.Uri.fromFile(decryptedCacheFile)
-                    } else {
-                        android.net.Uri.fromFile(vaultFile)
+    private fun getDecryptedCacheFile(context: Context, entity: MediaMetadataEntity): java.io.File? {
+        return try {
+            val vaultFile = java.io.File(entity.vaultPath)
+            if (!vaultFile.exists()) return null
+            val cacheDir = java.io.File(context.cacheDir, "vault_cache").apply { mkdirs() }
+            val ext = entity.mimeType.substringAfter("/").ifEmpty { "jpg" }
+            val cacheFile = java.io.File(cacheDir, "decrypted_${entity.mediaId}.$ext")
+            if (!cacheFile.exists() || cacheFile.length() == 0L) {
+                java.io.FileOutputStream(cacheFile).use { out ->
+                    vaultFile.inputStream().use { input ->
+                        com.HrshD1eux.Gallery.core.util.VaultCrypto.decrypt(input, out)
                     }
+                }
+            }
+            cacheFile
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    override fun getHiddenMediaFlow(isVaultUnlocked: Boolean): Flow<List<MediaItem>> {
+        return metadataDao.getAllMetadataFlow()
+            .onStart { if (isVaultUnlocked) syncVaultMetadata() }
+            .map { metadataList ->
+                if (!isVaultUnlocked) return@map emptyList<MediaItem>()
+                metadataList.filter { it.isHidden && !it.isTrashed }.mapNotNull { entity ->
+                    val cacheFile = getDecryptedCacheFile(context, entity) ?: return@mapNotNull null
+                    val uri = android.net.Uri.fromFile(cacheFile)
 
                     if (entity.mimeType.contains("video", ignoreCase = true)) {
                         MediaItem.Video(
                             id = entity.mediaId,
                             uri = uri,
-                            path = entity.vaultPath,
+                            path = cacheFile.absolutePath,
                             mimeType = entity.mimeType,
                             dateTaken = entity.dateTaken,
                             size = entity.size,
@@ -361,7 +360,7 @@ class MediaRepositoryImpl @Inject constructor(
                         MediaItem.Photo(
                             id = entity.mediaId,
                             uri = uri,
-                            path = entity.vaultPath,
+                            path = cacheFile.absolutePath,
                             mimeType = entity.mimeType,
                             dateTaken = entity.dateTaken,
                             size = entity.size,
@@ -375,15 +374,24 @@ class MediaRepositoryImpl @Inject constructor(
                         )
                     }
                 }
-            }.flowOn(Dispatchers.IO)
+            }
+            .flowOn(Dispatchers.IO)
     }
 
-    override suspend fun clearVaultCache(context: Context) = withContext(Dispatchers.IO) {
+    @OptIn(coil.annotation.ExperimentalCoilApi::class)
+    override suspend fun clearVaultCache(context: Context): Unit = withContext(Dispatchers.IO) {
         try {
             val cacheDir = java.io.File(context.cacheDir, "vault_cache")
             if (cacheDir.exists()) {
                 cacheDir.deleteRecursively()
             }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        try {
+            val imageLoader = coil.Coil.imageLoader(context)
+            imageLoader.memoryCache?.clear()
+            imageLoader.diskCache?.clear()
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -431,4 +439,126 @@ class MediaRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getActiveMediaIds(): List<Long> = mediaStoreDataSource.fetchMediaIds()
+
+    override suspend fun getMediaByIds(ids: Set<Long>): List<MediaItem> = withContext(Dispatchers.IO) {
+        if (ids.isEmpty()) return@withContext emptyList()
+        val items = mediaStoreDataSource.fetchMediaByIds(ids)
+        val metadataList = metadataDao.getMetadataForMediaIds(ids.toList())
+        val metadataMap = metadataList.associateBy { it.mediaId }
+        items.map { item ->
+            val meta = metadataMap[item.id]
+            applyMetadata(item, meta)
+        }
+    }
+
+    override suspend fun searchMedia(query: String): List<MediaItem> = withContext(Dispatchers.IO) {
+        if (query.isBlank()) return@withContext emptyList()
+        val rawResults = mediaStoreDataSource.searchMedia(query)
+        if (rawResults.isEmpty()) return@withContext emptyList()
+
+        val ids = rawResults.map { it.id }
+        val metadataList = metadataDao.getMetadataForMediaIds(ids)
+        val metadataMap = metadataList.associateBy { it.mediaId }
+
+        rawResults.map { item ->
+            val meta = metadataMap[item.id]
+            applyMetadata(item, meta)
+        }.filter { !it.isHidden && !it.isTrashed }
+    }
+
+    override suspend fun scanSecondaryMediaDirectories(): Int = mediaStoreDataSource.scanSecondaryMediaDirectories()
+
+    override suspend fun getDatePositionIndex(bucketId: Long?, sortOrder: com.HrshD1eux.Gallery.ui.SortOrder): List<DatePositionHeader> = mediaStoreDataSource.getDatePositionIndex(bucketId, isAscending = (sortOrder == com.HrshD1eux.Gallery.ui.SortOrder.OLDEST_FIRST))
+
+    override suspend fun renameMedia(
+        context: Context,
+        mediaItem: MediaItem,
+        newDisplayName: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val file = java.io.File(mediaItem.path)
+            val ext = file.extension.ifEmpty {
+                when (mediaItem.mimeType) {
+                    "image/png" -> "png"
+                    "image/gif" -> "gif"
+                    "image/webp" -> "webp"
+                    "video/mp4" -> "mp4"
+                    "video/x-matroska" -> "mkv"
+                    else -> "jpg"
+                }
+            }
+            val finalName = if (newDisplayName.contains(".")) newDisplayName else "$newDisplayName.$ext"
+
+            if (mediaItem.isHidden) {
+                val entity = metadataDao.getMetadataForMedia(mediaItem.id)
+                if (entity != null) {
+                    val newOriginalPath = java.io.File(java.io.File(entity.originalPath).parentFile, finalName).absolutePath
+                    metadataDao.insertOrUpdate(entity.copy(originalPath = newOriginalPath))
+                }
+                return@withContext true
+            }
+
+            var updated = false
+            val resolver = context.contentResolver
+            try {
+                val contentValues = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, finalName)
+                    put(android.provider.MediaStore.MediaColumns.TITLE, finalName.substringBeforeLast("."))
+                }
+                val rows = resolver.update(mediaItem.uri, contentValues, null, null)
+                if (rows > 0) updated = true
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
+            if (file.exists() && file.parentFile != null) {
+                val targetFile = java.io.File(file.parentFile, finalName)
+                if (file.renameTo(targetFile)) {
+                    updated = true
+                    android.media.MediaScannerConnection.scanFile(
+                        context,
+                        arrayOf(file.absolutePath, targetFile.absolutePath),
+                        null,
+                        null
+                    )
+                } else {
+                    android.media.MediaScannerConnection.scanFile(
+                        context,
+                        arrayOf(file.absolutePath),
+                        null,
+                        null
+                    )
+                }
+            }
+
+            val entity = metadataDao.getMetadataForMedia(mediaItem.id)
+            if (entity != null && file.parentFile != null) {
+                val newPath = java.io.File(file.parentFile, finalName).absolutePath
+                metadataDao.insertOrUpdate(entity.copy(originalPath = newPath))
+            }
+
+            updated || !file.exists()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    override suspend fun purgeExpiredTrashMedia(): Int = withContext(Dispatchers.IO) {
+        var purgedCount = 0
+        try {
+            val thirtyDaysMs = 30L * 24L * 60L * 60L * 1000L
+            val cutoffTime = System.currentTimeMillis() - thirtyDaysMs
+            val allMetadata = metadataDao.getAllMetadata()
+            val expiredEntities = allMetadata.filter { it.isTrashed && it.trashTime > 0 && it.trashTime < cutoffTime }
+
+            for (entity in expiredEntities) {
+                deleteMetadataPermanently(entity.mediaId)
+                purgedCount++
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        purgedCount
+    }
 }
