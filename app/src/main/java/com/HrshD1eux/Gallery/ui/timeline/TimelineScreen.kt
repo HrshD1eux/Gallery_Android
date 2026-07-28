@@ -158,6 +158,13 @@ fun TimelineScreen(
                                     )
                                 }
                             }
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(1f)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                            )
                         }
                     }
                 }
@@ -270,11 +277,30 @@ fun MediaGridCell(
             )
         }
 
+        // Trash days remaining indicator
+        if (item.isTrashed) {
+            val thirtyDaysMs = 30L * 24L * 60L * 60L * 1000L
+            val daysRemaining = maxOf(1L, (thirtyDaysMs - (System.currentTimeMillis() - item.dateTaken)) / (24L * 60L * 60L * 1000L))
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(6.dp)
+                    .background(Color.Red.copy(alpha = 0.85f), MaterialTheme.shapes.extraSmall)
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "${daysRemaining}d left",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White
+                )
+            }
+        }
+
         // Video tag indicator
         if (item.isVideo) {
             Row(
                 modifier = Modifier
-                    .align(Alignment.BottomStart)
+                    .align(if (item.isTrashed) Alignment.BottomEnd else Alignment.BottomStart)
                     .padding(6.dp)
                     .background(Color.Black.copy(alpha = 0.6f), MaterialTheme.shapes.extraSmall)
                     .padding(horizontal = 4.dp, vertical = 2.dp),

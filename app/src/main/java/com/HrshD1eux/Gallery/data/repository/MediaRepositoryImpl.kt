@@ -70,6 +70,10 @@ class MediaRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun getTotalMediaCount(bucketId: Long?): Int = withContext(Dispatchers.IO) {
+        mediaStoreDataSource.getTotalMediaCount(bucketId)
+    }
+
     override fun observeMediaChanges(): Flow<Unit> {
         return mediaStoreDataSource.observeMediaStore()
     }
@@ -83,25 +87,35 @@ class MediaRepositoryImpl @Inject constructor(
             .groupBy { it.bucketId }
             .mapValues { it.value.size }
             
-        rawBuckets.map { bucket ->
+        val userPrefs = context.getSharedPreferences("user_albums", Context.MODE_PRIVATE)
+        val createdAlbums = userPrefs.getStringSet("created_albums", emptySet()) ?: emptySet()
+
+        val processedBuckets = rawBuckets.map { bucket ->
             val subtractCount = hiddenOrTrashedCounts[bucket.id] ?: 0
             val newCount = (bucket.count - subtractCount).coerceAtLeast(0)
             BucketInfo(bucket.id, bucket.name, newCount)
-        }.filter { it.count > 0 }
-         .sortedByDescending { it.count }
+        }.toMutableList()
+
+        // Include user-created albums that may currently be empty in MediaStore
+        val existingNames = processedBuckets.map { it.name }.toSet()
+        for (albumName in createdAlbums) {
+            if (!existingNames.contains(albumName)) {
+                val bucketId = albumName.hashCode().toLong()
+                processedBuckets.add(BucketInfo(bucketId, albumName, 0))
+            }
+        }
+
+        processedBuckets.filter { it.count > 0 || createdAlbums.contains(it.name) }
+            .sortedWith(compareByDescending<BucketInfo> { it.count }.thenBy { it.name })
     }
 
     override fun getBucketsFlow(): Flow<List<BucketInfo>> {
-        return mediaStoreDataSource.observeMediaStore()
-            .flatMapLatest {
-                flow {
-                    emit(getBuckets())
-                }
-            }
-            .combine(metadataDao.getAllMetadataFlow()) { _, _ ->
-                getBuckets()
-            }
-            .flowOn(Dispatchers.IO)
+        return combine(
+            mediaStoreDataSource.observeMediaStore().onStart { emit(Unit) },
+            metadataDao.getAllMetadataFlow().onStart { emit(emptyList()) }
+        ) { _, _ ->
+            getBuckets()
+        }.flowOn(Dispatchers.IO)
     }
 
     override suspend fun toggleFavorite(mediaItem: MediaItem) {
@@ -119,10 +133,18 @@ class MediaRepositoryImpl @Inject constructor(
                 val vaultFile = java.io.File(currentMeta.vaultPath)
                 if (vaultFile.exists()) {
                     val resolver = context.contentResolver
+                    val originalName = if (currentMeta.originalPath.isNotBlank() && java.io.File(currentMeta.originalPath).name.isNotBlank()) {
+                        java.io.File(currentMeta.originalPath).name
+                    } else {
+                        "restored_${currentMeta.mediaId}.${if (currentMeta.mimeType.contains("png")) "png" else "jpg"}"
+                    }
                     val contentValues = android.content.ContentValues().apply {
-                        put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, java.io.File(currentMeta.originalPath).name)
-                        put(android.provider.MediaStore.MediaColumns.MIME_TYPE, currentMeta.mimeType)
+                        put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, originalName)
+                        put(android.provider.MediaStore.MediaColumns.MIME_TYPE, if (currentMeta.mimeType.isNotBlank()) currentMeta.mimeType else "image/jpeg")
                         put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/Restored")
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                            put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1)
+                        }
                     }
                     val collectionUri = if (currentMeta.mimeType.contains("video", ignoreCase = true)) {
                         android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI
@@ -136,12 +158,17 @@ class MediaRepositoryImpl @Inject constructor(
                                 com.HrshD1eux.Gallery.core.util.VaultCrypto.decrypt(input, output)
                             }
                         }
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                            contentValues.clear()
+                            contentValues.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0)
+                            resolver.update(targetUri, contentValues, null, null)
+                        }
                         vaultFile.delete()
                         val metaFile = java.io.File(currentMeta.vaultPath + ".meta")
                         if (metaFile.exists()) metaFile.delete()
+                        metadataDao.delete(currentMeta)
                     }
                 }
-                metadataDao.delete(currentMeta)
             }
         } else {
             // Hide and encrypt into secure vault
@@ -309,41 +336,21 @@ class MediaRepositoryImpl @Inject constructor(
         }
     }
 
-    private fun getDecryptedCacheFile(context: Context, entity: MediaMetadataEntity): java.io.File? {
-        return try {
-            val vaultFile = java.io.File(entity.vaultPath)
-            if (!vaultFile.exists()) return null
-            val cacheDir = java.io.File(context.cacheDir, "vault_cache").apply { mkdirs() }
-            val ext = entity.mimeType.substringAfter("/").ifEmpty { "jpg" }
-            val cacheFile = java.io.File(cacheDir, "decrypted_${entity.mediaId}.$ext")
-            if (!cacheFile.exists() || cacheFile.length() == 0L) {
-                java.io.FileOutputStream(cacheFile).use { out ->
-                    vaultFile.inputStream().use { input ->
-                        com.HrshD1eux.Gallery.core.util.VaultCrypto.decrypt(input, out)
-                    }
-                }
-            }
-            cacheFile
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
-    }
-
     override fun getHiddenMediaFlow(isVaultUnlocked: Boolean): Flow<List<MediaItem>> {
         return metadataDao.getAllMetadataFlow()
             .onStart { if (isVaultUnlocked) syncVaultMetadata() }
             .map { metadataList ->
                 if (!isVaultUnlocked) return@map emptyList<MediaItem>()
                 metadataList.filter { it.isHidden && !it.isTrashed }.mapNotNull { entity ->
-                    val cacheFile = getDecryptedCacheFile(context, entity) ?: return@mapNotNull null
-                    val uri = android.net.Uri.fromFile(cacheFile)
+                    val vaultFile = java.io.File(entity.vaultPath)
+                    if (!vaultFile.exists()) return@mapNotNull null
+                    val uri = android.net.Uri.fromFile(vaultFile)
 
                     if (entity.mimeType.contains("video", ignoreCase = true)) {
                         MediaItem.Video(
                             id = entity.mediaId,
                             uri = uri,
-                            path = cacheFile.absolutePath,
+                            path = entity.originalPath.ifEmpty { entity.vaultPath },
                             mimeType = entity.mimeType,
                             dateTaken = entity.dateTaken,
                             size = entity.size,
@@ -360,7 +367,7 @@ class MediaRepositoryImpl @Inject constructor(
                         MediaItem.Photo(
                             id = entity.mediaId,
                             uri = uri,
-                            path = cacheFile.absolutePath,
+                            path = entity.originalPath.ifEmpty { entity.vaultPath },
                             mimeType = entity.mimeType,
                             dateTaken = entity.dateTaken,
                             size = entity.size,

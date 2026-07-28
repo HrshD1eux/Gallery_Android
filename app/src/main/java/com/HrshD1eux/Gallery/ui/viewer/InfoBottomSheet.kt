@@ -150,7 +150,10 @@ fun InfoBottomSheet(
                             onClick = {
                                 val mapIntent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:${info.latitude},${info.longitude}?q=${info.latitude},${info.longitude}(Photo Location)"))
                                 mapIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                                context.startActivity(mapIntent)
+                                try {
+                                    context.startActivity(mapIntent)
+                                } catch (_: android.content.ActivityNotFoundException) {
+                                }
                             },
                             modifier = Modifier.weight(1f)
                         ) {

@@ -34,3 +34,7 @@
 # Data Models & Entities
 -keep class com.HrshD1eux.Gallery.data.model.** { *; }
 -keep class com.HrshD1eux.Gallery.data.database.** { *; }
+-keep class com.HrshD1eux.Gallery.core.util.** { *; }
+-keep class com.HrshD1eux.Gallery.data.repository.DatePositionHeader { *; }
+-keep class com.HrshD1eux.Gallery.data.media.BucketInfo { *; }
+

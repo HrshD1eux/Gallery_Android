@@ -134,7 +134,7 @@ fun VaultSecurityDialog(
                             style = MaterialTheme.typography.titleMedium
                         )
                         Text(
-                            text = "Configure custom authentication code",
+                            text = "Set or change lock code",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

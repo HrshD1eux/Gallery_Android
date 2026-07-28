@@ -37,4 +37,16 @@ class PhotoEditorUtilsTest {
 
         assertNotNull(result)
     }
+
+    @Test
+    fun testDuplicateFinder_hashesAreConsistent() {
+        val mockSource = mockk<Bitmap>(relaxed = true)
+        every { mockSource.getPixel(any(), any()) } returns 0xFF112233.toInt()
+        every { Bitmap.createScaledBitmap(any(), any(), any(), any()) } returns mockSource
+
+        val hash1 = DuplicateFinder.computeDHash(mockSource)
+        val hash2 = DuplicateFinder.computeDHash(mockSource)
+
+        org.junit.Assert.assertEquals(hash1, hash2)
+    }
 }

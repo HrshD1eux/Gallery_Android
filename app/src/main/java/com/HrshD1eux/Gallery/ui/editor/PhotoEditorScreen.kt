@@ -4,6 +4,9 @@ import android.graphics.Bitmap
 import android.graphics.RectF
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -238,7 +241,7 @@ fun PhotoEditorScreen(
             }
         }
 
-        // Center Image Preview
+        // Center Image Preview & Interactive 3x3 Crop Overlay
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -247,11 +250,39 @@ fun PhotoEditorScreen(
         ) {
             val previewBitmap = transformedBitmap ?: sourceBitmap
             if (previewBitmap != null) {
-                Image(
-                    bitmap = previewBitmap.asImageBitmap(),
-                    contentDescription = "Edited Photo Preview",
-                    modifier = Modifier.fillMaxSize()
-                )
+                val bitmapAspect = (previewBitmap.width.toFloat() / previewBitmap.height.toFloat()).coerceAtLeast(0.1f)
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier.aspectRatio(bitmapAspect)
+                    ) {
+                        Image(
+                            bitmap = previewBitmap.asImageBitmap(),
+                            contentDescription = "Edited Photo Preview",
+                            modifier = Modifier.fillMaxSize()
+                        )
+
+                        if (selectedTab == EditorTab.CROP) {
+                            CropGridOverlay(
+                                left = freeCropLeft,
+                                top = freeCropTop,
+                                right = freeCropRight,
+                                bottom = freeCropBottom,
+                                modifier = Modifier.fillMaxSize(),
+                                onCropChange = { l, t, r, b ->
+                                    freeCropLeft = l
+                                    freeCropTop = t
+                                    freeCropRight = r
+                                    freeCropBottom = b
+                                }
+                            )
+                        }
+                    }
+                }
             } else {
                 CircularProgressIndicator(color = Color.White)
             }
@@ -334,47 +365,6 @@ fun PhotoEditorScreen(
                                 )
                             }
 
-                            if (cropAspectRatio == null) {
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(text = "Left: ${(freeCropLeft * 100).toInt()}%", color = Color.White, style = MaterialTheme.typography.bodySmall)
-                                    Slider(
-                                        value = freeCropLeft,
-                                        onValueChange = { freeCropLeft = it },
-                                        valueRange = 0f..0.4f,
-                                        modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
-                                    )
-                                    Text(text = "Right: ${(freeCropRight * 100).toInt()}%", color = Color.White, style = MaterialTheme.typography.bodySmall)
-                                    Slider(
-                                        value = freeCropRight,
-                                        onValueChange = { freeCropRight = it },
-                                        valueRange = 0f..0.4f,
-                                        modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
-                                    )
-                                }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(text = "Top: ${(freeCropTop * 100).toInt()}%", color = Color.White, style = MaterialTheme.typography.bodySmall)
-                                    Slider(
-                                        value = freeCropTop,
-                                        onValueChange = { freeCropTop = it },
-                                        valueRange = 0f..0.4f,
-                                        modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
-                                    )
-                                    Text(text = "Bottom: ${(freeCropBottom * 100).toInt()}%", color = Color.White, style = MaterialTheme.typography.bodySmall)
-                                    Slider(
-                                        value = freeCropBottom,
-                                        onValueChange = { freeCropBottom = it },
-                                        valueRange = 0f..0.4f,
-                                        modifier = Modifier.weight(1f).padding(horizontal = 4.dp)
-                                    )
-                                }
-                            }
                         }
                     }
                     EditorTab.BRIGHTNESS -> {
@@ -427,5 +417,124 @@ fun PhotoEditorScreen(
                 )
             }
         }
+    }
+}
+
+@Composable
+fun CropGridOverlay(
+    left: Float,
+    top: Float,
+    right: Float,
+    bottom: Float,
+    onCropChange: (left: Float, top: Float, right: Float, bottom: Float) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var activeHandle by remember { mutableStateOf<Int?>(null) } // 0: TopLeft, 1: TopRight, 2: BottomLeft, 3: BottomRight
+
+    val dragModifier = modifier.pointerInput(left, top, right, bottom) {
+        detectDragGestures(
+            onDragStart = { offset ->
+                val w = size.width.toFloat()
+                val h = size.height.toFloat()
+                val cropL = left * w
+                val cropT = top * h
+                val cropR = (1f - right) * w
+                val cropB = (1f - bottom) * h
+
+                val touchRadius = 80f
+                val distTL = kotlin.math.hypot(offset.x - cropL, offset.y - cropT)
+                val distTR = kotlin.math.hypot(offset.x - cropR, offset.y - cropT)
+                val distBL = kotlin.math.hypot(offset.x - cropL, offset.y - cropB)
+                val distBR = kotlin.math.hypot(offset.x - cropR, offset.y - cropB)
+
+                activeHandle = when {
+                    distTL <= touchRadius -> 0
+                    distTR <= touchRadius -> 1
+                    distBL <= touchRadius -> 2
+                    distBR <= touchRadius -> 3
+                    else -> null
+                }
+            },
+            onDragEnd = { activeHandle = null },
+            onDragCancel = { activeHandle = null },
+            onDrag = { change, dragAmount ->
+                val w = size.width.toFloat()
+                val h = size.height.toFloat()
+                if (w <= 0 || h <= 0 || activeHandle == null) return@detectDragGestures
+
+                var nLeft = left
+                var nTop = top
+                var nRight = right
+                var nBottom = bottom
+
+                val deltaX = dragAmount.x / w
+                val deltaY = dragAmount.y / h
+
+                when (activeHandle) {
+                    0 -> { // TopLeft
+                        nLeft = (left + deltaX).coerceIn(0f, 0.4f)
+                        nTop = (top + deltaY).coerceIn(0f, 0.4f)
+                    }
+                    1 -> { // TopRight
+                        nRight = (right - deltaX).coerceIn(0f, 0.4f)
+                        nTop = (top + deltaY).coerceIn(0f, 0.4f)
+                    }
+                    2 -> { // BottomLeft
+                        nLeft = (left + deltaX).coerceIn(0f, 0.4f)
+                        nBottom = (bottom - deltaY).coerceIn(0f, 0.4f)
+                    }
+                    3 -> { // BottomRight
+                        nRight = (right - deltaX).coerceIn(0f, 0.4f)
+                        nBottom = (bottom - deltaY).coerceIn(0f, 0.4f)
+                    }
+                }
+                onCropChange(nLeft, nTop, nRight, nBottom)
+            }
+        )
+    }
+
+    androidx.compose.foundation.Canvas(modifier = dragModifier) {
+        val w = size.width
+        val h = size.height
+
+        val cropL = left * w
+        val cropT = top * h
+        val cropR = (1f - right) * w
+        val cropB = (1f - bottom) * h
+
+        val cropW = (cropR - cropL).coerceAtLeast(10f)
+        val cropH = (cropB - cropT).coerceAtLeast(10f)
+
+        // Semi-transparent dim background outside crop box
+        drawRect(color = Color.Black.copy(alpha = 0.5f), size = androidx.compose.ui.geometry.Size(w, cropT))
+        drawRect(color = Color.Black.copy(alpha = 0.5f), topLeft = androidx.compose.ui.geometry.Offset(0f, cropT), size = androidx.compose.ui.geometry.Size(cropL, cropH))
+        drawRect(color = Color.Black.copy(alpha = 0.5f), topLeft = androidx.compose.ui.geometry.Offset(cropR, cropT), size = androidx.compose.ui.geometry.Size(w - cropR, cropH))
+        drawRect(color = Color.Black.copy(alpha = 0.5f), topLeft = androidx.compose.ui.geometry.Offset(0f, cropB), size = androidx.compose.ui.geometry.Size(w, h - cropB))
+
+        // White border around crop box
+        drawRect(
+            color = Color.White,
+            topLeft = androidx.compose.ui.geometry.Offset(cropL, cropT),
+            size = androidx.compose.ui.geometry.Size(cropW, cropH),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
+        )
+
+        // 3x3 Rule of thirds grid lines
+        val x1 = cropL + cropW / 3f
+        val x2 = cropL + 2f * cropW / 3f
+        val y1 = cropT + cropH / 3f
+        val y2 = cropT + 2f * cropH / 3f
+
+        drawLine(color = Color.White.copy(alpha = 0.6f), start = androidx.compose.ui.geometry.Offset(x1, cropT), end = androidx.compose.ui.geometry.Offset(x1, cropB), strokeWidth = 1.dp.toPx())
+        drawLine(color = Color.White.copy(alpha = 0.6f), start = androidx.compose.ui.geometry.Offset(x2, cropT), end = androidx.compose.ui.geometry.Offset(x2, cropB), strokeWidth = 1.dp.toPx())
+        drawLine(color = Color.White.copy(alpha = 0.6f), start = androidx.compose.ui.geometry.Offset(cropL, y1), end = androidx.compose.ui.geometry.Offset(cropR, y1), strokeWidth = 1.dp.toPx())
+        drawLine(color = Color.White.copy(alpha = 0.6f), start = androidx.compose.ui.geometry.Offset(cropL, y2), end = androidx.compose.ui.geometry.Offset(cropR, y2), strokeWidth = 1.dp.toPx())
+
+        // 4 Corner Drag Handle circles
+        val handleRadius = 10.dp.toPx()
+        drawCircle(color = Color.White, radius = handleRadius, center = androidx.compose.ui.geometry.Offset(cropL, cropT))
+        drawCircle(color = Color.White, radius = handleRadius, center = androidx.compose.ui.geometry.Offset(cropR, cropT))
+        drawCircle(color = Color.White, radius = handleRadius, center = androidx.compose.ui.geometry.Offset(cropL, cropB))
+        drawCircle(color = Color.White, radius = handleRadius, center = androidx.compose.ui.geometry.Offset(cropR, cropB))
     }
 }

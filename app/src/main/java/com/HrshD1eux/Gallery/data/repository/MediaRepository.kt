@@ -12,6 +12,7 @@ data class DatePositionHeader(
 interface MediaRepository {
     fun getMediaFlow(bucketId: Long? = null, sortOrder: com.HrshD1eux.Gallery.ui.SortOrder = com.HrshD1eux.Gallery.ui.SortOrder.NEWEST_FIRST): Flow<List<MediaItem>>
     suspend fun loadMediaPaged(limit: Int, offset: Int, bucketId: Long? = null, sortOrder: com.HrshD1eux.Gallery.ui.SortOrder = com.HrshD1eux.Gallery.ui.SortOrder.NEWEST_FIRST): List<MediaItem>
+    suspend fun getTotalMediaCount(bucketId: Long? = null): Int
     suspend fun getBuckets(): List<BucketInfo>
     fun getBucketsFlow(): Flow<List<BucketInfo>>
     
