@@ -243,6 +243,120 @@ class MediaStoreDataSource @Inject constructor(
         mediaList
     }
 
+    suspend fun fetchTrashedMedia(): List<MediaItem> = withContext(Dispatchers.IO) {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R) {
+            return@withContext emptyList()
+        }
+        val mediaList = mutableListOf<MediaItem>()
+        val collection = MediaStore.Files.getContentUri("external")
+        val projection = arrayOf(
+            MediaStore.Files.FileColumns._ID,
+            MediaStore.Files.FileColumns.DATA,
+            MediaStore.Files.FileColumns.MIME_TYPE,
+            MediaStore.Files.FileColumns.DATE_TAKEN,
+            MediaStore.Files.FileColumns.DATE_ADDED,
+            MediaStore.Files.FileColumns.SIZE,
+            MediaStore.Files.FileColumns.WIDTH,
+            MediaStore.Files.FileColumns.HEIGHT,
+            MediaStore.Files.FileColumns.DURATION,
+            MediaStore.Files.FileColumns.BUCKET_ID,
+            MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME,
+            MediaStore.Files.FileColumns.MEDIA_TYPE,
+            "is_trashed"
+        )
+        val selection = "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}, ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO})"
+        val queryArgs = Bundle().apply {
+            putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+            putStringArray(
+                ContentResolver.QUERY_ARG_SORT_COLUMNS,
+                arrayOf(MediaStore.Files.FileColumns.DATE_ADDED, MediaStore.Files.FileColumns.DATE_TAKEN)
+            )
+            putInt(ContentResolver.QUERY_ARG_SORT_DIRECTION, ContentResolver.QUERY_SORT_DIRECTION_DESCENDING)
+            putInt(MediaStore.QUERY_ARG_MATCH_TRASHED, MediaStore.MATCH_ONLY)
+            putInt(QUERY_ARG_MATCH_NOMEDIA, MediaStore.MATCH_INCLUDE)
+        }
+
+        val cursor = try {
+            contentResolver.query(collection, projection, queryArgs, null)
+        } catch (e: Exception) {
+            null
+        }
+
+        cursor?.use {
+            val idCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
+            val dataCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATA)
+            val mimeCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE)
+            val dateCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_TAKEN)
+            val addedCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_ADDED)
+            val sizeCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
+            val widthCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.WIDTH)
+            val heightCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.HEIGHT)
+            val durCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DURATION)
+            val bucketIdCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.BUCKET_ID)
+            val bucketNameCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME)
+            val mediaTypeCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MEDIA_TYPE)
+
+            while (it.moveToNext()) {
+                val id = it.getLong(idCol)
+                val path = it.getString(dataCol) ?: ""
+                val mimeType = it.getString(mimeCol) ?: "image/jpeg"
+                val rawDateTaken = it.getLong(dateCol)
+                val addedSecs = it.getLong(addedCol)
+                val addedMs = if (addedSecs > 0) addedSecs * 1000L else 0L
+                val dateTaken = if (rawDateTaken > 100000000000L) rawDateTaken else addedMs
+                val size = it.getLong(sizeCol)
+                val width = it.getInt(widthCol)
+                val height = it.getInt(heightCol)
+                val bucketIdVal = it.getLong(bucketIdCol)
+                val bucketName = it.getString(bucketNameCol) ?: "Unknown"
+                val mediaType = it.getInt(mediaTypeCol)
+
+                val uri = if (mediaType == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO) {
+                    ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
+                } else {
+                    ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
+                }
+
+                if (mediaType == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO) {
+                    val duration = it.getLong(durCol)
+                    mediaList.add(
+                        MediaItem.Video(
+                            id = id,
+                            uri = uri,
+                            path = path,
+                            mimeType = mimeType,
+                            dateTaken = dateTaken,
+                            size = size,
+                            width = width,
+                            height = height,
+                            durationMs = duration,
+                            bucketId = bucketIdVal,
+                            bucketName = bucketName,
+                            isTrashed = true
+                        )
+                    )
+                } else {
+                    mediaList.add(
+                        MediaItem.Photo(
+                            id = id,
+                            uri = uri,
+                            path = path,
+                            mimeType = mimeType,
+                            dateTaken = dateTaken,
+                            size = size,
+                            width = width,
+                            height = height,
+                            bucketId = bucketIdVal,
+                            bucketName = bucketName,
+                            isTrashed = true
+                        )
+                    )
+                }
+            }
+        }
+        mediaList
+    }
+
     /**
      * Fetches only media IDs from MediaStore. Lightweight — no full MediaItem allocation.
      * Used for orphan cleanup where we only need to know which IDs are still active.

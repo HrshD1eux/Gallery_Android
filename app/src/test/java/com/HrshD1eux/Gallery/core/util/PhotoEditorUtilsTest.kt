@@ -49,4 +49,67 @@ class PhotoEditorUtilsTest {
 
         org.junit.Assert.assertEquals(hash1, hash2)
     }
+
+    @Test
+    fun testFormatUtils_fileSizeFormatting() {
+        // Less than 1 MB -> formatted in KB
+        val size500Kb = 512 * 1024L
+        val formatted500Kb = FormatUtils.formatFileSize(size500Kb)
+        org.junit.Assert.assertEquals("512 KB", formatted500Kb)
+
+        val size84Kb = (84.5 * 1024L).toLong()
+        val formatted84Kb = FormatUtils.formatFileSize(size84Kb)
+        org.junit.Assert.assertTrue(formatted84Kb.contains("KB"))
+
+        // Between 1 MB and 1024 MB (1 GB) -> formatted in MB
+        val size10Mb = 10 * 1024 * 1024L
+        val formatted10Mb = FormatUtils.formatFileSize(size10Mb)
+        org.junit.Assert.assertEquals("10.00 MB", formatted10Mb)
+
+        // Greater than or equal to 1024 MB (1 GB) -> formatted in GB
+        val size2Gb = 2L * 1024 * 1024 * 1024L
+        val formatted2Gb = FormatUtils.formatFileSize(size2Gb)
+        org.junit.Assert.assertEquals("2.00 GB", formatted2Gb)
+    }
+
+    @Test
+    fun testHapticUtil_safeExecution() {
+        val mockContext = mockk<android.content.Context>(relaxed = true)
+        val mockPrefs = mockk<android.content.SharedPreferences>(relaxed = true)
+        every { mockContext.getSharedPreferences(any(), any()) } returns mockPrefs
+        every { mockPrefs.getBoolean(any(), any()) } returns true
+
+        // Ensure performing vibrations does not throw exceptions even with mock context
+        HapticUtil.performClick(mockContext)
+        HapticUtil.performSelection(mockContext)
+        HapticUtil.performLongPress(mockContext)
+        HapticUtil.performSuccess(mockContext)
+        HapticUtil.performError(mockContext)
+        HapticUtil.performTick(mockContext)
+    }
+
+    @Test
+    fun testMotionPhotoInfo_dataModel() {
+        val info = MotionPhotoInfo(isMotionPhoto = true, videoOffsetFromEnd = 1024L, videoLength = 1024L)
+        org.junit.Assert.assertTrue(info.isMotionPhoto)
+        org.junit.Assert.assertEquals(1024L, info.videoOffsetFromEnd)
+        org.junit.Assert.assertEquals(1024L, info.videoLength)
+
+        val nonMotion = MotionPhotoInfo(isMotionPhoto = false)
+        org.junit.Assert.assertFalse(nonMotion.isMotionPhoto)
+    }
+
+    @Test
+    fun testStorageStats_modelCalculations() {
+        val stats = com.HrshD1eux.Gallery.ui.MainViewModel.StorageStats(
+            photosBytes = 1024 * 1024 * 100L, // 100 MB
+            videosBytes = 1024 * 1024 * 500L, // 500 MB
+            vaultBytes = 1024 * 1024 * 50L,   // 50 MB
+            trashBytes = 1024 * 1024 * 10L    // 10 MB
+        )
+        org.junit.Assert.assertEquals("100.00 MB", FormatUtils.formatFileSize(stats.photosBytes))
+        org.junit.Assert.assertEquals("500.00 MB", FormatUtils.formatFileSize(stats.videosBytes))
+        org.junit.Assert.assertEquals("50.00 MB", FormatUtils.formatFileSize(stats.vaultBytes))
+        org.junit.Assert.assertEquals("10.00 MB", FormatUtils.formatFileSize(stats.trashBytes))
+    }
 }

@@ -1,22 +1,30 @@
 package com.HrshD1eux.Gallery.ui.vault
 
 import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -29,6 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,24 +45,33 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.HrshD1eux.Gallery.core.util.VaultCrypto
+import com.HrshD1eux.Gallery.ui.MainViewModel
+import kotlinx.coroutines.launch
 
 @Composable
 fun VaultSecurityDialog(
-    onDismiss: () -> Unit
+    viewModel: MainViewModel? = null,
+    onDismiss: () -> Unit,
+    onVaultDeleted: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences("vault_prefs", Context.MODE_PRIVATE) }
+    val scope = rememberCoroutineScope()
 
     var lockType by remember { mutableStateOf(prefs.getString("vault_lock_type", "PIN") ?: "PIN") }
     var isBiometricEnabled by remember { mutableStateOf(prefs.getBoolean("vault_biometric_enabled", false)) }
     var isStealthMode by remember { mutableStateOf(prefs.getBoolean("vault_stealth_mode", false)) }
+    var isVaultDisabled by remember { mutableStateOf(prefs.getBoolean("vault_disabled", false)) }
     var secretTrigger by remember { mutableStateOf(prefs.getString("vault_secret_trigger", "#vault") ?: "#vault") }
 
     var showPinChangeDialog by remember { mutableStateOf(false) }
     var showPatternSetupDialog by remember { mutableStateOf(false) }
+    var showDisableConfirmDialog by remember { mutableStateOf(false) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var isProcessingDelete by remember { mutableStateOf(false) }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { if (!isProcessingDelete) onDismiss() },
         title = {
             Text(text = "Vault Security Settings", style = MaterialTheme.typography.titleLarge)
         },
@@ -75,15 +93,17 @@ fun VaultSecurityDialog(
                         .fillMaxWidth()
                         .clickable {
                             lockType = "PIN"
-                            prefs.edit().putString("vault_lock_type", "PIN").apply()
+                            isVaultDisabled = false
+                            prefs.edit().putString("vault_lock_type", "PIN").putBoolean("vault_disabled", false).apply()
                         },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     RadioButton(
-                        selected = lockType == "PIN",
+                        selected = lockType == "PIN" && !isVaultDisabled,
                         onClick = {
                             lockType = "PIN"
-                            prefs.edit().putString("vault_lock_type", "PIN").apply()
+                            isVaultDisabled = false
+                            prefs.edit().putString("vault_lock_type", "PIN").putBoolean("vault_disabled", false).apply()
                         }
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -95,15 +115,17 @@ fun VaultSecurityDialog(
                         .fillMaxWidth()
                         .clickable {
                             lockType = "PATTERN"
-                            prefs.edit().putString("vault_lock_type", "PATTERN").apply()
+                            isVaultDisabled = false
+                            prefs.edit().putString("vault_lock_type", "PATTERN").putBoolean("vault_disabled", false).apply()
                         },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     RadioButton(
-                        selected = lockType == "PATTERN",
+                        selected = lockType == "PATTERN" && !isVaultDisabled,
                         onClick = {
                             lockType = "PATTERN"
-                            prefs.edit().putString("vault_lock_type", "PATTERN").apply()
+                            isVaultDisabled = false
+                            prefs.edit().putString("vault_lock_type", "PATTERN").putBoolean("vault_disabled", false).apply()
                         }
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -210,6 +232,7 @@ fun VaultSecurityDialog(
                         onCheckedChange = { enabled ->
                             isStealthMode = enabled
                             prefs.edit().putBoolean("vault_stealth_mode", enabled).apply()
+                            viewModel?.notifyVaultConfigChanged()
                         }
                     )
                 }
@@ -228,6 +251,65 @@ fun VaultSecurityDialog(
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                // --- Disable Vault Option ---
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showDisableConfirmDialog = true }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.LockOpen,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Disable Vault Lock",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            text = "Remove PIN/Pattern lock to open Vault directly",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                // --- Delete Vault Option ---
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showDeleteConfirmDialog = true }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DeleteForever,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Delete Vault",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        Text(
+                            text = "Restore or wipe all hidden photos and delete Vault",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
@@ -236,6 +318,117 @@ fun VaultSecurityDialog(
             }
         }
     )
+
+    // Confirm Disable Vault Dialog
+    if (showDisableConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showDisableConfirmDialog = false },
+            icon = { Icon(Icons.Default.LockOpen, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+            title = { Text("Disable Vault Lock?") },
+            text = {
+                Text("Disabling the lock will remove PIN, Pattern, and Biometric protection. Anyone with access to this device will be able to view hidden files in the Vault.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDisableConfirmDialog = false
+                        viewModel?.disableVault(context) ?: run {
+                            prefs.edit()
+                                .putBoolean("vault_disabled", true)
+                                .remove("vault_pin_hash")
+                                .remove("vault_salt")
+                                .remove("vault_pin")
+                                .remove("vault_biometric_enabled")
+                                .remove("vault_stealth_mode")
+                                .apply()
+                        }
+                        isVaultDisabled = true
+                        Toast.makeText(context, "Vault lock disabled", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text("Disable Lock")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDisableConfirmDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Confirm Delete Vault Dialog
+    if (showDeleteConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!isProcessingDelete) showDeleteConfirmDialog = false },
+            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+            title = { Text("Delete Vault") },
+            text = {
+                if (isProcessingDelete) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text("Deleting vault...")
+                    }
+                } else {
+                    Column {
+                        Text("Choose what to do with the files currently stored in the Vault:")
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = {
+                                isProcessingDelete = true
+                                viewModel?.deleteVault(context, restoreMedia = true) {
+                                    isProcessingDelete = false
+                                    showDeleteConfirmDialog = false
+                                    onVaultDeleted()
+                                    onDismiss()
+                                    Toast.makeText(context, "All media restored & Vault deleted", Toast.LENGTH_LONG).show()
+                                } ?: run {
+                                    isProcessingDelete = false
+                                    showDeleteConfirmDialog = false
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Restore All Media & Delete Vault")
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                isProcessingDelete = true
+                                viewModel?.deleteVault(context, restoreMedia = false) {
+                                    isProcessingDelete = false
+                                    showDeleteConfirmDialog = false
+                                    onVaultDeleted()
+                                    onDismiss()
+                                    Toast.makeText(context, "Vault and files permanently deleted", Toast.LENGTH_LONG).show()
+                                } ?: run {
+                                    isProcessingDelete = false
+                                    showDeleteConfirmDialog = false
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Permanently Delete Vault & All Files")
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                if (!isProcessingDelete) {
+                    TextButton(onClick = { showDeleteConfirmDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            }
+        )
+    }
 
     // Sub-dialog for Changing PIN
     if (showPinChangeDialog) {
@@ -323,10 +516,12 @@ fun VaultSecurityDialog(
                             .putString("vault_pin_hash", encryptedHash)
                             .putString("vault_salt", saltBase64)
                             .putString("vault_lock_type", "PIN")
+                            .putBoolean("vault_disabled", false)
                             .remove("vault_pin")
                             .apply()
 
                         lockType = "PIN"
+                        isVaultDisabled = false
                         showPinChangeDialog = false
                     }
                 ) {
@@ -381,10 +576,12 @@ fun VaultSecurityDialog(
                                         .putString("vault_pin_hash", encryptedHash)
                                         .putString("vault_salt", saltBase64)
                                         .putString("vault_lock_type", "PATTERN")
+                                        .putBoolean("vault_disabled", false)
                                         .remove("vault_pin")
                                         .apply()
 
                                     lockType = "PATTERN"
+                                    isVaultDisabled = false
                                     showPatternSetupDialog = false
                                 } else {
                                     patternError = "Patterns do not match. Try again."

@@ -17,6 +17,7 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.drag
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.positionChange
 import kotlin.math.abs
 import androidx.compose.foundation.layout.Arrangement
@@ -47,16 +48,27 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Wallpaper
+import androidx.compose.material.icons.filled.ContentCut
+import com.HrshD1eux.Gallery.core.util.FormatUtils
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -68,6 +80,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material.icons.filled.Photo
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -75,6 +88,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -144,6 +158,26 @@ fun PhotoViewerScreen(
     var showRenameDialog by remember { mutableStateOf(false) }
     var renameInputText by remember { mutableStateOf("") }
     var showVaultConfirmDialog by remember { mutableStateOf(false) }
+    var showSetAsDialog by remember { mutableStateOf(false) }
+    var showVideoTrimDialog by remember { mutableStateOf(false) }
+
+    var isMotionPhoto by remember { mutableStateOf(false) }
+    var isPlayingMotionPhoto by remember { mutableStateOf(false) }
+    var motionVideoFile by remember { mutableStateOf<java.io.File?>(null) }
+    val scope = rememberCoroutineScope()
+
+    val currentItem = mediaItems.getOrNull(pagerState.currentPage) ?: activeItem
+
+    LaunchedEffect(currentItem.id) {
+        isPlayingMotionPhoto = false
+        motionVideoFile = null
+        if (currentItem is com.HrshD1eux.Gallery.data.model.MediaItem.Photo) {
+            val info = com.HrshD1eux.Gallery.core.util.MotionPhotoUtil.checkMotionPhoto(context, currentItem.uri)
+            isMotionPhoto = info.isMotionPhoto
+        } else {
+            isMotionPhoto = false
+        }
+    }
 
     var isSlideshowActive by remember { mutableStateOf(false) }
     var showCompressDialog by remember { mutableStateOf(false) }
@@ -222,15 +256,33 @@ fun PhotoViewerScreen(
         ) { page ->
             val item = mediaItems.getOrNull(page)
             if (item != null) {
-                val imageRequest = remember(item.uri) {
-                    coil.request.ImageRequest.Builder(context)
+                val imageRequest = remember(item.uri, item.width, item.height) {
+                    val maxTextureDim = 4096
+                    val builder = coil.request.ImageRequest.Builder(context)
                         .data(item.uri)
                         .crossfade(true)
                         .diskCachePolicy(coil.request.CachePolicy.ENABLED)
                         .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                        .allowHardware(true)
                         .error(android.R.drawable.ic_menu_report_image)
                         .fallback(android.R.drawable.ic_menu_report_image)
-                        .build()
+
+                    if (item.width > 0 && item.height > 0) {
+                        val maxOriginal = maxOf(item.width, item.height)
+                        if (maxOriginal > maxTextureDim) {
+                            val scale = maxTextureDim.toFloat() / maxOriginal.toFloat()
+                            val targetW = (item.width * scale).toInt().coerceAtLeast(1)
+                            val targetH = (item.height * scale).toInt().coerceAtLeast(1)
+                            builder.size(targetW, targetH)
+                                .precision(coil.size.Precision.INEXACT)
+                        } else {
+                            builder.size(coil.size.Size.ORIGINAL)
+                        }
+                    } else {
+                        builder.size(maxTextureDim, maxTextureDim)
+                            .precision(coil.size.Precision.INEXACT)
+                    }
+                    builder.build()
                 }
 
                 Box(
@@ -242,6 +294,15 @@ fun PhotoViewerScreen(
                             uri = item.uri,
                             title = item.path.substringAfterLast('/'),
                             isSelectedPage = (page == pagerState.currentPage),
+                            showChrome = showChrome,
+                            onTap = { showChrome = !showChrome },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else if (isPlayingMotionPhoto && motionVideoFile != null && page == pagerState.currentPage) {
+                        VideoPlayerContainer(
+                            uri = android.net.Uri.fromFile(motionVideoFile),
+                            title = "Motion Photo",
+                            isSelectedPage = true,
                             showChrome = showChrome,
                             onTap = { showChrome = !showChrome },
                             modifier = Modifier.fillMaxSize()
@@ -299,6 +360,31 @@ fun PhotoViewerScreen(
                     modifier = Modifier.align(Alignment.CenterStart)
                 ) {
                     Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                }
+
+                // Motion Photo Badge / Player Button in Top Center
+                if (isMotionPhoto) {
+                    FilterChip(
+                        selected = isPlayingMotionPhoto,
+                        onClick = {
+                            scope.launch {
+                                if (isPlayingMotionPhoto) {
+                                    isPlayingMotionPhoto = false
+                                } else {
+                                    val info = com.HrshD1eux.Gallery.core.util.MotionPhotoUtil.checkMotionPhoto(context, currentItem.uri)
+                                    val file = com.HrshD1eux.Gallery.core.util.MotionPhotoUtil.extractMotionVideo(context, currentItem.uri, info)
+                                    if (file != null) {
+                                        motionVideoFile = file
+                                        isPlayingMotionPhoto = true
+                                    } else {
+                                        android.widget.Toast.makeText(context, "Motion video not available", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                        },
+                        label = { Text(if (isPlayingMotionPhoto) "Playing Motion ⏸️" else "Motion Photo 🎞️", color = Color.White) },
+                        modifier = Modifier.align(Alignment.Center)
+                    )
                 }
 
                 Row(
@@ -362,6 +448,26 @@ fun PhotoViewerScreen(
                             )
 
                             DropdownMenuItem(
+                                text = { Text("Set as Wallpaper / Contact") },
+                                leadingIcon = { Icon(Icons.Default.Wallpaper, contentDescription = null) },
+                                onClick = {
+                                    showMoreMenu = false
+                                    showSetAsDialog = true
+                                }
+                            )
+
+                            if (item is com.HrshD1eux.Gallery.data.model.MediaItem.Video) {
+                                DropdownMenuItem(
+                                    text = { Text("Trim Video / Make GIF 🎬") },
+                                    leadingIcon = { Icon(Icons.Default.ContentCut, contentDescription = null) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        showVideoTrimDialog = true
+                                    }
+                                )
+                            }
+
+                            DropdownMenuItem(
                                 text = { Text("Compress Image 📉") },
                                 leadingIcon = { Icon(Icons.Default.Compress, contentDescription = null) },
                                 onClick = {
@@ -397,7 +503,10 @@ fun PhotoViewerScreen(
                 ) {
                     if (item.isTrashed) {
                         // Actions for trashed items: Restore or Delete permanently
-                        IconButton(onClick = { viewModel.toggleTrashed(context, item) }) {
+                        IconButton(onClick = {
+                            com.HrshD1eux.Gallery.core.util.HapticUtil.performSuccess(context)
+                            viewModel.toggleTrashed(context, item)
+                        }) {
                             Icon(
                                 imageVector = Icons.Default.RestoreFromTrash,
                                 contentDescription = "Restore",
@@ -405,7 +514,10 @@ fun PhotoViewerScreen(
                             )
                         }
 
-                        IconButton(onClick = { showDeletePermanentlyConfirmDialog = true }) {
+                        IconButton(onClick = {
+                            com.HrshD1eux.Gallery.core.util.HapticUtil.performClick(context)
+                            showDeletePermanentlyConfirmDialog = true
+                        }) {
                             Icon(
                                 imageVector = Icons.Default.DeleteForever,
                                 contentDescription = "Delete Permanently",
@@ -414,7 +526,10 @@ fun PhotoViewerScreen(
                         }
                     } else {
                         // Standard actions
-                        IconButton(onClick = { viewModel.toggleFavorite(item) }) {
+                        IconButton(onClick = {
+                            com.HrshD1eux.Gallery.core.util.HapticUtil.performSelection(context)
+                            viewModel.toggleFavorite(item)
+                        }) {
                             Icon(
                                 imageVector = if (item.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                                 contentDescription = "Favorite",
@@ -423,20 +538,30 @@ fun PhotoViewerScreen(
                         }
 
                         if (item is com.HrshD1eux.Gallery.data.model.MediaItem.Photo) {
-                            IconButton(onClick = { viewModel.editingMediaItem = item }) {
+                            IconButton(onClick = {
+                                com.HrshD1eux.Gallery.core.util.HapticUtil.performClick(context)
+                                viewModel.editingMediaItem = item
+                            }) {
                                 Icon(imageVector = Icons.Default.Edit, contentDescription = "Edit", tint = Color.White)
                             }
                         }
 
-                        IconButton(onClick = { showShareDialog = true }) {
+                        IconButton(onClick = {
+                            com.HrshD1eux.Gallery.core.util.HapticUtil.performClick(context)
+                            showShareDialog = true
+                        }) {
                             Icon(imageVector = Icons.Default.Share, contentDescription = "Share", tint = Color.White)
                         }
 
-                        IconButton(onClick = { showMoveToAlbumDialog = true }) {
+                        IconButton(onClick = {
+                            com.HrshD1eux.Gallery.core.util.HapticUtil.performClick(context)
+                            showMoveToAlbumDialog = true
+                        }) {
                             Icon(imageVector = Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = "Move to Album", tint = Color.White)
                         }
 
                         IconButton(onClick = {
+                            com.HrshD1eux.Gallery.core.util.HapticUtil.performLongPress(context)
                             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
                                 viewModel.toggleTrashed(context, item)
                             } else {
@@ -497,7 +622,10 @@ fun PhotoViewerScreen(
             InfoBottomSheet(
                 item = item,
                 sheetState = infoSheetState,
-                onDismissRequest = { showInfoSheet = false }
+                onDismissRequest = { showInfoSheet = false },
+                onUpdateDateTaken = { newDate ->
+                    viewModel.updateMediaDateTaken(context, item, newDate)
+                }
             )
         }
 
@@ -551,24 +679,132 @@ fun PhotoViewerScreen(
 
         if (showRenameDialog) {
             val item = mediaItems.getOrNull(pagerState.currentPage) ?: activeItem
+            val rawFullName = item.path.substringAfterLast('/')
+            val ext = if (rawFullName.contains('.')) "." + rawFullName.substringAfterLast('.') else ""
+            val nameWithoutExt = rawFullName.removeSuffix(ext)
+            
+            var customRenameText by remember(item.id, showRenameDialog) { mutableStateOf(nameWithoutExt) }
+
             AlertDialog(
                 onDismissRequest = { showRenameDialog = false },
-                title = { Text("Rename Media") },
-                text = {
-                    OutlinedTextField(
-                        value = renameInputText,
-                        onValueChange = { renameInputText = it },
-                        label = { Text("File Name") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.DriveFileRenameOutline,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(32.dp)
                     )
+                },
+                title = {
+                    Text(
+                        text = "Rename File",
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                },
+                text = {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // Media preview snippet card
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                AsyncImage(
+                                    model = item.uri,
+                                    contentDescription = null,
+                                    modifier = Modifier
+                                        .size(52.dp)
+                                        .clip(MaterialTheme.shapes.small),
+                                    contentScale = ContentScale.Crop
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = rawFullName,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "${FormatUtils.formatFileSize(item.size)} • ${if (item.width > 0) "${item.width}×${item.height}" else ""}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        OutlinedTextField(
+                            value = customRenameText,
+                            onValueChange = { customRenameText = it },
+                            label = { Text("New File Name") },
+                            placeholder = { Text("Enter name") },
+                            singleLine = true,
+                            trailingIcon = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(end = 8.dp)
+                                ) {
+                                    if (customRenameText.isNotEmpty()) {
+                                        IconButton(
+                                            onClick = { customRenameText = "" },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Clear,
+                                                contentDescription = "Clear",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                    }
+                                    if (ext.isNotEmpty()) {
+                                        Box(
+                                            modifier = Modifier
+                                                .background(
+                                                    MaterialTheme.colorScheme.primaryContainer,
+                                                    MaterialTheme.shapes.extraSmall
+                                                )
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = ext,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                        }
+                                    }
+                                }
+                            },
+                            supportingText = {
+                                Text(
+                                    text = if (ext.isNotEmpty()) "Extension $ext will be preserved automatically" else "",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 },
                 confirmButton = {
                     Button(
+                        enabled = customRenameText.isNotBlank() && customRenameText.trim() != nameWithoutExt,
                         onClick = {
-                            if (renameInputText.isNotBlank()) {
+                            if (customRenameText.isNotBlank()) {
                                 showRenameDialog = false
-                                viewModel.renameMedia(context, item, renameInputText.trim())
+                                val finalName = customRenameText.trim() + ext
+                                com.HrshD1eux.Gallery.core.util.HapticUtil.performClick(context)
+                                viewModel.renameMedia(context, item, finalName)
                             }
                         }
                     ) {
@@ -722,42 +958,147 @@ fun PhotoViewerScreen(
         if (showCompressDialog) {
             val item = mediaItems.getOrNull(pagerState.currentPage) ?: activeItem
             val scope = androidx.compose.runtime.rememberCoroutineScope()
+            var isCompressing by remember { mutableStateOf(false) }
+
+            val originalKb = (item.size / 1024).coerceAtLeast(1)
+            val originalFormatted = com.HrshD1eux.Gallery.core.util.FormatUtils.formatFileSize(item.size)
 
             AlertDialog(
-                onDismissRequest = { showCompressDialog = false },
+                onDismissRequest = { if (!isCompressing) showCompressDialog = false },
                 icon = { Icon(Icons.Default.Compress, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-                title = { Text("Compress Image 📉") },
+                title = { Text("Compress Image", style = MaterialTheme.typography.titleLarge) },
                 text = {
-                    Column {
-                        Text("Target Size (in KB):", style = MaterialTheme.typography.bodyMedium)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                    ) {
+                        // Original file information card
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = java.io.File(item.path).name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "Original Size: $originalFormatted",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    if (item.width > 0 && item.height > 0) {
+                                        Text(
+                                            text = "${item.width} × ${item.height}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Text("Target File Size (in KB):", style = MaterialTheme.typography.bodyMedium)
                         Spacer(modifier = Modifier.height(8.dp))
+
                         OutlinedTextField(
                             value = targetKbInput,
                             onValueChange = { targetKbInput = it.filter { c -> c.isDigit() } },
-                            label = { Text("Target KB (e.g. 15)") },
+                            label = { Text("Target KB") },
+                            placeholder = { Text("e.g. 100") },
                             singleLine = true,
+                            enabled = !isCompressing,
                             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                                 keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
                             ),
                             modifier = Modifier.fillMaxWidth()
                         )
+
                         Spacer(modifier = Modifier.height(12.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { targetKbInput = "15" }) { Text("15 KB") }
-                            Button(onClick = { targetKbInput = "100" }) { Text("100 KB") }
-                            Button(onClick = { targetKbInput = "500" }) { Text("500 KB") }
+
+                        Text("Quick Presets:", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        val presets = listOf(25, 50, 100, 250, 500, 1000, 2000)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            presets.forEach { presetKb ->
+                                val isSelected = targetKbInput == presetKb.toString()
+                                val label = if (presetKb >= 1000) "${presetKb / 1000} MB" else "$presetKb KB"
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { targetKbInput = presetKb.toString() },
+                                    label = { Text(label) },
+                                    enabled = !isCompressing
+                                )
+                            }
+                        }
+
+                        val targetKb = targetKbInput.toLongOrNull() ?: 0L
+                        if (targetKb in 1 until originalKb) {
+                            val savedPercent = (((originalKb - targetKb).toDouble() / originalKb.toDouble()) * 100).toInt()
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Estimated space saved: ~$savedPercent%",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        if (isCompressing) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text("Compressing image...", style = MaterialTheme.typography.bodyMedium)
+                            }
                         }
                     }
                 },
                 confirmButton = {
                     Button(
+                        enabled = !isCompressing && (targetKbInput.toIntOrNull() ?: 0) > 0,
                         onClick = {
                             val kb = targetKbInput.toIntOrNull() ?: 15
-                            showCompressDialog = false
+                            isCompressing = true
                             scope.launch {
                                 val resultUri = com.HrshD1eux.Gallery.core.util.ImageCompressor.compressToTargetKb(context, item, kb)
+                                isCompressing = false
+                                showCompressDialog = false
                                 if (resultUri != null) {
-                                    android.widget.Toast.makeText(context, "Saved compressed image (${kb} KB target)!", android.widget.Toast.LENGTH_SHORT).show()
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "Saved to Pictures/Compressed (${kb} KB target)",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                    viewModel.refreshAll()
+                                } else {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "Failed to compress image",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
                                 }
                             }
                         }
@@ -766,11 +1107,85 @@ fun PhotoViewerScreen(
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showCompressDialog = false }) {
+                    TextButton(
+                        enabled = !isCompressing,
+                        onClick = { showCompressDialog = false }
+                    ) {
                         Text("Cancel")
                     }
                 }
             )
+        }
+
+        // Set As Wallpaper / Contact Photo Dialog
+        if (showSetAsDialog) {
+            val item = mediaItems.getOrNull(pagerState.currentPage) ?: activeItem
+            val activity = context as? android.app.Activity
+            AlertDialog(
+                onDismissRequest = { showSetAsDialog = false },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.Wallpaper,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(32.dp)
+                    )
+                },
+                title = { Text("Set Image As...") },
+                text = {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        TextButton(
+                            onClick = {
+                                showSetAsDialog = false
+                                if (activity != null) {
+                                    com.HrshD1eux.Gallery.core.util.WallpaperUtil.openSystemWallpaperCropper(activity, item.uri)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                Icon(Icons.Default.Wallpaper, contentDescription = null)
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text("Wallpaper (Lock / Home Screen)")
+                            }
+                        }
+
+                        TextButton(
+                            onClick = {
+                                showSetAsDialog = false
+                                if (activity != null) {
+                                    com.HrshD1eux.Gallery.core.util.WallpaperUtil.setAsContactPhoto(activity, item.uri)
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                Icon(Icons.Default.Photo, contentDescription = null)
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text("Contact Photo / Profile")
+                            }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    TextButton(onClick = { showSetAsDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        // Video Trimmer & GIF Generator Dialog
+        if (showVideoTrimDialog) {
+            val item = mediaItems.getOrNull(pagerState.currentPage) ?: activeItem
+            if (item is com.HrshD1eux.Gallery.data.model.MediaItem.Video) {
+                VideoTrimDialog(
+                    mediaItem = item,
+                    onDismiss = { showVideoTrimDialog = false },
+                    onSuccess = { viewModel.refreshAll() }
+                )
+            }
         }
     }
 }

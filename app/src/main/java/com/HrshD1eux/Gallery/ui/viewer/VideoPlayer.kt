@@ -33,16 +33,22 @@ import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.SubtitlesOff
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.RepeatOne
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -412,7 +418,12 @@ fun VideoPlayerContainer(
                         .height(28.dp)
                 )
 
-                // Custom Player Control Bar (No Rotate button, clean controls)
+                // Custom Player Control Bar with Speed, Loop, Mute, Trim, and Lock
+                var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
+                var isMuted by remember { mutableStateOf(false) }
+                var isLooping by remember { mutableStateOf(false) }
+                var showTrimDialog by remember { mutableStateOf(false) }
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -420,30 +431,32 @@ fun VideoPlayerContainer(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Subtitles / Audio Tracks Button
-                    IconButton(onClick = {
-                        exoPlayer?.let { player ->
-                            val textTracksExist = player.currentTracks.groups.any { group ->
-                                group.type == C.TRACK_TYPE_TEXT
-                            }
-                            if (textTracksExist) {
-                                subtitlesEnabled = !subtitlesEnabled
-                                val builder = player.trackSelectionParameters.buildUpon()
-                                builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !subtitlesEnabled)
-                                player.trackSelectionParameters = builder.build()
-                                Toast.makeText(
-                                    context,
-                                    if (subtitlesEnabled) "Subtitles Enabled" else "Subtitles Disabled",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            } else {
-                                Toast.makeText(context, "No subtitles available in video", Toast.LENGTH_SHORT).show()
-                            }
+                    // Playback Speed Button
+                    TextButton(
+                        onClick = {
+                            val speeds = listOf(0.5f, 1.0f, 1.25f, 1.5f, 2.0f)
+                            val nextIndex = (speeds.indexOf(playbackSpeed) + 1) % speeds.size
+                            val newSpeed = speeds[nextIndex]
+                            playbackSpeed = newSpeed
+                            exoPlayer?.setPlaybackSpeed(newSpeed)
+                            Toast.makeText(context, "${newSpeed}x Speed", Toast.LENGTH_SHORT).show()
                         }
+                    ) {
+                        Text(
+                            text = "${if (playbackSpeed == 1.0f) "1" else playbackSpeed}x",
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
+
+                    // Mute / Unmute Button
+                    IconButton(onClick = {
+                        isMuted = !isMuted
+                        exoPlayer?.volume = if (isMuted) 0f else 1f
                     }) {
                         Icon(
-                            imageVector = if (subtitlesEnabled) Icons.Default.Subtitles else Icons.Default.SubtitlesOff,
-                            contentDescription = "Subtitles",
+                            imageVector = if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                            contentDescription = if (isMuted) "Unmute" else "Mute",
                             tint = Color.White
                         )
                     }
@@ -504,6 +517,19 @@ fun VideoPlayerContainer(
                             imageVector = Icons.Default.FastForward,
                             contentDescription = "Forward 10s",
                             tint = Color.White
+                        )
+                    }
+
+                    // Loop Toggle
+                    IconButton(onClick = {
+                        isLooping = !isLooping
+                        exoPlayer?.repeatMode = if (isLooping) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+                        Toast.makeText(context, if (isLooping) "Loop On" else "Loop Off", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Icon(
+                            imageVector = if (isLooping) Icons.Default.RepeatOne else Icons.Default.Repeat,
+                            contentDescription = "Loop Video",
+                            tint = if (isLooping) Color(0xFFFF5722) else Color.White
                         )
                     }
 

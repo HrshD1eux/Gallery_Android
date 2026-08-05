@@ -13,45 +13,69 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
 
 @Composable
 fun rememberZoomState(
-    maxScale: Float = 5f,
+    maxScale: Float = 15f,
     minScale: Float = 1f,
-    doubleTapScale: Float = 2.5f
+    doubleTapScale: Float = 3f
 ): ZoomState {
     return remember(maxScale, minScale, doubleTapScale) { ZoomState(maxScale, minScale, doubleTapScale) }
 }
 
 class ZoomState(
-    val maxScale: Float,
-    val minScale: Float,
-    val doubleTapScale: Float = 2.5f
+    val maxScale: Float = 15f,
+    val minScale: Float = 1f,
+    val doubleTapScale: Float = 3f
 ) {
     var scale by mutableStateOf(1f)
     var offsetX by mutableStateOf(0f)
     var offsetY by mutableStateOf(0f)
+    var layoutSize by mutableStateOf(IntSize.Zero)
 
     fun updateGesture(zoom: Float, pan: Offset) {
-        scale = (scale * zoom).coerceIn(minScale, maxScale)
-        if (scale > 1f) {
-            // Constrain visual panning offsets based on zoom scale factor
-            val maxOffset = 500f * (scale - 1f)
-            offsetX = (offsetX + pan.x).coerceIn(-maxOffset, maxOffset)
-            offsetY = (offsetY + pan.y).coerceIn(-maxOffset, maxOffset)
+        val newScale = (scale * zoom).coerceIn(minScale, maxScale)
+        scale = newScale
+        if (newScale > 1f) {
+            val boundX = if (layoutSize.width > 0) {
+                (layoutSize.width * (newScale - 1f)) / 2f
+            } else {
+                1500f * (newScale - 1f)
+            }
+            val boundY = if (layoutSize.height > 0) {
+                (layoutSize.height * (newScale - 1f)) / 2f
+            } else {
+                1500f * (newScale - 1f)
+            }
+            offsetX = (offsetX + pan.x).coerceIn(-boundX, boundX)
+            offsetY = (offsetY + pan.y).coerceIn(-boundY, boundY)
         } else {
             offsetX = 0f
             offsetY = 0f
         }
     }
 
-    fun handleDoubleTap(@Suppress("UNUSED_PARAMETER") tapOffset: Offset) {
-        if (scale > 1f) {
+    fun handleDoubleTap(tapOffset: Offset) {
+        if (scale > 1.05f) {
             reset()
         } else {
-            scale = doubleTapScale.coerceIn(minScale, maxScale)
-            offsetX = 0f
-            offsetY = 0f
+            val targetScale = doubleTapScale.coerceIn(minScale, maxScale)
+            scale = targetScale
+            if (layoutSize.width > 0 && layoutSize.height > 0) {
+                val centerX = layoutSize.width / 2f
+                val centerY = layoutSize.height / 2f
+                val boundX = (layoutSize.width * (targetScale - 1f)) / 2f
+                val boundY = (layoutSize.height * (targetScale - 1f)) / 2f
+                val targetOffsetX = (centerX - tapOffset.x) * (targetScale - 1f)
+                val targetOffsetY = (centerY - tapOffset.y) * (targetScale - 1f)
+                offsetX = targetOffsetX.coerceIn(-boundX, boundX)
+                offsetY = targetOffsetY.coerceIn(-boundY, boundY)
+            } else {
+                offsetX = 0f
+                offsetY = 0f
+            }
         }
     }
 
@@ -67,6 +91,7 @@ fun Modifier.zoomable(
     onTap: () -> Unit = {},
     onDoubleTap: (Offset) -> Unit = { state.handleDoubleTap(it) }
 ): Modifier = this
+    .onSizeChanged { state.layoutSize = it }
     .pointerInput(state) {
         detectTapGestures(
             onDoubleTap = onDoubleTap,

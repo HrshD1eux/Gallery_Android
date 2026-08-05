@@ -1,4 +1,4 @@
-# 🖼️ Android Gallery — Production-Grade Media & Vault App
+# 🖼️ Android Gallery
 
 A high-performance, privacy-focused, production-grade Android Gallery application built with **Jetpack Compose**, **Hilt**, **Room**, **Coil**, **Media3 ExoPlayer**, and **Hardware-Backed AES-256-GCM Cryptography**.
 
@@ -37,11 +37,39 @@ Designed to seamlessly handle **100,000+ photo libraries** with fluid 60 FPS scr
 - **Single-Prompt Batch Trashing on Android 11+ (API 30+)**: Leverages `MediaStore.createTrashRequest` and `createDeleteRequest` to trash or permanently delete hundreds of items in a single system confirmation dialog.
 - **Atomic MediaStore & Physical Rename**: Updates `DISPLAY_NAME` and `TITLE` via `ContentResolver`, performs physical file rename, and issues dual-path `MediaScannerConnection` scans to sync new filenames across the Android system.
 
-### 🎥 Native Media3 (ExoPlayer) Video Playback
-- **Inline Video Player**: Powered by **AndroidX Media3 ExoPlayer** (`media3-exoplayer` & `media3-ui`), supporting non-overlapping custom floating video controls directly inside the fullscreen photo viewer.
-- **Lifecycle & Resource Management**: Seamlessly prepares and plays active videos in `HorizontalPager`, automatically pausing and releasing codec instances when swiped off-screen.
+### 🎥 Enhanced Native Media3 Video Player & Trimmer
+- **Inline Custom Media3 ExoPlayer**: Non-overlapping floating video controls with real-time timestamp display, smooth orange progress slider, and gesture controls.
+- **Picture-in-Picture (PiP) Mode**: Seamlessly switches to native 16:9 Picture-in-Picture mode on `onUserLeaveHint` when leaving the app during playback.
+- **Playback Controls**: Variable playback speed selector (0.5x, 1.0x, 1.25x, 1.5x, 2.0x), audio mute/unmute toggle, single-video loop toggle, and aspect ratio cycling (Fit, Zoom, Fill).
+- **Double-Tap Seeking**: Interactive double-tap gestures with visual pill feedback overlay for -10s rewind and +10s fast-forward.
+- **Lossless Video Trimmer**: Keyframe-aligned track copying with `MediaExtractor` + `MediaMuxer` for instant, re-encode-free MP4 trimming.
+- **Animated GIF Generator**: Extract video frames at customizable framerates and encode into standard GIF89a format with zero external dependencies.
 
-### 🛡️ Privacy-Preserving Media Sharing
+### 📸 Motion Photos & Live Photos Engine
+- **Pixel & Samsung Micro-Video Extraction**: Binary and XMP parser detecting Google Pixel (`XMP-GCamera:MicroVideo`, `MicroVideoOffset`) and Samsung SEFH trailer markers.
+- **Live Motion Playback**: Floating "Motion Photo 🎞️" badge in viewer top bar allowing one-tap micro-video playback seamlessly inside the photo canvas.
+
+### 👆 Continuous Drag-to-Select Gesture
+- **Fluid Multi-Selection**: Seamlessly slide finger across the timeline staggered grid to select dozens of media items with instant haptic feedback ticks on each cell crossed.
+
+### 📄 Multi-Photo PDF Document Export
+- **Offline PDF Generation**: Convert multiple selected photos into high-resolution multi-page PDF documents using `android.graphics.pdf.PdfDocument` with auto-scaling to standard A4 dimensions ($595 \times 842$ pt) and margins.
+- **System Share Integration**: Exports directly to `Documents/Gallery_PDFs` and opens the native Android share sheet.
+
+### 🖼️ System Wallpaper & Contact Photo Integration
+- **System Wallpaper Cropper**: Launches Android's native wallpaper cropper intent (`WallpaperManager.getCropAndSetWallpaperIntent`) with automatic fallback to lock/home screen direct setters.
+- **Contact Photo Picker**: Direct integration with system contacts via `ACTION_ATTACH_DATA`.
+
+### 🚫 Excluded / Ignored Folders
+- **Hide Albums from Gallery**: Long-press any album to hide/exclude its contents from timeline and albums views.
+- **Folder Privacy Management**: Dedicated management card in Settings to review and restore excluded folders at any time.
+
+### 📊 Storage Breakdown & Trash Management
+- **Categorized Storage Breakdown Card**: Real-time storage stats widget in the Albums tab displaying categorized disk usage for Photos, Videos, Hidden Vault, and Trash.
+- **One-Tap Empty Trash**: Securely wipe all trashed files and synchronize with MediaStore in a single tap.
+
+### 🛡️ Privacy-Preserving Media Sharing & Date Editor
+- **Date & Time Editor**: Edit media timestamp directly in the Info bottom sheet, updating Room database, MediaStore date taken, and EXIF `TAG_DATETIME` tags.
 - **EXIF Privacy Metadata Stripping**: Integrates `androidx.exifinterface` to strip sensitive EXIF tags (GPS coordinates, camera model, owner name, timestamps) before dispatching share intents.
 - **Scoped FileProvider**: Private share files are generated in short-lived temporary directories (`cache-path/shared_images`) with automated 30-minute purging.
 

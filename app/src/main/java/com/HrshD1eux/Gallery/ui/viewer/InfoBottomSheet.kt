@@ -3,14 +3,17 @@ package com.HrshD1eux.Gallery.ui.viewer
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
@@ -61,15 +64,55 @@ fun InfoBottomSheet(
     item: MediaItem,
     sheetState: SheetState,
     onDismissRequest: () -> Unit,
+    onUpdateDateTaken: ((Long) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     var details by remember(item) { mutableStateOf<ExifDetails?>(null) }
+    var showDatePicker by remember { mutableStateOf(false) }
 
     LaunchedEffect(item) {
         withContext(Dispatchers.IO) {
             details = readExifDetails(item)
         }
+    }
+
+    if (showDatePicker) {
+        val calendar = java.util.Calendar.getInstance().apply {
+            timeInMillis = if (item.dateTaken > 0) item.dateTaken else System.currentTimeMillis()
+        }
+        val currentYear = calendar.get(java.util.Calendar.YEAR)
+        val currentMonth = calendar.get(java.util.Calendar.MONTH)
+        val currentDay = calendar.get(java.util.Calendar.DAY_OF_MONTH)
+        val currentHour = calendar.get(java.util.Calendar.HOUR_OF_DAY)
+        val currentMinute = calendar.get(java.util.Calendar.MINUTE)
+
+        val datePickerDialog = android.app.DatePickerDialog(
+            context,
+            { _, year, month, dayOfMonth ->
+                val timePickerDialog = android.app.TimePickerDialog(
+                    context,
+                    { _, hourOfDay, minute ->
+                        val newCal = java.util.Calendar.getInstance().apply {
+                            set(year, month, dayOfMonth, hourOfDay, minute)
+                        }
+                        val newTimestamp = newCal.timeInMillis
+                        onUpdateDateTaken?.invoke(newTimestamp)
+                        details = details?.copy(dateTaken = formatDateTaken(null, newTimestamp))
+                        showDatePicker = false
+                    },
+                    currentHour,
+                    currentMinute,
+                    false
+                )
+                timePickerDialog.show()
+            },
+            currentYear,
+            currentMonth,
+            currentDay
+        )
+        datePickerDialog.setOnDismissListener { showDatePicker = false }
+        datePickerDialog.show()
     }
 
     ModalBottomSheet(
@@ -109,12 +152,31 @@ fun InfoBottomSheet(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Date Section
-                InfoRow(
-                    icon = Icons.Default.Info,
-                    title = "Date Taken",
-                    subtitle = info.dateTaken ?: SimpleDateFormat("dd MMM yyyy · hh:mm a", Locale.getDefault()).format(Date(item.dateTaken))
-                )
+                // Date Section with Edit Button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        InfoRow(
+                            icon = Icons.Default.Info,
+                            title = "Date Taken",
+                            subtitle = info.dateTaken ?: SimpleDateFormat("dd MMM yyyy · hh:mm a", Locale.getDefault()).format(Date(item.dateTaken))
+                        )
+                    }
+                    if (onUpdateDateTaken != null) {
+                        androidx.compose.material3.IconButton(
+                            onClick = { showDatePicker = true },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Edit Date & Time",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
@@ -236,7 +298,7 @@ private fun readExifDetails(item: MediaItem): ExifDetails {
             dateTaken = formatDateTaken(null, item.dateTaken),
             cameraModel = null,
             resolution = "${item.width} × ${item.height}",
-            fileSize = String.format(Locale.getDefault(), "%.2f MB", item.size.toFloat() / (1024 * 1024)),
+            fileSize = com.HrshD1eux.Gallery.core.util.FormatUtils.formatFileSize(item.size),
             location = null,
             hasGps = false
         )
@@ -252,7 +314,7 @@ private fun readExifDetails(item: MediaItem): ExifDetails {
         val modelText = if (cameraModel != null) "${cameraMake ?: ""} $cameraModel".trim() else null
 
         val resolutionText = "${item.width} × ${item.height}"
-        val sizeText = String.format(Locale.getDefault(), "%.2f MB", item.size.toFloat() / (1024 * 1024))
+        val sizeText = com.HrshD1eux.Gallery.core.util.FormatUtils.formatFileSize(item.size)
         val rawDate = exif.getAttribute(ExifInterface.TAG_DATETIME) ?: exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL)
         val formattedDate = formatDateTaken(rawDate, item.dateTaken)
 
@@ -275,7 +337,7 @@ private fun readExifDetails(item: MediaItem): ExifDetails {
             dateTaken = formatDateTaken(null, item.dateTaken),
             cameraModel = null,
             resolution = "${item.width} × ${item.height}",
-            fileSize = "${item.size / 1024} KB",
+            fileSize = com.HrshD1eux.Gallery.core.util.FormatUtils.formatFileSize(item.size),
             location = null,
             hasGps = false
         )

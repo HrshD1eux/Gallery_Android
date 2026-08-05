@@ -66,6 +66,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.BottomAppBar
@@ -203,6 +206,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val activeItem = viewModel.activeMediaItem
+            if (activeItem is com.HrshD1eux.Gallery.data.model.MediaItem.Video) {
+                try {
+                    val params = android.app.PictureInPictureParams.Builder()
+                        .setAspectRatio(android.util.Rational(16, 9))
+                        .build()
+                    enterPictureInPictureMode(params)
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
     private fun checkPermissions() {
         val isGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val hasFullImages = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
@@ -222,7 +240,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        viewModel.handleActivityResult(requestCode, resultCode)
+        viewModel.handleActivityResult(requestCode, resultCode, this)
     }
 }
 
@@ -232,6 +250,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
     val selectionState = viewModel.selectionState
     val currentScreen = viewModel.currentScreen
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var showSelectionShareDialog by remember { androidx.compose.runtime.mutableStateOf(false) }
     var stripMetadataOnShare by remember { androidx.compose.runtime.mutableStateOf(true) }
     var showMoveToAlbumDialog by remember { androidx.compose.runtime.mutableStateOf(false) }
@@ -450,7 +469,13 @@ fun MainScreenLayout(viewModel: MainViewModel) {
 
                             if (showVaultSecurityDialog) {
                                 com.HrshD1eux.Gallery.ui.vault.VaultSecurityDialog(
-                                    onDismiss = { showVaultSecurityDialog = false }
+                                    viewModel = viewModel,
+                                    onDismiss = { showVaultSecurityDialog = false },
+                                    onVaultDeleted = {
+                                        showVaultSecurityDialog = false
+                                        viewModel.currentCategoryName = null
+                                        viewModel.currentScreen = com.HrshD1eux.Gallery.ui.Screen.Albums
+                                    }
                                 )
                             }
                         }
@@ -511,12 +536,30 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                                     }) {
                                         Icon(imageVector = Icons.Default.PlayArrow, contentDescription = "Slideshow")
                                     }
-                                    IconButton(onClick = { showSelectionShareDialog = true }) {
-                                        Icon(imageVector = Icons.Default.Share, contentDescription = "Share")
-                                    }
-                                    IconButton(onClick = {
-                                        viewModel.hideSelectedMedia(context)
-                                    }) {
+                                     IconButton(onClick = { showSelectionShareDialog = true }) {
+                                         Icon(imageVector = Icons.Default.Share, contentDescription = "Share")
+                                     }
+                                     IconButton(onClick = {
+                                         val selectedIdsSet = selectionState.selectedIds.toSet()
+                                         val itemsToExport = viewModel.visibleMediaItems.value.filter { selectedIdsSet.contains(it.id) }
+                                         if (itemsToExport.isNotEmpty()) {
+                                             scope.launch {
+                                                 val pdfUri = com.HrshD1eux.Gallery.core.util.PdfConverter.createPdfFromImages(context, itemsToExport)
+                                                 if (pdfUri != null) {
+                                                     com.HrshD1eux.Gallery.core.util.HapticUtil.performSuccess(context)
+                                                     com.HrshD1eux.Gallery.core.util.PdfConverter.sharePdf(context, pdfUri)
+                                                 } else {
+                                                     com.HrshD1eux.Gallery.core.util.HapticUtil.performError(context)
+                                                     android.widget.Toast.makeText(context, "Could not create PDF", android.widget.Toast.LENGTH_SHORT).show()
+                                                 }
+                                             }
+                                         }
+                                     }) {
+                                         Icon(imageVector = Icons.Default.PictureAsPdf, contentDescription = "Create PDF")
+                                     }
+                                     IconButton(onClick = {
+                                         viewModel.hideSelectedMedia(context)
+                                     }) {
                                         Icon(
                                             imageVector = if (isViewingVault) Icons.Default.Visibility else Icons.Default.VisibilityOff,
                                             contentDescription = if (isViewingVault) "Restore to Gallery" else "Move to Vault"

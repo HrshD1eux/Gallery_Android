@@ -1,16 +1,29 @@
 package com.HrshD1eux.Gallery.ui.vault
 
 import android.content.Context
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -20,13 +33,14 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.HrshD1eux.Gallery.core.util.HapticUtil
 import com.HrshD1eux.Gallery.core.util.VaultCrypto
+import kotlinx.coroutines.delay
 
 @Composable
 fun VaultUnlockDialog(
@@ -36,17 +50,24 @@ fun VaultUnlockDialog(
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences("vault_prefs", Context.MODE_PRIVATE) }
     
-    val lockType = remember(prefs) { prefs.getString("vault_lock_type", "PIN") ?: "PIN" }
-    val storedPinHash = remember(prefs) { prefs.getString("vault_pin_hash", null) }
-    val storedSaltBase64 = remember(prefs) { prefs.getString("vault_salt", null) }
-    val legacyPin = remember(prefs) { prefs.getString("vault_pin", null) }
-    val isPinConfigured = storedPinHash != null || legacyPin != null
+    val storedLockType = prefs.getString("vault_lock_type", "PIN") ?: "PIN"
+    val storedPinHash = prefs.getString("vault_pin_hash", null)
+    val storedSaltBase64 = prefs.getString("vault_salt", null)
+    val legacyPin = prefs.getString("vault_pin", null)
+    val isVaultDisabled = prefs.getBoolean("vault_disabled", false)
+    val isPinConfigured = !isVaultDisabled && (storedPinHash != null || legacyPin != null)
 
-    // Setup state
+    // Setup Wizard state
+    var setupStage by remember { mutableIntStateOf(1) } // 1: Choose Type & Set Code, 2: Additional Security (Biometrics & Stealth)
+    var setupLockType by remember { mutableStateOf("PIN") } // "PIN" or "PATTERN"
     var setupPinInput by remember { mutableStateOf("") }
     var confirmPinInput by remember { mutableStateOf("") }
     var patternSetupStep by remember { mutableIntStateOf(1) }
     var firstDrawnPattern by remember { mutableStateOf("") }
+    var setupBiometrics by remember { mutableStateOf(false) }
+    var setupStealthMode by remember { mutableStateOf(false) }
+    var setupSecretTrigger by remember { mutableStateOf("#vault") }
+    var chosenCodeToSave by remember { mutableStateOf("") }
 
     // Unlock state
     var pinInput by remember { mutableStateOf("") }
@@ -63,19 +84,24 @@ fun VaultUnlockDialog(
         }
     }
 
-    fun saveNewCredentials(rawCode: String, type: String) {
+    fun finalizeSetup() {
         val saltBytes = VaultCrypto.generateSalt()
         val saltBase64 = android.util.Base64.encodeToString(saltBytes, android.util.Base64.NO_WRAP)
-        val pinHash = VaultCrypto.hashPin(rawCode, saltBytes)
+        val pinHash = VaultCrypto.hashPin(chosenCodeToSave, saltBytes)
         val encryptedHash = VaultCrypto.encryptString(pinHash)
 
         prefs.edit()
             .putString("vault_pin_hash", encryptedHash)
             .putString("vault_salt", saltBase64)
-            .putString("vault_lock_type", type)
+            .putString("vault_lock_type", setupLockType)
+            .putBoolean("vault_biometric_enabled", setupBiometrics)
+            .putBoolean("vault_stealth_mode", setupStealthMode)
+            .putString("vault_secret_trigger", setupSecretTrigger.trim().ifEmpty { "#vault" })
+            .putBoolean("vault_disabled", false)
             .remove("vault_pin")
             .apply()
 
+        HapticUtil.performSuccess(context)
         onUnlockSuccess()
     }
 
@@ -98,8 +124,10 @@ fun VaultUnlockDialog(
 
         if (isValid) {
             failedAttempts = 0
+            HapticUtil.performSuccess(context)
             onUnlockSuccess()
         } else {
+            HapticUtil.performError(context)
             failedAttempts += 1
             if (failedAttempts >= 3) {
                 lockoutRemainingSeconds = 30
@@ -117,13 +145,19 @@ fun VaultUnlockDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = if (!isPinConfigured) "Set Up Vault Lock" else "Unlock Hidden Vault",
+                text = if (!isPinConfigured) {
+                    if (setupStage == 1) "Set Up Vault Lock (1/2)" else "Vault Security Setup (2/2)"
+                } else {
+                    "Unlock Hidden Vault"
+                },
                 style = MaterialTheme.typography.titleMedium
             )
         },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 if (lockoutRemainingSeconds > 0) {
@@ -143,77 +177,209 @@ fun VaultUnlockDialog(
                 }
 
                 if (!isPinConfigured) {
-                    // First-time setup flow
-                    if (lockType == "PATTERN") {
+                    // --- SETUP WIZARD ---
+                    if (setupStage == 1) {
+                        // Stage 1: Choose Type & Code
                         Text(
-                            text = if (patternSetupStep == 1) "Draw a pattern connecting at least 4 dots" else "Draw the pattern again to confirm",
+                            text = "Choose how to protect your Hidden Vault:",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Spacer(modifier = Modifier.height(12.dp))
-                        PatternLockView(
-                            onPatternComplete = { drawn ->
-                                if (patternSetupStep == 1) {
-                                    if (drawn.split("-").size < 4) {
-                                        errorMessage = "Connect at least 4 dots"
-                                        isPatternError = true
-                                    } else {
-                                        firstDrawnPattern = drawn
-                                        patternSetupStep = 2
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            Row(
+                                modifier = Modifier.clickable { setupLockType = "PIN" },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = setupLockType == "PIN",
+                                    onClick = { setupLockType = "PIN" }
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("PIN Lock")
+                            }
+
+                            Row(
+                                modifier = Modifier.clickable { setupLockType = "PATTERN" },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = setupLockType == "PATTERN",
+                                    onClick = { setupLockType = "PATTERN" }
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Pattern Lock")
+                            }
+                        }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                        if (setupLockType == "PIN") {
+                            Text(
+                                text = "Create a 4-6 digit PIN:",
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                            OutlinedTextField(
+                                value = setupPinInput,
+                                onValueChange = {
+                                    if (it.length <= 6 && it.all { c -> c.isDigit() }) {
+                                        setupPinInput = it
                                         errorMessage = null
-                                        isPatternError = false
                                     }
-                                } else {
-                                    if (drawn == firstDrawnPattern) {
-                                        saveNewCredentials(drawn, "PATTERN")
+                                },
+                                label = { Text("4-6 Digit PIN") },
+                                singleLine = true,
+                                visualTransformation = PasswordVisualTransformation(),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = confirmPinInput,
+                                onValueChange = {
+                                    if (it.length <= 6 && it.all { c -> c.isDigit() }) {
+                                        confirmPinInput = it
+                                        errorMessage = null
+                                    }
+                                },
+                                label = { Text("Confirm PIN") },
+                                singleLine = true,
+                                visualTransformation = PasswordVisualTransformation(),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        } else {
+                            Text(
+                                text = if (patternSetupStep == 1) "Draw a pattern connecting at least 4 dots" else "Draw pattern again to confirm",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            PatternLockView(
+                                onPatternComplete = { drawn ->
+                                    if (patternSetupStep == 1) {
+                                        if (drawn.split("-").size < 4) {
+                                            errorMessage = "Connect at least 4 dots"
+                                            isPatternError = true
+                                        } else {
+                                            firstDrawnPattern = drawn
+                                            patternSetupStep = 2
+                                            errorMessage = null
+                                            isPatternError = false
+                                        }
                                     } else {
-                                        errorMessage = "Patterns do not match. Try again."
-                                        patternSetupStep = 1
-                                        isPatternError = true
+                                        if (drawn == firstDrawnPattern) {
+                                            chosenCodeToSave = drawn
+                                            setupStage = 2
+                                            errorMessage = null
+                                            isPatternError = false
+                                        } else {
+                                            errorMessage = "Patterns do not match. Try again."
+                                            patternSetupStep = 1
+                                            isPatternError = true
+                                        }
+                                    }
+                                },
+                                isError = isPatternError,
+                                modifier = Modifier.height(260.dp)
+                            )
+                        }
+                    } else {
+                        // Stage 2: Biometrics & Stealth Mode
+                        Text(
+                            text = "Configure optional security features:",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Biometrics option
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Fingerprint,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Biometric Unlock", style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    "Unlock vault using fingerprint or face",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = setupBiometrics,
+                                onCheckedChange = { enabled ->
+                                    val activity = context as? android.app.Activity
+                                    if (enabled && activity != null) {
+                                        com.HrshD1eux.Gallery.core.util.BiometricAuthHelper.authenticate(
+                                            activity = activity,
+                                            title = "Confirm Biometric",
+                                            subtitle = "Verify fingerprint to enable",
+                                            onSuccess = { setupBiometrics = true },
+                                            onError = { setupBiometrics = false }
+                                        )
+                                    } else {
+                                        setupBiometrics = enabled
                                     }
                                 }
-                            },
-                            isError = isPatternError,
-                            modifier = Modifier.height(260.dp)
-                        )
-                    } else {
-                        Text(
-                            text = "Create a 4-6 digit numeric PIN to secure your Hidden Vault.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(bottom = 12.dp)
-                        )
-                        OutlinedTextField(
-                            value = setupPinInput,
-                            onValueChange = {
-                                if (it.length <= 6 && it.all { c -> c.isDigit() }) {
-                                    setupPinInput = it
-                                    errorMessage = null
-                                }
-                            },
-                            label = { Text("New 4-6 Digit PIN") },
-                            singleLine = true,
-                            visualTransformation = PasswordVisualTransformation(),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = confirmPinInput,
-                            onValueChange = {
-                                if (it.length <= 6 && it.all { c -> c.isDigit() }) {
-                                    confirmPinInput = it
-                                    errorMessage = null
-                                }
-                            },
-                            label = { Text("Confirm PIN") },
-                            singleLine = true,
-                            visualTransformation = PasswordVisualTransformation(),
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                            )
+                        }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
+
+                        // Stealth Mode option
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.VisibilityOff,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Stealth Vault Mode", style = MaterialTheme.typography.titleSmall)
+                                Text(
+                                    "Hide Vault from Albums list. Access via search phrase.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = setupStealthMode,
+                                onCheckedChange = { setupStealthMode = it }
+                            )
+                        }
+
+                        if (setupStealthMode) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = setupSecretTrigger,
+                                onValueChange = { setupSecretTrigger = it },
+                                label = { Text("Secret Search Phrase") },
+                                placeholder = { Text("#vault") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
                     }
                 } else {
-                    // Normal unlock flow
-                    if (lockType == "PATTERN") {
+                    // --- NORMAL UNLOCK FLOW ---
+                    if (storedLockType == "PATTERN") {
                         Text(
                             text = if (lockoutRemainingSeconds > 0) "Locked out temporarily" else "Draw your secret pattern to unlock",
                             style = MaterialTheme.typography.bodyMedium,
@@ -249,25 +415,35 @@ fun VaultUnlockDialog(
         },
         confirmButton = {
             if (!isPinConfigured) {
-                if (lockType == "PIN") {
-                    Button(
-                        onClick = {
-                            if (setupPinInput.length < 4) {
-                                errorMessage = "PIN must be at least 4 digits."
-                                return@Button
+                if (setupStage == 1) {
+                    if (setupLockType == "PIN") {
+                        Button(
+                            onClick = {
+                                if (setupPinInput.length < 4) {
+                                    errorMessage = "PIN must be at least 4 digits."
+                                    return@Button
+                                }
+                                if (setupPinInput != confirmPinInput) {
+                                    errorMessage = "PINs do not match."
+                                    return@Button
+                                }
+                                chosenCodeToSave = setupPinInput
+                                setupStage = 2
+                                errorMessage = null
                             }
-                            if (setupPinInput != confirmPinInput) {
-                                errorMessage = "PINs do not match."
-                                return@Button
-                            }
-                            saveNewCredentials(setupPinInput, "PIN")
+                        ) {
+                            Text("Next")
                         }
+                    }
+                } else {
+                    Button(
+                        onClick = { finalizeSetup() }
                     ) {
-                        Text("Set PIN & Unlock")
+                        Text("Finish & Unlock")
                     }
                 }
             } else {
-                if (lockType == "PIN") {
+                if (storedLockType == "PIN") {
                     Button(
                         onClick = {
                             if (pinInput.isNotBlank()) {
@@ -299,11 +475,16 @@ fun VaultUnlockDialog(
                         Text("Use Biometric")
                     }
                 }
-                TextButton(onClick = onDismiss) {
-                    Text("Cancel")
+                if (!isPinConfigured && setupStage == 2) {
+                    TextButton(onClick = { setupStage = 1 }) {
+                        Text("Back")
+                    }
+                } else {
+                    TextButton(onClick = onDismiss) {
+                        Text("Cancel")
+                    }
                 }
             }
         }
     )
 }
-

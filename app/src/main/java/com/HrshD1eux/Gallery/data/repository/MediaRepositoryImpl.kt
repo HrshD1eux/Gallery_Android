@@ -270,7 +270,7 @@ class MediaRepositoryImpl @Inject constructor(
         return metadataDao.getTrashedIdsFlow()
             .combine(mediaStoreDataSource.observeMediaStore()) { trashedIds, _ -> trashedIds }
             .map { trashedIds ->
-                val storeTrashed = mediaStoreDataSource.fetchMedia(limit = 1000, offset = 0, includeTrashed = true).filter { it.isTrashed }
+                val storeTrashed = mediaStoreDataSource.fetchTrashedMedia()
                 val dbItems = if (trashedIds.isNotEmpty()) {
                     mediaStoreDataSource.fetchMediaByIds(trashedIds.toSet())
                 } else {
@@ -482,69 +482,136 @@ class MediaRepositoryImpl @Inject constructor(
         mediaItem: MediaItem,
         newDisplayName: String
     ): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val file = java.io.File(mediaItem.path)
-            val ext = file.extension.ifEmpty {
-                when (mediaItem.mimeType) {
-                    "image/png" -> "png"
-                    "image/gif" -> "gif"
-                    "image/webp" -> "webp"
-                    "video/mp4" -> "mp4"
-                    "video/x-matroska" -> "mkv"
-                    else -> "jpg"
-                }
+        val file = java.io.File(mediaItem.path)
+        val ext = file.extension.ifEmpty {
+            when (mediaItem.mimeType) {
+                "image/png" -> "png"
+                "image/gif" -> "gif"
+                "image/webp" -> "webp"
+                "video/mp4" -> "mp4"
+                "video/x-matroska" -> "mkv"
+                else -> "jpg"
             }
-            val finalName = if (newDisplayName.contains(".")) newDisplayName else "$newDisplayName.$ext"
+        }
+        val finalName = if (newDisplayName.contains(".")) newDisplayName else "$newDisplayName.$ext"
 
-            if (mediaItem.isHidden) {
-                val entity = metadataDao.getMetadataForMedia(mediaItem.id)
-                if (entity != null) {
-                    val newOriginalPath = java.io.File(java.io.File(entity.originalPath).parentFile, finalName).absolutePath
-                    metadataDao.insertOrUpdate(entity.copy(originalPath = newOriginalPath))
-                }
-                return@withContext true
+        if (mediaItem.isHidden) {
+            val entity = metadataDao.getMetadataForMedia(mediaItem.id)
+            if (entity != null) {
+                val newOriginalPath = java.io.File(java.io.File(entity.originalPath).parentFile, finalName).absolutePath
+                metadataDao.insertOrUpdate(entity.copy(originalPath = newOriginalPath))
             }
+            return@withContext true
+        }
 
-            var updated = false
-            val resolver = context.contentResolver
-            try {
-                val contentValues = android.content.ContentValues().apply {
-                    put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, finalName)
-                    put(android.provider.MediaStore.MediaColumns.TITLE, finalName.substringBeforeLast("."))
-                }
-                val rows = resolver.update(mediaItem.uri, contentValues, null, null)
-                if (rows > 0) updated = true
-            } catch (e: Exception) {
-                e.printStackTrace()
+        val resolver = context.contentResolver
+        val contentValues = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, finalName)
+            put(android.provider.MediaStore.MediaColumns.TITLE, finalName.substringBeforeLast("."))
+        }
+
+        val rows = try {
+            resolver.update(mediaItem.uri, contentValues, null, null)
+        } catch (e: Exception) {
+            val recoverable = e as? android.app.RecoverableSecurityException
+                ?: e.cause as? android.app.RecoverableSecurityException
+            val isSec = e is SecurityException || e.cause is SecurityException
+            if (recoverable != null || isSec) {
+                throw e
             }
+            0
+        }
 
+        if (rows > 0) {
             if (file.exists() && file.parentFile != null) {
                 val targetFile = java.io.File(file.parentFile, finalName)
-                if (file.renameTo(targetFile)) {
-                    updated = true
-                    android.media.MediaScannerConnection.scanFile(
-                        context,
-                        arrayOf(file.absolutePath, targetFile.absolutePath),
-                        null,
-                        null
-                    )
-                } else {
-                    android.media.MediaScannerConnection.scanFile(
-                        context,
-                        arrayOf(file.absolutePath),
-                        null,
-                        null
-                    )
-                }
+                android.media.MediaScannerConnection.scanFile(
+                    context,
+                    arrayOf(file.absolutePath, targetFile.absolutePath),
+                    null,
+                    null
+                )
             }
-
             val entity = metadataDao.getMetadataForMedia(mediaItem.id)
             if (entity != null && file.parentFile != null) {
                 val newPath = java.io.File(file.parentFile, finalName).absolutePath
                 metadataDao.insertOrUpdate(entity.copy(originalPath = newPath))
             }
+            return@withContext true
+        }
 
-            updated || !file.exists()
+        if (file.exists() && file.parentFile != null) {
+            val targetFile = java.io.File(file.parentFile, finalName)
+            if (file.renameTo(targetFile)) {
+                android.media.MediaScannerConnection.scanFile(
+                    context,
+                    arrayOf(file.absolutePath, targetFile.absolutePath),
+                    null,
+                    null
+                )
+                val entity = metadataDao.getMetadataForMedia(mediaItem.id)
+                if (entity != null) {
+                    metadataDao.insertOrUpdate(entity.copy(originalPath = targetFile.absolutePath))
+                }
+                return@withContext true
+            }
+        }
+
+        false
+    }
+
+    override suspend fun updateMediaDateTaken(context: Context, mediaItem: MediaItem, newDateMs: Long): Boolean = withContext(Dispatchers.IO) {
+        try {
+            // Update Room database metadata
+            val existing = metadataDao.getMetadataForMedia(mediaItem.id)
+            if (existing != null) {
+                metadataDao.insertOrUpdate(existing.copy(dateTaken = newDateMs))
+            } else {
+                metadataDao.insertOrUpdate(
+                    com.HrshD1eux.Gallery.data.database.MediaMetadataEntity(
+                        mediaId = mediaItem.id,
+                        isFavorite = mediaItem.isFavorite,
+                        isTrashed = mediaItem.isTrashed,
+                        isHidden = mediaItem.isHidden,
+                        dateTaken = newDateMs,
+                        originalPath = mediaItem.path,
+                        mimeType = mediaItem.mimeType,
+                        size = mediaItem.size,
+                        width = mediaItem.width,
+                        height = mediaItem.height,
+                        durationMs = if (mediaItem is MediaItem.Video) mediaItem.durationMs else 0L,
+                        bucketId = mediaItem.bucketId,
+                        bucketName = mediaItem.bucketName
+                    )
+                )
+            }
+
+            // Update MediaStore if not in vault
+            if (!mediaItem.isHidden) {
+                val resolver = context.contentResolver
+                val contentValues = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.MediaColumns.DATE_TAKEN, newDateMs)
+                    put(android.provider.MediaStore.MediaColumns.DATE_ADDED, newDateMs / 1000L)
+                }
+                try {
+                    resolver.update(mediaItem.uri, contentValues, null, null)
+                } catch (_: Exception) {}
+
+                // Update EXIF on disk if possible
+                val file = java.io.File(mediaItem.path)
+                if (file.exists() && file.canWrite()) {
+                    try {
+                        val exif = androidx.exifinterface.media.ExifInterface(file.absolutePath)
+                        val sdf = java.text.SimpleDateFormat("yyyy:MM:dd HH:mm:ss", java.util.Locale.getDefault())
+                        val formattedDate = sdf.format(java.util.Date(newDateMs))
+                        exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_DATETIME, formattedDate)
+                        exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_DATETIME_ORIGINAL, formattedDate)
+                        exif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_DATETIME_DIGITIZED, formattedDate)
+                        exif.saveAttributes()
+                    } catch (_: Exception) {}
+                }
+            }
+            true
         } catch (e: Exception) {
             e.printStackTrace()
             false
@@ -567,5 +634,73 @@ class MediaRepositoryImpl @Inject constructor(
             e.printStackTrace()
         }
         purgedCount
+    }
+
+    override suspend fun restoreAllVaultMedia(context: Context): Int = withContext(Dispatchers.IO) {
+        var restoredCount = 0
+        try {
+            val allMetadata = metadataDao.getAllMetadata()
+            val hiddenEntities = allMetadata.filter { it.isHidden }
+            for (entity in hiddenEntities) {
+                val dummyItem = if (entity.mimeType.contains("video", ignoreCase = true)) {
+                    MediaItem.Video(
+                        id = entity.mediaId,
+                        uri = android.net.Uri.fromFile(java.io.File(entity.vaultPath)),
+                        path = entity.originalPath.ifEmpty { entity.vaultPath },
+                        mimeType = if (entity.mimeType.isNotBlank()) entity.mimeType else "video/mp4",
+                        dateTaken = entity.dateTaken,
+                        size = entity.size,
+                        width = entity.width,
+                        height = entity.height,
+                        durationMs = entity.durationMs,
+                        bucketId = entity.bucketId,
+                        bucketName = entity.bucketName,
+                        isHidden = true
+                    )
+                } else {
+                    MediaItem.Photo(
+                        id = entity.mediaId,
+                        uri = android.net.Uri.fromFile(java.io.File(entity.vaultPath)),
+                        path = entity.originalPath.ifEmpty { entity.vaultPath },
+                        mimeType = if (entity.mimeType.isNotBlank()) entity.mimeType else "image/jpeg",
+                        dateTaken = entity.dateTaken,
+                        size = entity.size,
+                        width = entity.width,
+                        height = entity.height,
+                        bucketId = entity.bucketId,
+                        bucketName = entity.bucketName,
+                        isHidden = true
+                    )
+                }
+                toggleHidden(context, dummyItem)
+                restoredCount++
+            }
+            clearVaultCache(context)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        restoredCount
+    }
+
+    override suspend fun deleteAllVaultData(context: Context): Int = withContext(Dispatchers.IO) {
+        var deletedCount = 0
+        try {
+            val vaultDir = java.io.File(context.filesDir, "vault")
+            if (vaultDir.exists()) {
+                vaultDir.listFiles()?.forEach { file ->
+                    file.delete()
+                    deletedCount++
+                }
+            }
+            val allMetadata = metadataDao.getAllMetadata()
+            val hiddenEntities = allMetadata.filter { it.isHidden }
+            for (entity in hiddenEntities) {
+                metadataDao.delete(entity)
+            }
+            clearVaultCache(context)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        deletedCount
     }
 }

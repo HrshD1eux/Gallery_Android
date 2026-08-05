@@ -31,7 +31,10 @@ interface MediaRepository {
     suspend fun scanSecondaryMediaDirectories(): Int
     suspend fun getDatePositionIndex(bucketId: Long? = null, sortOrder: com.HrshD1eux.Gallery.ui.SortOrder = com.HrshD1eux.Gallery.ui.SortOrder.NEWEST_FIRST): List<DatePositionHeader>
     suspend fun renameMedia(context: android.content.Context, mediaItem: MediaItem, newDisplayName: String): Boolean
+    suspend fun updateMediaDateTaken(context: android.content.Context, mediaItem: MediaItem, newDateMs: Long): Boolean
     suspend fun purgeExpiredTrashMedia(): Int
     suspend fun clearVaultCache(context: android.content.Context)
+    suspend fun restoreAllVaultMedia(context: android.content.Context): Int
+    suspend fun deleteAllVaultData(context: android.content.Context): Int
     fun observeMediaChanges(): Flow<Unit>
 }

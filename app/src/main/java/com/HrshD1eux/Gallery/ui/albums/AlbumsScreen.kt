@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
@@ -60,7 +61,6 @@ fun AlbumsScreen(
     viewModel: MainViewModel,
     modifier: Modifier = Modifier
 ) {
-    val buckets by viewModel.buckets.collectAsState()
     val favorites by viewModel.favorites.collectAsState()
     val trashed by viewModel.trashed.collectAsState()
     val hidden by viewModel.hidden.collectAsState()
@@ -76,17 +76,27 @@ fun AlbumsScreen(
     var activeOptionsBucket by remember { mutableStateOf<com.HrshD1eux.Gallery.data.media.BucketInfo?>(null) }
     var showDeleteAlbumConfirm by remember { mutableStateOf(false) }
 
-    val albumPrefs = remember(context) { context.getSharedPreferences("album_prefs", Context.MODE_PRIVATE) }
-    var pinnedBucketIds by remember {
-        mutableStateOf(albumPrefs.getStringSet("pinned_buckets", emptySet()) ?: emptySet())
+    val visibleBuckets by viewModel.visibleBuckets.collectAsState()
+    val pinnedBucketIds by viewModel.pinnedBucketIds.collectAsState()
+    val vaultConfigVersion by viewModel.vaultConfigVersion.collectAsState()
+    val isVaultUnlocked by viewModel.isVaultUnlocked.collectAsState()
+
+    val pinnedBuckets = remember(visibleBuckets, pinnedBucketIds) {
+        visibleBuckets.filter { pinnedBucketIds.contains(it.id.toString()) }
+    }
+    val unpinnedBuckets = remember(visibleBuckets, pinnedBucketIds) {
+        visibleBuckets.filter { !pinnedBucketIds.contains(it.id.toString()) }
     }
 
-    val pinnedBuckets = remember(buckets, pinnedBucketIds) {
-        buckets.filter { pinnedBucketIds.contains(it.id.toString()) }
+    val vaultPrefs = remember(context) { context.getSharedPreferences("vault_prefs", Context.MODE_PRIVATE) }
+    val isStealthMode = remember(vaultConfigVersion, isVaultUnlocked) { vaultPrefs.getBoolean("vault_stealth_mode", false) }
+    val isVaultDisabled = remember(vaultConfigVersion, isVaultUnlocked) { vaultPrefs.getBoolean("vault_disabled", false) }
+    val isPinConfigured = remember(vaultConfigVersion, isVaultUnlocked) {
+        vaultPrefs.getString("vault_pin_hash", null) != null || vaultPrefs.getString("vault_pin", null) != null
     }
-    val unpinnedBuckets = remember(buckets, pinnedBucketIds) {
-        buckets.filter { !pinnedBucketIds.contains(it.id.toString()) }
-    }
+
+    val storageStats by viewModel.storageBreakdown.collectAsState()
+    var showEmptyTrashConfirm by remember { mutableStateOf(false) }
 
     Box(modifier = modifier.fillMaxSize()) {
         LazyColumn(
@@ -120,6 +130,62 @@ fun AlbumsScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+        }
+
+        // Storage Overview Card
+        item {
+            androidx.compose.material3.Card(
+                colors = androidx.compose.material3.CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 20.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Storage Overview 📊",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        if (trashed.isNotEmpty()) {
+                            TextButton(
+                                onClick = { showEmptyTrashConfirm = true },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                            ) {
+                                Text("Empty Trash", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("Photos", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(com.HrshD1eux.Gallery.core.util.FormatUtils.formatFileSize(storageStats.photosBytes), style = MaterialTheme.typography.bodyMedium)
+                        }
+                        Column {
+                            Text("Videos", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(com.HrshD1eux.Gallery.core.util.FormatUtils.formatFileSize(storageStats.videosBytes), style = MaterialTheme.typography.bodyMedium)
+                        }
+                        Column {
+                            Text("Vault", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(com.HrshD1eux.Gallery.core.util.FormatUtils.formatFileSize(storageStats.vaultBytes), style = MaterialTheme.typography.bodyMedium)
+                        }
+                        Column {
+                            Text("Trash", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(com.HrshD1eux.Gallery.core.util.FormatUtils.formatFileSize(storageStats.trashBytes), style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
             }
         }
 
@@ -164,18 +230,20 @@ fun AlbumsScreen(
         }
 
         // Smart Album: Hidden (Only visible if Stealth Mode is disabled)
-        val isStealthMode = context.getSharedPreferences("vault_prefs", Context.MODE_PRIVATE)
-            .getBoolean("vault_stealth_mode", false)
         if (!isStealthMode) {
             item {
                 AlbumRowItem(
-                    icon = Icons.Default.Lock,
+                    icon = if (isVaultDisabled || !isPinConfigured) Icons.Default.LockOpen else Icons.Default.Lock,
                     title = "Hidden Vault",
                     count = hidden.size,
                     onClick = {
+                        if (isVaultDisabled || !isPinConfigured) {
+                            showHiddenLockedDialog = true
+                            return@AlbumRowItem
+                        }
+
                         val activity = context as? android.app.Activity
-                        val isBiometricEnabled = context.getSharedPreferences("vault_prefs", Context.MODE_PRIVATE)
-                            .getBoolean("vault_biometric_enabled", false)
+                        val isBiometricEnabled = vaultPrefs.getBoolean("vault_biometric_enabled", false)
                         if (isBiometricEnabled && activity != null) {
                             com.HrshD1eux.Gallery.core.util.BiometricAuthHelper.authenticate(
                                 activity = activity,
@@ -253,9 +321,7 @@ fun AlbumsScreen(
                     count = bucket.count,
                     onClick = { viewModel.selectBucket(bucket.id, bucket.name) },
                     onLongClick = {
-                        val newSet = pinnedBucketIds.toMutableSet().apply { remove(bucket.id.toString()) }
-                        albumPrefs.edit().putStringSet("pinned_buckets", newSet).apply()
-                        pinnedBucketIds = newSet
+                        viewModel.togglePinBucket(bucket.id)
                     }
                 )
             }
@@ -273,9 +339,7 @@ fun AlbumsScreen(
             )
         }
 
-
-
-        if (buckets.isEmpty()) {
+        if (visibleBuckets.isEmpty()) {
             item {
                 Text(
                     text = "No device folders found",
@@ -312,11 +376,7 @@ fun AlbumsScreen(
                 Column {
                     TextButton(
                         onClick = {
-                            val newSet = pinnedBucketIds.toMutableSet().apply {
-                                if (isPinned) remove(bucket.id.toString()) else add(bucket.id.toString())
-                            }
-                            albumPrefs.edit().putStringSet("pinned_buckets", newSet).apply()
-                            pinnedBucketIds = newSet
+                            viewModel.togglePinBucket(bucket.id)
                             activeOptionsBucket = null
                         },
                         modifier = Modifier.fillMaxWidth()
@@ -325,6 +385,21 @@ fun AlbumsScreen(
                             Icon(Icons.Default.Folder, contentDescription = null)
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(if (isPinned) "Unpin Album 📌" else "Pin Album to Top 📌")
+                        }
+                    }
+
+                    TextButton(
+                        onClick = {
+                            viewModel.excludeBucket(bucket.id)
+                            activeOptionsBucket = null
+                            android.widget.Toast.makeText(context, "Album hidden from gallery", android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Default.LockOpen, contentDescription = null)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text("Exclude / Hide Album 🚫")
                         }
                     }
 
@@ -363,6 +438,29 @@ fun AlbumsScreen(
                 TextButton(onClick = { activeOptionsBucket = null }) { Text("Close") }
             }
         )
+
+        if (showEmptyTrashConfirm) {
+            AlertDialog(
+                onDismissRequest = { showEmptyTrashConfirm = false },
+                icon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                title = { Text("Empty Trash?") },
+                text = { Text("All items in Trash will be permanently deleted. This action cannot be undone.") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showEmptyTrashConfirm = false
+                            viewModel.emptyTrash(context)
+                        },
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Empty Trash")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showEmptyTrashConfirm = false }) { Text("Cancel") }
+                }
+            )
+        }
 
         if (showDeleteAlbumConfirm) {
             AlertDialog(
