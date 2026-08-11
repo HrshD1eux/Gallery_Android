@@ -982,6 +982,17 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    suspend fun getSelectedMediaItems(selectedIds: Set<Long>): List<MediaItem> = withContext(Dispatchers.IO) {
+        if (selectedIds.isEmpty()) return@withContext emptyList()
+        val repoItems = repository.getMediaByIds(selectedIds)
+        if (repoItems.isNotEmpty()) return@withContext repoItems
+        val visible = visibleMediaItems.value.filter { selectedIds.contains(it.id) }
+        if (visible.isNotEmpty()) return@withContext visible
+        val all = mediaItems.value.filter { selectedIds.contains(it.id) }
+        if (all.isNotEmpty()) return@withContext all
+        hidden.value.filter { selectedIds.contains(it.id) }
+    }
+
     fun shareSelectedMedia(context: Context, stripMetadata: Boolean) {
         val selectedIds = selectionState.selectedIds.toSet()
         if (selectedIds.isNotEmpty()) {

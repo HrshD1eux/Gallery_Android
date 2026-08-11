@@ -67,6 +67,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import androidx.compose.material3.AlertDialog
@@ -498,87 +503,125 @@ fun MainScreenLayout(viewModel: MainViewModel) {
             ) { inSelection ->
                 if (inSelection) {
                     BottomAppBar(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp),
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        tonalElevation = 8.dp
                     ) {
+                        val categoryName by viewModel.currentCategoryNameFlow.collectAsState()
+                        val trashedList by viewModel.trashed.collectAsState()
+                        val selectedIds = selectionState.selectedIds
+                        val isViewingTrash = categoryName == "Trash" || (selectedIds.isNotEmpty() && trashedList.any { selectedIds.contains(it.id) })
+                        val isViewingVault = categoryName == "Hidden Vault"
+
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                                .horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 12.dp, vertical = 2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "${selectionState.selectedIds.size} Selected",
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                            val categoryName by viewModel.currentCategoryNameFlow.collectAsState()
-                            val trashedList by viewModel.trashed.collectAsState()
-                            val selectedIds = selectionState.selectedIds
-                            val isViewingTrash = categoryName == "Trash" || (selectedIds.isNotEmpty() && trashedList.any { selectedIds.contains(it.id) })
-                            val isViewingVault = categoryName == "Hidden Vault"
+                            // Selection count & Deselect chip
+                            Surface(
+                                shape = MaterialTheme.shapes.small,
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                modifier = Modifier.clickable { selectionState.clear() }
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Deselect",
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "${selectionState.selectedIds.size} Selected",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                }
+                            }
 
-                            Row {
-                                if (isViewingTrash) {
-                                    IconButton(onClick = { viewModel.restoreSelectedMedia() }) {
-                                        Icon(imageVector = Icons.Default.RestoreFromTrash, contentDescription = "Restore")
-                                    }
-                                    IconButton(onClick = { viewModel.deleteSelectedMediaPermanently(context) }) {
-                                        Icon(imageVector = Icons.Default.DeleteForever, contentDescription = "Delete Permanently", tint = MaterialTheme.colorScheme.error)
-                                    }
-                                } else {
-                                    IconButton(onClick = {
-                                        val selectedIds = selectionState.selectedIds.toSet()
-                                        val itemsToPlay = viewModel.visibleMediaItems.value.filter { selectedIds.contains(it.id) }
+                            if (isViewingTrash) {
+                                SelectionActionButton(
+                                    icon = Icons.Default.RestoreFromTrash,
+                                    label = "Restore",
+                                    onClick = { viewModel.restoreSelectedMedia() }
+                                )
+                                SelectionActionButton(
+                                    icon = Icons.Default.DeleteForever,
+                                    label = "Delete Forever",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    onClick = { viewModel.deleteSelectedMediaPermanently(context) }
+                                )
+                            } else {
+                                SelectionActionButton(
+                                    icon = Icons.Default.PlayArrow,
+                                    label = "Slideshow",
+                                    onClick = {
+                                        val selectedIdsSet = selectionState.selectedIds.toSet()
+                                        val itemsToPlay = viewModel.visibleMediaItems.value.filter { selectedIdsSet.contains(it.id) }
                                         if (itemsToPlay.isNotEmpty()) {
                                             viewModel.activeMediaItem = itemsToPlay.first()
                                         }
-                                    }) {
-                                        Icon(imageVector = Icons.Default.PlayArrow, contentDescription = "Slideshow")
                                     }
-                                     IconButton(onClick = { showSelectionShareDialog = true }) {
-                                         Icon(imageVector = Icons.Default.Share, contentDescription = "Share")
-                                     }
-                                     IconButton(onClick = {
-                                         val selectedIdsSet = selectionState.selectedIds.toSet()
-                                         val itemsToExport = viewModel.visibleMediaItems.value.filter { selectedIdsSet.contains(it.id) }
-                                         if (itemsToExport.isNotEmpty()) {
-                                             scope.launch {
-                                                 val pdfUri = com.HrshD1eux.Gallery.core.util.PdfConverter.createPdfFromImages(context, itemsToExport)
-                                                 if (pdfUri != null) {
-                                                     com.HrshD1eux.Gallery.core.util.HapticUtil.performSuccess(context)
-                                                     com.HrshD1eux.Gallery.core.util.PdfConverter.sharePdf(context, pdfUri)
-                                                 } else {
-                                                     com.HrshD1eux.Gallery.core.util.HapticUtil.performError(context)
-                                                     android.widget.Toast.makeText(context, "Could not create PDF", android.widget.Toast.LENGTH_SHORT).show()
-                                                 }
-                                             }
-                                         }
-                                     }) {
-                                         Icon(imageVector = Icons.Default.PictureAsPdf, contentDescription = "Create PDF")
-                                     }
-                                     IconButton(onClick = {
-                                         viewModel.hideSelectedMedia(context)
-                                     }) {
-                                        Icon(
-                                            imageVector = if (isViewingVault) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                            contentDescription = if (isViewingVault) "Restore to Gallery" else "Move to Vault"
-                                        )
+                                )
+
+                                SelectionActionButton(
+                                    icon = Icons.Default.Share,
+                                    label = "Share",
+                                    onClick = { showSelectionShareDialog = true }
+                                )
+
+                                SelectionActionButton(
+                                    icon = Icons.Default.PictureAsPdf,
+                                    label = "Create PDF",
+                                    onClick = {
+                                        val selectedIdsSet = selectionState.selectedIds.toSet()
+                                        scope.launch {
+                                            val itemsToExport = viewModel.getSelectedMediaItems(selectedIdsSet)
+                                            if (itemsToExport.isNotEmpty()) {
+                                                android.widget.Toast.makeText(context, "Generating PDF...", android.widget.Toast.LENGTH_SHORT).show()
+                                                val pdfUri = com.HrshD1eux.Gallery.core.util.PdfConverter.createPdfFromImages(context, itemsToExport)
+                                                if (pdfUri != null) {
+                                                    com.HrshD1eux.Gallery.core.util.HapticUtil.performSuccess(context)
+                                                    com.HrshD1eux.Gallery.core.util.PdfConverter.sharePdf(context, pdfUri)
+                                                } else {
+                                                    com.HrshD1eux.Gallery.core.util.HapticUtil.performError(context)
+                                                    android.widget.Toast.makeText(context, "Could not create PDF from selected items", android.widget.Toast.LENGTH_SHORT).show()
+                                                }
+                                            } else {
+                                                android.widget.Toast.makeText(context, "No photos selected for PDF", android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
                                     }
-                                     if (!isViewingVault) {
-                                         IconButton(onClick = { showMoveToAlbumDialog = true }) {
-                                             Icon(imageVector = Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = "Move to Album")
-                                         }
-                                     }
-                                    IconButton(onClick = {
-                                        viewModel.deleteSelectedMedia(context)
-                                    }) {
-                                        Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete")
-                                    }
+                                )
+
+                                SelectionActionButton(
+                                    icon = if (isViewingVault) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                    label = if (isViewingVault) "Unhide" else "Vault",
+                                    onClick = { viewModel.hideSelectedMedia(context) }
+                                )
+
+                                if (!isViewingVault) {
+                                    SelectionActionButton(
+                                        icon = Icons.AutoMirrored.Filled.DriveFileMove,
+                                        label = "Move",
+                                        onClick = { showMoveToAlbumDialog = true }
+                                    )
                                 }
-                                IconButton(onClick = { selectionState.clear() }) {
-                                    Icon(imageVector = Icons.Default.Close, contentDescription = "Cancel")
-                                }
+
+                                SelectionActionButton(
+                                    icon = Icons.Default.Delete,
+                                    label = "Delete",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    onClick = { viewModel.deleteSelectedMedia(context) }
+                                )
                             }
                         }
                     }
@@ -826,5 +869,37 @@ fun PermissionFallbackScreen(onRequestPermissions: () -> Unit) {
                 Text("App Settings")
             }
         }
+    }
+}
+
+@Composable
+fun SelectionActionButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    modifier: Modifier = Modifier,
+    tint: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.primary,
+    onClick: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+        modifier = modifier
+            .clip(MaterialTheme.shapes.small)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = tint,
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1
+        )
     }
 }

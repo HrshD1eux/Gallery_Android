@@ -44,11 +44,12 @@ object PdfConverter {
         val bgPaint = Paint().apply { color = Color.WHITE }
 
         try {
-            photos.forEachIndexed { index, mediaItem ->
-                val bitmap = decodeSampledBitmap(context, mediaItem.uri, PAGE_WIDTH * 2, PAGE_HEIGHT * 2)
-                    ?: return@forEachIndexed
+            var pageNum = 1
+            photos.forEach { mediaItem ->
+                val bitmap = decodeSampledBitmap(context, mediaItem, PAGE_WIDTH * 2, PAGE_HEIGHT * 2)
+                    ?: return@forEach
 
-                val pageInfo = PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, index + 1).create()
+                val pageInfo = PdfDocument.PageInfo.Builder(PAGE_WIDTH, PAGE_HEIGHT, pageNum++).create()
                 val page = pdfDocument.startPage(pageInfo)
                 val canvas: Canvas = page.canvas
 
@@ -81,33 +82,32 @@ object PdfConverter {
                 bitmap.recycle()
             }
 
+            if (pageNum == 1) {
+                // No pages were successfully rendered
+                return@withContext null
+            }
+
             // Save PDF
             val fileName = "$documentTitle.pdf"
-            val outputUri: Uri?
+            val outputUri: Uri? = saveToCache(context, pdfDocument, fileName)
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val contentValues = ContentValues().apply {
-                    put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                    put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOCUMENTS + "/Gallery_PDFs")
-                }
-                val uri = context.contentResolver.insert(MediaStore.Files.getContentUri("external"), contentValues)
-                if (uri != null) {
-                    context.contentResolver.openOutputStream(uri)?.use { stream ->
-                        pdfDocument.writeTo(stream)
+            // Also optionally save a copy to Documents folder for user access
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val contentValues = ContentValues().apply {
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                        put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
+                        put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOCUMENTS + "/Gallery_PDFs")
                     }
-                    outputUri = uri
-                } else {
-                    outputUri = saveToCache(context, pdfDocument, fileName)
+                    val docUri = context.contentResolver.insert(MediaStore.Files.getContentUri("external"), contentValues)
+                    if (docUri != null) {
+                        context.contentResolver.openOutputStream(docUri)?.use { stream ->
+                            pdfDocument.writeTo(stream)
+                        }
+                    }
                 }
-            } else {
-                val docsDir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "Gallery_PDFs")
-                docsDir.mkdirs()
-                val file = File(docsDir, fileName)
-                FileOutputStream(file).use { stream ->
-                    pdfDocument.writeTo(stream)
-                }
-                outputUri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
 
             return@withContext outputUri
@@ -115,7 +115,9 @@ object PdfConverter {
             e.printStackTrace()
             return@withContext null
         } finally {
-            pdfDocument.close()
+            try {
+                pdfDocument.close()
+            } catch (_: Exception) {}
         }
     }
 
@@ -133,14 +135,24 @@ object PdfConverter {
         }
     }
 
-    private fun decodeSampledBitmap(context: Context, uri: Uri, reqWidth: Int, reqHeight: Int): Bitmap? {
+    private fun decodeSampledBitmap(context: Context, mediaItem: MediaItem.Photo, reqWidth: Int, reqHeight: Int): Bitmap? {
         return try {
+            val bytes = if (mediaItem.isHidden) {
+                val byteOut = java.io.ByteArrayOutputStream()
+                context.contentResolver.openInputStream(mediaItem.uri)?.use { input ->
+                    VaultCrypto.decrypt(input, byteOut)
+                }
+                byteOut.toByteArray()
+            } else {
+                context.contentResolver.openInputStream(mediaItem.uri)?.use { input ->
+                    input.readBytes()
+                }
+            } ?: return null
+
             val options = BitmapFactory.Options().apply {
                 inJustDecodeBounds = true
             }
-            context.contentResolver.openInputStream(uri)?.use {
-                BitmapFactory.decodeStream(it, null, options)
-            }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
 
             var inSampleSize = 1
             if (options.outHeight > reqHeight || options.outWidth > reqWidth) {
@@ -155,9 +167,7 @@ object PdfConverter {
                 this.inSampleSize = inSampleSize
                 inPreferredConfig = Bitmap.Config.ARGB_8888
             }
-            context.contentResolver.openInputStream(uri)?.use {
-                BitmapFactory.decodeStream(it, null, decodeOptions)
-            }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions)
         } catch (e: Exception) {
             e.printStackTrace()
             null
@@ -169,8 +179,11 @@ object PdfConverter {
             type = "application/pdf"
             putExtra(Intent.EXTRA_STREAM, pdfUri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        val chooser = Intent.createChooser(intent, "Share PDF").apply {
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
-        context.startActivity(Intent.createChooser(intent, "Share PDF"))
+        context.startActivity(chooser)
     }
 }
