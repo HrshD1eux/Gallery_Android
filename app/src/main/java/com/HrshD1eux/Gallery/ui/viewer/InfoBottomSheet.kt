@@ -178,11 +178,35 @@ fun InfoRow(
     }
 }
 
+private fun formatDateTaken(rawExifDate: String?, timestampMs: Long): String {
+    val outputFormatter = SimpleDateFormat("dd MMM yyyy · hh:mm a", Locale.getDefault())
+    if (!rawExifDate.isNullOrEmpty()) {
+        val formatsToTry = arrayOf(
+            "yyyy:MM:dd HH:mm:ss",
+            "yyyy:MM:dd HH:mm",
+            "yyyy:MM:dd",
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd"
+        )
+        for (format in formatsToTry) {
+            try {
+                val parser = SimpleDateFormat(format, Locale.getDefault())
+                val parsed = parser.parse(rawExifDate)
+                if (parsed != null) {
+                    return outputFormatter.format(parsed)
+                }
+            } catch (_: Exception) { }
+        }
+    }
+    val safeMs = if (timestampMs > 0) timestampMs else System.currentTimeMillis()
+    return outputFormatter.format(Date(safeMs))
+}
+
 private fun readExifDetails(item: MediaItem): ExifDetails {
     val file = File(item.path)
     if (!file.exists()) {
         return ExifDetails(
-            dateTaken = null,
+            dateTaken = formatDateTaken(null, item.dateTaken),
             cameraModel = null,
             resolution = "${item.width} × ${item.height}",
             fileSize = String.format(Locale.getDefault(), "%.2f MB", item.size.toFloat() / (1024 * 1024)),
@@ -202,9 +226,11 @@ private fun readExifDetails(item: MediaItem): ExifDetails {
 
         val resolutionText = "${item.width} × ${item.height}"
         val sizeText = String.format(Locale.getDefault(), "%.2f MB", item.size.toFloat() / (1024 * 1024))
+        val rawDate = exif.getAttribute(ExifInterface.TAG_DATETIME) ?: exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL)
+        val formattedDate = formatDateTaken(rawDate, item.dateTaken)
 
         ExifDetails(
-            dateTaken = exif.getAttribute(ExifInterface.TAG_DATETIME),
+            dateTaken = formattedDate,
             cameraModel = modelText,
             resolution = resolutionText,
             fileSize = sizeText,
@@ -214,6 +240,13 @@ private fun readExifDetails(item: MediaItem): ExifDetails {
             longitude = if (hasGps && latLong != null) latLong[1] else 0.0
         )
     } catch (e: Exception) {
-        ExifDetails(null, null, "${item.width} × ${item.height}", "${item.size / 1024} KB", null, false)
+        ExifDetails(
+            dateTaken = formatDateTaken(null, item.dateTaken),
+            cameraModel = null,
+            resolution = "${item.width} × ${item.height}",
+            fileSize = "${item.size / 1024} KB",
+            location = null,
+            hasGps = false
+        )
     }
 }

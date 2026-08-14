@@ -33,7 +33,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
 import javax.inject.Inject
 
+import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.SavedStateHandle
+
+enum class TimelineSortMode {
+    DATE_GROUPED,
+    FLAT_NEWEST_FIRST
+}
 
 @HiltViewModel
 class MainViewModel @Inject constructor(
@@ -124,29 +130,60 @@ class MainViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val flatTimelineList: StateFlow<List<TimelineItem>> = visibleMediaItems.map { items ->
-        val result = mutableListOf<TimelineItem>()
-        val formatter = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault())
-        val zoneId = ZoneId.systemDefault()
-        val today = LocalDate.now(zoneId)
-        val yesterday = today.minusDays(1)
-
-        val grouped = items.groupBy { item ->
-            val localDate = Instant.ofEpochMilli(item.dateTaken).atZone(zoneId).toLocalDate()
-            when (localDate) {
-                today -> "Today"
-                yesterday -> "Yesterday"
-                else -> localDate.format(formatter)
-            }
+    private var _sortModeState = mutableStateOf(TimelineSortMode.DATE_GROUPED)
+    var sortMode: TimelineSortMode
+        get() = _sortModeState.value
+        set(value) {
+            _sortModeState.value = value
         }
 
-        grouped.forEach { (header, list) ->
-            result.add(TimelineItem.Header(header))
-            list.forEach { item ->
-                result.add(TimelineItem.Media(item))
-            }
+    fun toggleSortMode() {
+        sortMode = if (sortMode == TimelineSortMode.DATE_GROUPED) {
+            TimelineSortMode.FLAT_NEWEST_FIRST
+        } else {
+            TimelineSortMode.DATE_GROUPED
         }
-        result
+    }
+
+    val flatTimelineList: StateFlow<List<TimelineItem>> = combine(
+        visibleMediaItems,
+        snapshotFlow { sortMode }
+    ) { items, mode ->
+        val sortedItems = items.sortedByDescending { it.dateTaken }
+        if (mode == TimelineSortMode.FLAT_NEWEST_FIRST) {
+            sortedItems.map { TimelineItem.Media(it) }
+        } else {
+            val result = mutableListOf<TimelineItem>()
+            val sameYearFormatter = DateTimeFormatter.ofPattern("EEE, d MMM", Locale.getDefault())
+            val otherYearFormatter = DateTimeFormatter.ofPattern("EEE, d MMM yyyy", Locale.getDefault())
+            val zoneId = ZoneId.systemDefault()
+            val today = LocalDate.now(zoneId)
+            val yesterday = today.minusDays(1)
+
+            val grouped = LinkedHashMap<String, MutableList<MediaItem>>()
+            for (item in sortedItems) {
+                val dateMs = if (item.dateTaken > 0) item.dateTaken else System.currentTimeMillis()
+                val localDate = Instant.ofEpochMilli(dateMs).atZone(zoneId).toLocalDate()
+                val headerText = when (localDate) {
+                    today -> "Today"
+                    yesterday -> "Yesterday"
+                    else -> if (localDate.year == today.year) {
+                        localDate.format(sameYearFormatter)
+                    } else {
+                        localDate.format(otherYearFormatter)
+                    }
+                }
+                grouped.getOrPut(headerText) { mutableListOf() }.add(item)
+            }
+
+            grouped.forEach { (header, list) ->
+                result.add(TimelineItem.Header(header))
+                list.forEach { item ->
+                    result.add(TimelineItem.Media(item))
+                }
+            }
+            result
+        }
     }.flowOn(Dispatchers.Default)
      .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
