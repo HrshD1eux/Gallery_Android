@@ -430,9 +430,9 @@ class MainViewModel @Inject constructor(
             }
             "Videos" -> Pager(
                 config = PagingConfig(pageSize = 60, prefetchDistance = 40, enablePlaceholders = false),
-                pagingSourceFactory = { MediaPagingSource(repository, bucketId, order) }
+                pagingSourceFactory = { MediaPagingSource(repository, bucketId, order, com.HrshD1eux.Gallery.data.media.MediaTypeFilter.VIDEOS) }
             ).flow.map { pagingData ->
-                pagingData.filter { it is MediaItem.Video && (bucketId != null || !excluded.contains(it.bucketId.toString())) }
+                if (bucketId != null) pagingData else pagingData.filter { !excluded.contains(it.bucketId.toString()) }
             }
             else -> Pager(
                 config = PagingConfig(pageSize = 60, prefetchDistance = 40, enablePlaceholders = false),
@@ -491,6 +491,20 @@ class MainViewModel @Inject constructor(
         loadNextPage()
         loadBuckets()
         
+        viewModelScope.launch {
+            combine(
+                snapshotFlow { currentBucketId },
+                snapshotFlow { sortOrder },
+                refreshTrigger
+            ) { bucketId, order, _ ->
+                Pair(bucketId, order)
+            }.flatMapLatest { (bucketId, order) ->
+                repository.getMediaFlow(bucketId, order)
+            }.collect { items ->
+                _mediaItems.value = items
+            }
+        }
+
         viewModelScope.launch {
             repository.getBucketsFlow().collect {
                 _buckets.value = it
@@ -628,9 +642,10 @@ class MainViewModel @Inject constructor(
     fun loadNextPage() {
         viewModelScope.launch {
             val items = repository.loadMediaPaged(
-                limit = PAGE_SIZE,
+                limit = Int.MAX_VALUE,
                 offset = 0,
-                bucketId = currentBucketId
+                bucketId = currentBucketId,
+                sortOrder = sortOrder
             )
             _mediaItems.value = if (currentBucketId != null) items else items.filter { !_excludedBucketIds.value.contains(it.bucketId.toString()) }
         }
@@ -997,7 +1012,7 @@ class MainViewModel @Inject constructor(
         val selectedIds = selectionState.selectedIds.toSet()
         if (selectedIds.isNotEmpty()) {
             viewModelScope.launch {
-                val selectedList = visibleMediaItems.value.filter { selectedIds.contains(it.id) }
+                val selectedList = getSelectedMediaItems(selectedIds)
                 if (selectedList.isNotEmpty()) {
                     SharingUtils.shareMedia(context, selectedList, stripMetadata)
                     selectionState.clear()
@@ -1010,7 +1025,7 @@ class MainViewModel @Inject constructor(
         val selectedIds = selectionState.selectedIds.toSet()
         if (selectedIds.isEmpty()) return
         viewModelScope.launch {
-            val selectedItems = visibleMediaItems.value.filter { selectedIds.contains(it.id) }
+            val selectedItems = getSelectedMediaItems(selectedIds)
             selectedItems.forEach { item ->
                 toggleHidden(context, item)
             }

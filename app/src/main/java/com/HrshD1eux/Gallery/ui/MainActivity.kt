@@ -7,7 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -114,7 +114,7 @@ import com.HrshD1eux.Gallery.ui.viewer.PhotoViewerScreen
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
 
     private val viewModel: MainViewModel by viewModels()
 
@@ -565,9 +565,11 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                                     label = "Slideshow",
                                     onClick = {
                                         val selectedIdsSet = selectionState.selectedIds.toSet()
-                                        val itemsToPlay = viewModel.visibleMediaItems.value.filter { selectedIdsSet.contains(it.id) }
-                                        if (itemsToPlay.isNotEmpty()) {
-                                            viewModel.activeMediaItem = itemsToPlay.first()
+                                        scope.launch {
+                                            val itemsToPlay = viewModel.getSelectedMediaItems(selectedIdsSet)
+                                            if (itemsToPlay.isNotEmpty()) {
+                                                viewModel.activeMediaItem = itemsToPlay.first()
+                                            }
                                         }
                                     }
                                 )

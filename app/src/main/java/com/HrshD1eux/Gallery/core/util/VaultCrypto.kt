@@ -13,6 +13,8 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
+class KeystoreUnavailableException(message: String, cause: Throwable? = null) : IllegalStateException(message, cause)
+
 object VaultCrypto {
 
     private const val KEY_ALIAS = "GalleryVaultMasterKey"
@@ -21,10 +23,12 @@ object VaultCrypto {
     private const val IV_SIZE = 12 // 96 bits for GCM
     private const val TAG_SIZE = 128 // 128 bit authentication tag
 
-    private var fallbackKey: SecretKey? = null
+    @androidx.annotation.VisibleForTesting
+    var testSecretKey: SecretKey? = null
 
     @Synchronized
-    private fun getSecretKey(): SecretKey {
+    fun getSecretKey(): SecretKey {
+        testSecretKey?.let { return it }
         return try {
             val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
             if (keyStore.containsAlias(KEY_ALIAS)) {
@@ -48,19 +52,11 @@ object VaultCrypto {
             keyGenerator.init(spec)
             keyGenerator.generateKey()
         } catch (e: Exception) {
-            // Fallback for local JVM unit test environment where AndroidKeyStore provider is absent
-            getFallbackTestKey()
+            throw KeystoreUnavailableException(
+                "Hardware AndroidKeyStore is unavailable. Cannot perform secure encryption without hardware-backed master key.",
+                e
+            )
         }
-    }
-
-    @Synchronized
-    private fun getFallbackTestKey(): SecretKey {
-        if (fallbackKey == null) {
-            val keyGenerator = KeyGenerator.getInstance("AES")
-            keyGenerator.init(256)
-            fallbackKey = keyGenerator.generateKey()
-        }
-        return fallbackKey!!
     }
 
     /**
@@ -119,14 +115,80 @@ object VaultCrypto {
         outputStream.flush()
     }
 
+    private const val PBKDF2_ITERATIONS = 100_000
+    private const val PBKDF2_KEY_LENGTH = 256
+
+    private fun base64Encode(bytes: ByteArray): String {
+        return try {
+            val encoded = Base64.encodeToString(bytes, Base64.NO_WRAP)
+            encoded ?: java.util.Base64.getEncoder().encodeToString(bytes)
+        } catch (_: Throwable) {
+            java.util.Base64.getEncoder().encodeToString(bytes)
+        }
+    }
+
+    private fun base64Decode(str: String): ByteArray {
+        return try {
+            val decoded = Base64.decode(str, Base64.NO_WRAP)
+            decoded ?: java.util.Base64.getDecoder().decode(str)
+        } catch (_: Throwable) {
+            java.util.Base64.getDecoder().decode(str)
+        }
+    }
+
     /**
-     * Hashes PIN with salt using SHA-256 for secure non-plaintext storage.
+     * Hashes PIN with salt using PBKDF2WithHmacSHA256 (100,000 iterations) for brute-force resistant storage.
      */
     fun hashPin(pin: String, salt: ByteArray): String {
+        val spec = javax.crypto.spec.PBEKeySpec(
+            pin.toCharArray(),
+            salt,
+            PBKDF2_ITERATIONS,
+            PBKDF2_KEY_LENGTH
+        )
+        val factory = javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+        val hash = factory.generateSecret(spec).encoded
+        return base64Encode(hash)
+    }
+
+    /**
+     * Legacy single-round SHA-256 for backward-compatibility verification and transparent migration.
+     */
+    fun hashPinLegacySha256(pin: String, salt: ByteArray): String {
         val digest = MessageDigest.getInstance("SHA-256")
         digest.update(salt)
         val hash = digest.digest(pin.toByteArray(Charsets.UTF_8))
-        return Base64.encodeToString(hash, Base64.NO_WRAP)
+        return base64Encode(hash)
+    }
+
+    data class PinVerificationResult(
+        val isValid: Boolean,
+        val needsUpgrade: Boolean = false
+    )
+
+    /**
+     * Verifies an input PIN against stored encrypted/raw hash, supporting transparent migration from legacy SHA-256.
+     */
+    fun verifyPin(input: String, storedPinHash: String, salt: ByteArray): PinVerificationResult {
+        val decryptedHash = try {
+            decryptString(storedPinHash)
+        } catch (_: Exception) {
+            storedPinHash
+        }
+
+        // 1. Primary check: PBKDF2WithHmacSHA256
+        val pbkdf2Hash = hashPin(input, salt)
+        if (pbkdf2Hash == decryptedHash || pbkdf2Hash == storedPinHash) {
+            return PinVerificationResult(isValid = true, needsUpgrade = false)
+        }
+
+        // 2. Fallback check: Legacy SHA-256 for existing installs (flags needsUpgrade for auto-migration)
+        val legacyHash = hashPinLegacySha256(input, salt)
+        if (legacyHash == decryptedHash || legacyHash == storedPinHash) {
+            return PinVerificationResult(isValid = true, needsUpgrade = true)
+        }
+
+        return PinVerificationResult(isValid = false, needsUpgrade = false)
     }
 
     /**
@@ -145,14 +207,14 @@ object VaultCrypto {
         val inStream = java.io.ByteArrayInputStream(plaintext.toByteArray(Charsets.UTF_8))
         val outStream = java.io.ByteArrayOutputStream()
         encrypt(inStream, outStream)
-        return Base64.encodeToString(outStream.toByteArray(), Base64.NO_WRAP)
+        return base64Encode(outStream.toByteArray())
     }
 
     /**
      * Decrypts AndroidKeyStore master key encrypted Base64 string back to plaintext.
      */
     fun decryptString(ciphertextBase64: String): String {
-        val bytes = Base64.decode(ciphertextBase64, Base64.NO_WRAP)
+        val bytes = base64Decode(ciphertextBase64)
         val inStream = java.io.ByteArrayInputStream(bytes)
         val outStream = java.io.ByteArrayOutputStream()
         decrypt(inStream, outStream)

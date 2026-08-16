@@ -77,10 +77,26 @@ object MotionPhotoUtil {
             if (totalLength <= info.videoOffsetFromEnd) return@withContext null
 
             val startByte = totalLength - info.videoOffsetFromEnd
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                skipFully(input, startByte)
-                FileOutputStream(targetFile).use { output ->
-                    input.copyTo(output)
+            val extracted = try {
+                context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                    java.io.FileInputStream(pfd.fileDescriptor).channel.use { inChannel ->
+                        inChannel.position(startByte)
+                        FileOutputStream(targetFile).channel.use { outChannel ->
+                            outChannel.transferFrom(inChannel, 0, info.videoOffsetFromEnd)
+                        }
+                    }
+                    true
+                } ?: false
+            } catch (_: Exception) {
+                false
+            }
+
+            if (!extracted) {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    skipFully(input, startByte)
+                    FileOutputStream(targetFile).use { output ->
+                        input.copyTo(output)
+                    }
                 }
             }
 
@@ -108,35 +124,110 @@ object MotionPhotoUtil {
     }
 
     private fun scanForMp4FromEnd(context: Context, uri: Uri, totalLength: Long): Long {
-        // Read the last 30 MB maximum to find the MP4 signature
-        val scanSize = minOf(totalLength, 30L * 1024L * 1024L).toInt()
-        val buffer = ByteArray(scanSize)
-        val startOffset = totalLength - scanSize
+        // Scan at most 30 MB backwards in 64 KB streaming chunks to eliminate large heap spikes
+        val maxScanSize = minOf(totalLength, 30L * 1024L * 1024L)
+        val startOffset = totalLength - maxScanSize
+        val chunkSize = 64 * 1024
+        val buffer = ByteArray(chunkSize)
 
         try {
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                skipFully(input, startOffset)
-                var bytesRead = 0
-                while (bytesRead < scanSize) {
-                    val read = input.read(buffer, bytesRead, scanSize - bytesRead)
-                    if (read == -1) break
-                    bytesRead += read
-                }
+            val scannedLength = try {
+                context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                    java.io.FileInputStream(pfd.fileDescriptor).channel.use { channel ->
+                        var currentPos = startOffset
+                        var overlap = ByteArray(0)
+                        var foundLength = 0L
+
+                        while (currentPos < totalLength) {
+                            channel.position(currentPos)
+                            val toRead = minOf(chunkSize.toLong(), totalLength - currentPos).toInt()
+                            val byteBuf = java.nio.ByteBuffer.wrap(buffer, 0, toRead)
+                            val bytesRead = channel.read(byteBuf)
+                            if (bytesRead <= 0) break
+
+                            val combinedSize = overlap.size + bytesRead
+                            val combined = if (overlap.isNotEmpty()) {
+                                val arr = ByteArray(combinedSize)
+                                System.arraycopy(overlap, 0, arr, 0, overlap.size)
+                                System.arraycopy(buffer, 0, arr, overlap.size, bytesRead)
+                                arr
+                            } else {
+                                buffer
+                            }
+
+                            for (i in 4 until combinedSize - 4) {
+                                if (combined[i] == MP4_FTYP[0] &&
+                                    combined[i + 1] == MP4_FTYP[1] &&
+                                    combined[i + 2] == MP4_FTYP[2] &&
+                                    combined[i + 3] == MP4_FTYP[3]
+                                ) {
+                                    val offsetInBlock = if (overlap.isNotEmpty()) i - overlap.size else i
+                                    val atomStartGlobal = currentPos + offsetInBlock - 4
+                                    val videoLength = totalLength - atomStartGlobal
+                                    if (videoLength in 4096..maxScanSize) {
+                                        foundLength = videoLength
+                                        break
+                                    }
+                                }
+                            }
+                            if (foundLength > 0L) break
+
+                            val overlapSize = minOf(3, bytesRead)
+                            overlap = ByteArray(overlapSize)
+                            System.arraycopy(buffer, bytesRead - overlapSize, overlap, 0, overlapSize)
+
+                            currentPos += bytesRead
+                        }
+                        foundLength
+                    }
+                } ?: 0L
+            } catch (_: Exception) {
+                0L
             }
 
-            // Search for "ftyp" marker in buffer
-            for (i in 4 until buffer.size - 4) {
-                if (buffer[i] == MP4_FTYP[0] &&
-                    buffer[i + 1] == MP4_FTYP[1] &&
-                    buffer[i + 2] == MP4_FTYP[2] &&
-                    buffer[i + 3] == MP4_FTYP[3]
-                ) {
-                    // MP4 atom starts 4 bytes before 'ftyp' (length prefix)
-                    val mp4StartInBuffer = i - 4
-                    val videoLength = scanSize - mp4StartInBuffer
-                    if (videoLength > 4096) {
-                        return videoLength.toLong()
+            if (scannedLength > 0L) return scannedLength
+
+            // Fallback stream scanner using 64 KB chunking
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                skipFully(input, startOffset)
+                var currentPos = startOffset
+                var overlap = ByteArray(0)
+
+                while (currentPos < totalLength) {
+                    val toRead = minOf(chunkSize.toLong(), totalLength - currentPos).toInt()
+                    val bytesRead = input.read(buffer, 0, toRead)
+                    if (bytesRead <= 0) break
+
+                    val combinedSize = overlap.size + bytesRead
+                    val combined = if (overlap.isNotEmpty()) {
+                        val arr = ByteArray(combinedSize)
+                        System.arraycopy(overlap, 0, arr, 0, overlap.size)
+                        System.arraycopy(buffer, 0, arr, overlap.size, bytesRead)
+                        arr
+                    } else {
+                        buffer
                     }
+
+                    for (i in 4 until combinedSize - 4) {
+                        if (combined[i] == MP4_FTYP[0] &&
+                            combined[i + 1] == MP4_FTYP[1] &&
+                            combined[i + 2] == MP4_FTYP[2] &&
+                            combined[i + 3] == MP4_FTYP[3]
+                        ) {
+                            val offsetInBlock = if (overlap.isNotEmpty()) i - overlap.size else i
+                            val atomStartGlobal = currentPos + offsetInBlock - 4
+                            val videoLength = totalLength - atomStartGlobal
+                            if (videoLength in 4096..maxScanSize) {
+                                return videoLength
+                            }
+                        }
+                    }
+
+                    val overlapSize = minOf(3, bytesRead)
+                    overlap = ByteArray(overlapSize)
+                    System.arraycopy(buffer, bytesRead - overlapSize, overlap, 0, overlapSize)
+
+                    currentPos += bytesRead
                 }
             }
         } catch (e: Exception) {

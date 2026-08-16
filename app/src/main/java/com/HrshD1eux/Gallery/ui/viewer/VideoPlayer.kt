@@ -140,15 +140,8 @@ fun VideoPlayerContainer(
                 val file = java.io.File(path)
                 if (file.exists()) {
                     try {
-                        val byteOut = java.io.ByteArrayOutputStream()
-                        file.inputStream().use { input ->
-                            com.HrshD1eux.Gallery.core.util.VaultCrypto.decrypt(input, byteOut)
-                        }
-                        val bytes = byteOut.toByteArray()
                         val mediaSource = androidx.media3.exoplayer.source.ProgressiveMediaSource.Factory(
-                            androidx.media3.datasource.DataSource.Factory {
-                                androidx.media3.datasource.ByteArrayDataSource(bytes)
-                            }
+                            EncryptedVaultDataSource.Factory(file)
                         ).createMediaSource(Media3Item.fromUri(uri))
                         setMediaSource(mediaSource)
                     } catch (_: Exception) {

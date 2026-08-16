@@ -21,4 +21,12 @@ app/build
 *.keystore
 keystore.properties
 key.properties
+release-keystore-base64.txt
+secrets/
+
+# Build & binary outputs
+*.apk
+*.aab
+app/File*
+.kotlin/
 

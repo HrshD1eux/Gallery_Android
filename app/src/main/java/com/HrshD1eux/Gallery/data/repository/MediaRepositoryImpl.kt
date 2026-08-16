@@ -17,26 +17,26 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.onStart
+import com.HrshD1eux.Gallery.data.media.MediaTypeFilter
+import dagger.hilt.android.qualifiers.ApplicationContext
 
 @Singleton
 class MediaRepositoryImpl @Inject constructor(
-    @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context,
+    @ApplicationContext private val context: Context,
     private val mediaStoreDataSource: MediaStoreDataSource,
     private val metadataDao: MetadataDao
 ) : MediaRepository {
 
-    override fun getMediaFlow(bucketId: Long?, sortOrder: com.HrshD1eux.Gallery.ui.SortOrder): Flow<List<MediaItem>> {
-        return mediaStoreDataSource.observeMediaStore()
-            .flatMapLatest {
-                flow {
-                    val media = loadMediaPaged(limit = 200, offset = 0, bucketId = bucketId, sortOrder = sortOrder)
-                    emit(media)
-                }
-            }
-            .flowOn(Dispatchers.IO)
+    override fun getMediaFlow(bucketId: Long?, sortOrder: com.HrshD1eux.Gallery.ui.SortOrder, mediaType: MediaTypeFilter): Flow<List<MediaItem>> {
+        return combine(
+            mediaStoreDataSource.observeMediaStore().onStart { emit(Unit) },
+            metadataDao.getAllMetadataFlow().onStart { emit(emptyList()) }
+        ) { _, _ ->
+            loadMediaPaged(limit = Int.MAX_VALUE, offset = 0, bucketId = bucketId, sortOrder = sortOrder, mediaType = mediaType)
+        }.flowOn(Dispatchers.IO)
     }
 
-    override suspend fun loadMediaPaged(limit: Int, offset: Int, bucketId: Long?, sortOrder: com.HrshD1eux.Gallery.ui.SortOrder): List<MediaItem> = withContext(Dispatchers.IO) {
+    override suspend fun loadMediaPaged(limit: Int, offset: Int, bucketId: Long?, sortOrder: com.HrshD1eux.Gallery.ui.SortOrder, mediaType: MediaTypeFilter): List<MediaItem> = withContext(Dispatchers.IO) {
         var currentOffset = offset
         val resultList = mutableListOf<MediaItem>()
         var reachedEnd = false
@@ -44,7 +44,8 @@ class MediaRepositoryImpl @Inject constructor(
         
         while (resultList.size < limit && !reachedEnd) {
             val remaining = limit - resultList.size
-            val rawMedia = mediaStoreDataSource.fetchMedia(limit = remaining, offset = currentOffset, bucketId = bucketId, isAscending = isAscending)
+            val fetchBatch = if (remaining == Int.MAX_VALUE) 1000 else minOf(remaining, 1000)
+            val rawMedia = mediaStoreDataSource.fetchMedia(limit = fetchBatch, offset = currentOffset, bucketId = bucketId, isAscending = isAscending, mediaType = mediaType)
             if (rawMedia.isEmpty()) {
                 break
             }
@@ -59,7 +60,7 @@ class MediaRepositoryImpl @Inject constructor(
             
             resultList.addAll(filtered)
             currentOffset += rawMedia.size
-            if (rawMedia.size < remaining) {
+            if (rawMedia.size < fetchBatch) {
                 break
             }
         }
@@ -70,8 +71,8 @@ class MediaRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun getTotalMediaCount(bucketId: Long?): Int = withContext(Dispatchers.IO) {
-        mediaStoreDataSource.getTotalMediaCount(bucketId)
+    override suspend fun getTotalMediaCount(bucketId: Long?, mediaType: MediaTypeFilter): Int = withContext(Dispatchers.IO) {
+        mediaStoreDataSource.getTotalMediaCount(bucketId, mediaType)
     }
 
     override fun observeMediaChanges(): Flow<Unit> {
@@ -360,6 +361,7 @@ class MediaRepositoryImpl @Inject constructor(
                             isFavorite = entity.isFavorite,
                             isHidden = entity.isHidden,
                             isTrashed = entity.isTrashed,
+                            trashTime = entity.trashTime,
                             bucketId = entity.bucketId,
                             bucketName = entity.bucketName
                         )
@@ -376,6 +378,7 @@ class MediaRepositoryImpl @Inject constructor(
                             isFavorite = entity.isFavorite,
                             isHidden = entity.isHidden,
                             isTrashed = entity.isTrashed,
+                            trashTime = entity.trashTime,
                             bucketId = entity.bucketId,
                             bucketName = entity.bucketName
                         )
@@ -410,12 +413,14 @@ class MediaRepositoryImpl @Inject constructor(
             is MediaItem.Photo -> item.copy(
                 isFavorite = meta.isFavorite,
                 isHidden = meta.isHidden,
-                isTrashed = meta.isTrashed || item.isTrashed
+                isTrashed = meta.isTrashed || item.isTrashed,
+                trashTime = meta.trashTime
             )
             is MediaItem.Video -> item.copy(
                 isFavorite = meta.isFavorite,
                 isHidden = meta.isHidden,
-                isTrashed = meta.isTrashed || item.isTrashed
+                isTrashed = meta.isTrashed || item.isTrashed,
+                trashTime = meta.trashTime
             )
         }
     }
@@ -452,9 +457,59 @@ class MediaRepositoryImpl @Inject constructor(
         val items = mediaStoreDataSource.fetchMediaByIds(ids)
         val metadataList = metadataDao.getMetadataForMediaIds(ids.toList())
         val metadataMap = metadataList.associateBy { it.mediaId }
-        items.map { item ->
+        val mappedStoreItems = items.map { item ->
             val meta = metadataMap[item.id]
             applyMetadata(item, meta)
+        }
+
+        val foundIds = mappedStoreItems.map { it.id }.toSet()
+        val missingIds = ids - foundIds
+        if (missingIds.isNotEmpty()) {
+            val vaultEntities = metadataList.filter { it.mediaId in missingIds && it.isHidden }
+            val vaultItems = vaultEntities.mapNotNull { entity ->
+                val vaultFile = java.io.File(entity.vaultPath)
+                if (!vaultFile.exists()) return@mapNotNull null
+                val uri = android.net.Uri.fromFile(vaultFile)
+                if (entity.mimeType.contains("video", ignoreCase = true)) {
+                    MediaItem.Video(
+                        id = entity.mediaId,
+                        uri = uri,
+                        path = entity.originalPath.ifEmpty { entity.vaultPath },
+                        mimeType = entity.mimeType,
+                        dateTaken = entity.dateTaken,
+                        size = entity.size,
+                        width = entity.width,
+                        height = entity.height,
+                        durationMs = entity.durationMs,
+                        isFavorite = entity.isFavorite,
+                        isHidden = entity.isHidden,
+                        isTrashed = entity.isTrashed,
+                        trashTime = entity.trashTime,
+                        bucketId = entity.bucketId,
+                        bucketName = entity.bucketName
+                    )
+                } else {
+                    MediaItem.Photo(
+                        id = entity.mediaId,
+                        uri = uri,
+                        path = entity.originalPath.ifEmpty { entity.vaultPath },
+                        mimeType = entity.mimeType,
+                        dateTaken = entity.dateTaken,
+                        size = entity.size,
+                        width = entity.width,
+                        height = entity.height,
+                        isFavorite = entity.isFavorite,
+                        isHidden = entity.isHidden,
+                        isTrashed = entity.isTrashed,
+                        trashTime = entity.trashTime,
+                        bucketId = entity.bucketId,
+                        bucketName = entity.bucketName
+                    )
+                }
+            }
+            mappedStoreItems + vaultItems
+        } else {
+            mappedStoreItems
         }
     }
 
@@ -475,7 +530,7 @@ class MediaRepositoryImpl @Inject constructor(
 
     override suspend fun scanSecondaryMediaDirectories(): Int = mediaStoreDataSource.scanSecondaryMediaDirectories()
 
-    override suspend fun getDatePositionIndex(bucketId: Long?, sortOrder: com.HrshD1eux.Gallery.ui.SortOrder): List<DatePositionHeader> = mediaStoreDataSource.getDatePositionIndex(bucketId, isAscending = (sortOrder == com.HrshD1eux.Gallery.ui.SortOrder.OLDEST_FIRST))
+    override suspend fun getDatePositionIndex(bucketId: Long?, sortOrder: com.HrshD1eux.Gallery.ui.SortOrder, mediaType: MediaTypeFilter): List<DatePositionHeader> = mediaStoreDataSource.getDatePositionIndex(bucketId, isAscending = (sortOrder == com.HrshD1eux.Gallery.ui.SortOrder.OLDEST_FIRST))
 
     override suspend fun renameMedia(
         context: Context,

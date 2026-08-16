@@ -39,7 +39,8 @@ class MainViewModelTest {
         every { mockRepository.getHiddenMediaFlow() } returns flowOf(emptyList())
         every { mockRepository.getTrashedMediaFlow() } returns flowOf(emptyList())
         every { mockRepository.observeMediaChanges() } returns kotlinx.coroutines.flow.emptyFlow()
-        coEvery { mockRepository.loadMediaPaged(any(), any()) } returns emptyList()
+        every { mockRepository.getMediaFlow(any(), any(), any()) } returns flowOf(emptyList())
+        coEvery { mockRepository.loadMediaPaged(any(), any(), any(), any(), any()) } returns emptyList()
         
         viewModel = MainViewModel(mockApplication, mockRepository, SavedStateHandle())
         testDispatcher.scheduler.advanceUntilIdle()
@@ -146,7 +147,7 @@ class MainViewModelTest {
         val item1 = MediaItem.Photo(1L, mockUri, "/path1.jpg", "image/jpeg", 1000L, 100L, 100, 100, false, false, false, 1L, "Camera")
         
         val firstPageList = List(200) { item1 }
-        coEvery { mockRepository.loadMediaPaged(limit = 200, offset = 0, bucketId = null) } returns firstPageList
+        coEvery { mockRepository.loadMediaPaged(limit = any(), offset = any(), bucketId = any(), sortOrder = any()) } returns firstPageList
 
         // Init loads first page (returns 200 items)
         viewModel.loadNextPage()

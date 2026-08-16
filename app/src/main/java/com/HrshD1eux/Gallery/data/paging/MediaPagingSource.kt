@@ -2,13 +2,15 @@ package com.HrshD1eux.Gallery.data.paging
 
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
+import com.HrshD1eux.Gallery.data.media.MediaTypeFilter
 import com.HrshD1eux.Gallery.data.model.MediaItem
 import com.HrshD1eux.Gallery.data.repository.MediaRepository
 
 class MediaPagingSource(
     private val repository: MediaRepository,
     private val bucketId: Long? = null,
-    private val sortOrder: com.HrshD1eux.Gallery.ui.SortOrder = com.HrshD1eux.Gallery.ui.SortOrder.NEWEST_FIRST
+    private val sortOrder: com.HrshD1eux.Gallery.ui.SortOrder = com.HrshD1eux.Gallery.ui.SortOrder.NEWEST_FIRST,
+    private val mediaType: MediaTypeFilter = MediaTypeFilter.ALL
 ) : PagingSource<Int, MediaItem>() {
 
     override suspend fun load(params: LoadParams<Int>): LoadResult<Int, MediaItem> {
@@ -16,8 +18,8 @@ class MediaPagingSource(
         val limit = params.loadSize
 
         return try {
-            val totalCount = repository.getTotalMediaCount(bucketId)
-            val items = repository.loadMediaPaged(limit = limit, offset = offset, bucketId = bucketId, sortOrder = sortOrder)
+            val totalCount = repository.getTotalMediaCount(bucketId, mediaType)
+            val items = repository.loadMediaPaged(limit = limit, offset = offset, bucketId = bucketId, sortOrder = sortOrder, mediaType = mediaType)
             val nextKey = if (items.size < limit || offset + items.size >= totalCount) null else offset + items.size
             val prevKey = if (offset == 0) null else (offset - limit).coerceAtLeast(0)
             val itemsBefore = offset.coerceAtMost(totalCount)

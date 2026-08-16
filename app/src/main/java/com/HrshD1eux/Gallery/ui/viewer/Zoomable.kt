@@ -84,6 +84,19 @@ class ZoomState(
         offsetX = 0f
         offsetY = 0f
     }
+
+    fun canConsumePan(panX: Float): Boolean {
+        if (scale <= 1.01f) return false
+        val boundX = if (layoutSize.width > 0) {
+            (layoutSize.width * (scale - 1f)) / 2f
+        } else {
+            1500f * (scale - 1f)
+        }
+        val tolerance = 1.5f
+        if (panX > 0 && offsetX >= boundX - tolerance) return false
+        if (panX < 0 && offsetX <= -boundX + tolerance) return false
+        return true
+    }
 }
 
 fun Modifier.zoomable(
@@ -104,15 +117,22 @@ fun Modifier.zoomable(
                 val event = awaitPointerEvent()
                 val count = event.changes.size
                 
-                // If zoomed in (scale > 1) or user is actively pinching (2+ fingers)
-                if (state.scale > 1f || count > 1) {
+                // If zoomed in (scale > 1.01f) or user is actively pinching (2+ fingers)
+                if (state.scale > 1.01f || count > 1) {
                     val zoom = event.calculateZoom()
                     val pan = event.calculatePan()
                     
-                    // Mark as consumed so parents don't intercept it
-                    event.changes.forEach { change ->
-                        if (change.positionChanged()) {
-                            change.consume()
+                    val isPinching = count > 1 && kotlin.math.abs(zoom - 1f) > 0.001f
+                    val isVerticalDominant = kotlin.math.abs(pan.y) > kotlin.math.abs(pan.x) * 1.2f
+                    val canConsumeHorizontal = state.canConsumePan(pan.x)
+                    
+                    val shouldConsume = isPinching || (state.scale > 1.01f && (canConsumeHorizontal || isVerticalDominant))
+
+                    if (shouldConsume) {
+                        event.changes.forEach { change ->
+                            if (change.positionChanged()) {
+                                change.consume()
+                            }
                         }
                     }
                     

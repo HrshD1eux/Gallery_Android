@@ -22,6 +22,12 @@ import kotlinx.coroutines.flow.callbackFlow
 
 private const val QUERY_ARG_MATCH_NOMEDIA = "android:query-arg-match-nomedia"
 
+enum class MediaTypeFilter {
+    ALL,
+    IMAGES,
+    VIDEOS
+}
+
 class MediaStoreDataSource @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
@@ -57,13 +63,21 @@ class MediaStoreDataSource @Inject constructor(
         }
     }
 
-    suspend fun getTotalMediaCount(bucketId: Long? = null): Int = withContext(Dispatchers.IO) {
+    suspend fun getTotalMediaCount(
+        bucketId: Long? = null,
+        mediaType: MediaTypeFilter = MediaTypeFilter.ALL
+    ): Int = withContext(Dispatchers.IO) {
         val collection = MediaStore.Files.getContentUri("external")
         val projection = arrayOf(MediaStore.Files.FileColumns._ID)
+        val mediaTypeCondition = when (mediaType) {
+            MediaTypeFilter.ALL -> "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}, ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO})"
+            MediaTypeFilter.IMAGES -> "${MediaStore.Files.FileColumns.MEDIA_TYPE} = ${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}"
+            MediaTypeFilter.VIDEOS -> "${MediaStore.Files.FileColumns.MEDIA_TYPE} = ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO}"
+        }
         val selection = if (bucketId != null) {
-            "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}, ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO}) AND ${MediaStore.Files.FileColumns.BUCKET_ID} = ?"
+            "$mediaTypeCondition AND ${MediaStore.Files.FileColumns.BUCKET_ID} = ?"
         } else {
-            "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}, ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO})"
+            mediaTypeCondition
         }
         val selectionArgs = if (bucketId != null) arrayOf(bucketId.toString()) else null
 
@@ -89,7 +103,8 @@ class MediaStoreDataSource @Inject constructor(
         offset: Int,
         bucketId: Long? = null,
         includeTrashed: Boolean = false,
-        isAscending: Boolean = false
+        isAscending: Boolean = false,
+        mediaType: MediaTypeFilter = MediaTypeFilter.ALL
     ): List<MediaItem> = withContext(Dispatchers.IO) {
         val mediaList = mutableListOf<MediaItem>()
 
@@ -114,10 +129,15 @@ class MediaStoreDataSource @Inject constructor(
         }
         val projection = projectionList.toTypedArray()
 
+        val mediaTypeCondition = when (mediaType) {
+            MediaTypeFilter.ALL -> "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}, ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO})"
+            MediaTypeFilter.IMAGES -> "${MediaStore.Files.FileColumns.MEDIA_TYPE} = ${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}"
+            MediaTypeFilter.VIDEOS -> "${MediaStore.Files.FileColumns.MEDIA_TYPE} = ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO}"
+        }
         val selection = if (bucketId != null) {
-            "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}, ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO}) AND ${MediaStore.Files.FileColumns.BUCKET_ID} = ?"
+            "$mediaTypeCondition AND ${MediaStore.Files.FileColumns.BUCKET_ID} = ?"
         } else {
-            "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}, ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO})"
+            mediaTypeCondition
         }
 
         val selectionArgs = if (bucketId != null) {

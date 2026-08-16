@@ -18,8 +18,24 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.Before
+import org.junit.After
+import javax.crypto.KeyGenerator
+import com.HrshD1eux.Gallery.core.util.VaultCrypto
 
 class MediaRepositoryImplTest {
+
+    @Before
+    fun setUpCrypto() {
+        val keyGen = KeyGenerator.getInstance("AES")
+        keyGen.init(256)
+        VaultCrypto.testSecretKey = keyGen.generateKey()
+    }
+
+    @After
+    fun tearDownCrypto() {
+        VaultCrypto.testSecretKey = null
+    }
 
     private class FakeMetadataDao : MetadataDao {
         val dbMap = mutableMapOf<Long, MediaMetadataEntity>()
@@ -204,9 +220,9 @@ class MediaRepositoryImplTest {
         
         // Mock datasource fetchMedia:
         // First call with limit 2, offset 0: returns item1 and item2
-        coEvery { mockDataSource.fetchMedia(2, 0, any()) } returns listOf(item1, item2)
+        coEvery { mockDataSource.fetchMedia(2, 0, any(), any(), any(), any()) } returns listOf(item1, item2)
         // Second call with limit 1, offset 2: returns item3
-        coEvery { mockDataSource.fetchMedia(1, 2, any()) } returns listOf(item3)
+        coEvery { mockDataSource.fetchMedia(1, 2, any(), any(), any(), any()) } returns listOf(item3)
 
         val repository = MediaRepositoryImpl(
             context = mockContext,
@@ -446,5 +462,97 @@ class MediaRepositoryImplTest {
         // Should return only non-hidden item1
         assertEquals(1, result.size)
         assertEquals(1L, result[0].id)
+    }
+
+    @Test
+    fun testVaultCrypto_pbkdf2HashingAndVerification() {
+        val salt = VaultCrypto.generateSalt()
+        val pin = "123456"
+        val hash = VaultCrypto.hashPin(pin, salt)
+
+        val verifySuccess = VaultCrypto.verifyPin(pin, hash, salt)
+        assertTrue(verifySuccess.isValid)
+        org.junit.Assert.assertFalse(verifySuccess.needsUpgrade)
+
+        val verifyFailure = VaultCrypto.verifyPin("999999", hash, salt)
+        org.junit.Assert.assertFalse(verifyFailure.isValid)
+    }
+
+    @Test
+    fun testVaultCrypto_legacySha256VerificationTriggersUpgrade() {
+        val salt = VaultCrypto.generateSalt()
+        val pin = "4321"
+        val legacyHash = VaultCrypto.hashPinLegacySha256(pin, salt)
+
+        val verifyResult = VaultCrypto.verifyPin(pin, legacyHash, salt)
+        assertTrue(verifyResult.isValid)
+        assertTrue(verifyResult.needsUpgrade)
+    }
+
+    @Test
+    fun testLoadMediaPaged_passesMediaTypeFilter() = runBlocking {
+        val fakeDao = FakeMetadataDao()
+        val mockContext = mockk<Context>(relaxed = true)
+        val mockDataSource = mockk<MediaStoreDataSource>(relaxed = true)
+        val mockUri = mockk<android.net.Uri>(relaxed = true)
+
+        val videoItem = MediaItem.Video(10L, mockUri, "/video.mp4", "video/mp4", 1000L, 5000L, 1920, 1080, 5000L, false, false, false, 1L, "Camera")
+        coEvery {
+            mockDataSource.fetchMedia(
+                limit = any(),
+                offset = any(),
+                bucketId = any(),
+                includeTrashed = any(),
+                isAscending = any(),
+                mediaType = com.HrshD1eux.Gallery.data.media.MediaTypeFilter.VIDEOS
+            )
+        } returns listOf(videoItem)
+
+        val repository = MediaRepositoryImpl(
+            context = mockContext,
+            mediaStoreDataSource = mockDataSource,
+            metadataDao = fakeDao
+        )
+
+        val result = repository.loadMediaPaged(
+            limit = 10,
+            offset = 0,
+            mediaType = com.HrshD1eux.Gallery.data.media.MediaTypeFilter.VIDEOS
+        )
+
+        assertEquals(1, result.size)
+        assertEquals(10L, result[0].id)
+        assertTrue(result[0] is MediaItem.Video)
+    }
+
+    @Test
+    fun testZoomState_canConsumePanBoundaryConditions() {
+        val zoomState = com.HrshD1eux.Gallery.ui.viewer.ZoomState()
+        zoomState.layoutSize = androidx.compose.ui.unit.IntSize(1000, 1000)
+
+        // At 1.0x (unzoomed), should yield pan events to HorizontalPager
+        zoomState.scale = 1f
+        org.junit.Assert.assertFalse(zoomState.canConsumePan(50f))
+        org.junit.Assert.assertFalse(zoomState.canConsumePan(-50f))
+
+        // At 2.0x zoomed in, center position: can consume pan in either direction
+        zoomState.scale = 2f
+        zoomState.offsetX = 0f
+        assertTrue(zoomState.canConsumePan(50f))
+        assertTrue(zoomState.canConsumePan(-50f))
+
+        // At 2.0x zoomed in, at right boundary (offsetX == 500f):
+        // Panning right (panX > 0) is blocked by boundary, so should NOT consume (yield to pager)
+        zoomState.offsetX = 500f
+        org.junit.Assert.assertFalse(zoomState.canConsumePan(10f))
+        // Panning left away from boundary is allowed
+        assertTrue(zoomState.canConsumePan(-10f))
+
+        // At 2.0x zoomed in, at left boundary (offsetX == -500f):
+        // Panning left (panX < 0) is blocked by boundary, so should NOT consume (yield to pager)
+        zoomState.offsetX = -500f
+        org.junit.Assert.assertFalse(zoomState.canConsumePan(-10f))
+        // Panning right away from boundary is allowed
+        assertTrue(zoomState.canConsumePan(10f))
     }
 }

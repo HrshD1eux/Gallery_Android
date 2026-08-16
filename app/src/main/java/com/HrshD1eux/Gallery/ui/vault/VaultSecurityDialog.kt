@@ -484,9 +484,8 @@ fun VaultSecurityDialog(
                         var currentValid = false
                         if (storedPinHash != null && storedSaltBase64 != null) {
                             val salt = android.util.Base64.decode(storedSaltBase64, android.util.Base64.NO_WRAP)
-                            val inputHash = VaultCrypto.hashPin(currentPinInput, salt)
-                            val decryptedHash = try { VaultCrypto.decryptString(storedPinHash) } catch (_: Exception) { storedPinHash }
-                            currentValid = (inputHash == decryptedHash || inputHash == storedPinHash)
+                            val res = VaultCrypto.verifyPin(currentPinInput, storedPinHash, salt)
+                            currentValid = res.isValid
                         } else if (legacyPin != null && currentPinInput == legacyPin) {
                             currentValid = true
                         } else if (storedPinHash == null && legacyPin == null) {

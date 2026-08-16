@@ -16,6 +16,7 @@ sealed interface MediaItem {
     val isFavorite: Boolean
     val isHidden: Boolean
     val isTrashed: Boolean
+    val trashTime: Long
     val bucketId: Long
     val bucketName: String
 
@@ -32,8 +33,9 @@ sealed interface MediaItem {
         override val isFavorite: Boolean = false,
         override val isHidden: Boolean = false,
         override val isTrashed: Boolean = false,
-        override val bucketId: Long,
-        override val bucketName: String
+        override val bucketId: Long = 0L,
+        override val bucketName: String = "",
+        override val trashTime: Long = 0L
     ) : MediaItem
 
     @Immutable
@@ -50,8 +52,9 @@ sealed interface MediaItem {
         override val isFavorite: Boolean = false,
         override val isHidden: Boolean = false,
         override val isTrashed: Boolean = false,
-        override val bucketId: Long,
-        override val bucketName: String
+        override val bucketId: Long = 0L,
+        override val bucketName: String = "",
+        override val trashTime: Long = 0L
     ) : MediaItem
 }
 

@@ -74,13 +74,21 @@ fun VaultUnlockDialog(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isPatternError by remember { mutableStateOf(false) }
 
-    var failedAttempts by remember { mutableIntStateOf(0) }
-    var lockoutRemainingSeconds by remember { mutableIntStateOf(0) }
+    val now = System.currentTimeMillis()
+    val initialLockoutUntil = prefs.getLong("vault_lockout_until_ms", 0L)
+    val initialLockoutSecs = ((initialLockoutUntil - now) / 1000L).coerceAtLeast(0L).toInt()
+
+    var failedAttempts by remember { mutableIntStateOf(prefs.getInt("vault_failed_attempts", 0)) }
+    var lockoutRemainingSeconds by remember { mutableIntStateOf(initialLockoutSecs) }
 
     LaunchedEffect(lockoutRemainingSeconds) {
         if (lockoutRemainingSeconds > 0) {
             delay(1000L)
             lockoutRemainingSeconds -= 1
+            if (lockoutRemainingSeconds == 0) {
+                prefs.edit().remove("vault_lockout_until_ms").apply()
+                errorMessage = null
+            }
         }
     }
 
@@ -109,32 +117,59 @@ fun VaultUnlockDialog(
         if (lockoutRemainingSeconds > 0) return
 
         var isValid = false
+        var needsUpgrade = false
+
         if (storedPinHash != null && storedSaltBase64 != null) {
             val salt = android.util.Base64.decode(storedSaltBase64, android.util.Base64.NO_WRAP)
-            val inputHash = VaultCrypto.hashPin(input, salt)
-            val decryptedHash = try {
-                VaultCrypto.decryptString(storedPinHash)
-            } catch (_: Exception) {
-                storedPinHash
-            }
-            isValid = (inputHash == decryptedHash || inputHash == storedPinHash)
+            val res = VaultCrypto.verifyPin(input, storedPinHash, salt)
+            isValid = res.isValid
+            needsUpgrade = res.needsUpgrade
         } else if (legacyPin != null && input == legacyPin) {
             isValid = true
+            needsUpgrade = true
         }
 
         if (isValid) {
             failedAttempts = 0
+            lockoutRemainingSeconds = 0
+            prefs.edit()
+                .remove("vault_lockout_until_ms")
+                .remove("vault_failed_attempts")
+                .apply()
+
+            if (needsUpgrade) {
+                // Seamlessly migrate legacy SHA-256 or plaintext PIN to PBKDF2WithHmacSHA256
+                try {
+                    val saltBytes = VaultCrypto.generateSalt()
+                    val saltBase64 = android.util.Base64.encodeToString(saltBytes, android.util.Base64.NO_WRAP)
+                    val newHash = VaultCrypto.hashPin(input, saltBytes)
+                    val encHash = VaultCrypto.encryptString(newHash)
+                    prefs.edit()
+                        .putString("vault_pin_hash", encHash)
+                        .putString("vault_salt", saltBase64)
+                        .remove("vault_pin")
+                        .apply()
+                } catch (_: Exception) {}
+            }
+
             HapticUtil.performSuccess(context)
             onUnlockSuccess()
         } else {
             HapticUtil.performError(context)
-            failedAttempts += 1
-            if (failedAttempts >= 3) {
+            val newAttempts = failedAttempts + 1
+            if (newAttempts >= 3) {
+                val lockoutExpiry = System.currentTimeMillis() + 30_000L
+                prefs.edit()
+                    .putLong("vault_lockout_until_ms", lockoutExpiry)
+                    .putInt("vault_failed_attempts", 0)
+                    .apply()
                 lockoutRemainingSeconds = 30
                 failedAttempts = 0
                 errorMessage = "Too many failed attempts. Try again in 30s."
             } else {
-                errorMessage = "Incorrect code. Attempt $failedAttempts of 3."
+                failedAttempts = newAttempts
+                prefs.edit().putInt("vault_failed_attempts", newAttempts).apply()
+                errorMessage = "Incorrect code. Attempt $newAttempts of 3."
             }
             isPatternError = true
             pinInput = ""
