@@ -239,14 +239,19 @@ class MediaRepositoryImpl @Inject constructor(
         return metadataDao.getTrashedIdsFlow()
             .combine(mediaStoreDataSource.observeMediaStore()) { trashedIds, _ -> trashedIds }
             .map { trashedIds ->
-                if (trashedIds.isEmpty()) return@map emptyList<MediaItem>()
-                val items = mediaStoreDataSource.fetchMediaByIds(trashedIds.toSet())
+                val storeTrashed = mediaStoreDataSource.fetchMedia(limit = 1000, offset = 0, includeTrashed = true).filter { it.isTrashed }
+                val dbItems = if (trashedIds.isNotEmpty()) {
+                    mediaStoreDataSource.fetchMediaByIds(trashedIds.toSet())
+                } else {
+                    emptyList()
+                }
                 val metadataList = metadataDao.getMetadataForMediaIds(trashedIds)
                 val metadataMap = metadataList.associateBy { it.mediaId }
-                items.map { item ->
-                    val meta = metadataMap[item.id]
-                    applyMetadata(item, meta)
+                
+                val combined = (storeTrashed + dbItems).map { item ->
+                    applyMetadata(item, metadataMap[item.id])
                 }.filter { it.isTrashed }
+                combined.distinctBy { it.id }
             }
             .flowOn(Dispatchers.IO)
     }
@@ -390,12 +395,12 @@ class MediaRepositoryImpl @Inject constructor(
             is MediaItem.Photo -> item.copy(
                 isFavorite = meta.isFavorite,
                 isHidden = meta.isHidden,
-                isTrashed = meta.isTrashed
+                isTrashed = meta.isTrashed || item.isTrashed
             )
             is MediaItem.Video -> item.copy(
                 isFavorite = meta.isFavorite,
                 isHidden = meta.isHidden,
-                isTrashed = meta.isTrashed
+                isTrashed = meta.isTrashed || item.isTrashed
             )
         }
     }

@@ -251,22 +251,19 @@ fun MainScreenLayout(viewModel: MainViewModel) {
         pageCount = { screens.size }
     )
 
-    // Sync from screen change to pager page
+    // Sync from screen change to pager page (instant smooth snap)
     LaunchedEffect(currentScreen) {
         val page = screens.indexOf(currentScreen).coerceAtLeast(0)
         if (mainPagerState.currentPage != page) {
-            mainPagerState.animateScrollToPage(page)
+            mainPagerState.scrollToPage(page)
         }
     }
 
-    // Sync from pager page to screen change
-    LaunchedEffect(mainPagerState.currentPage) {
-        val targetScreen = screens.getOrNull(mainPagerState.currentPage)
+    // Sync from user swipe gesture to screen change when settled
+    LaunchedEffect(mainPagerState.settledPage) {
+        val targetScreen = screens.getOrNull(mainPagerState.settledPage)
         if (targetScreen != null && viewModel.currentScreen != targetScreen) {
             viewModel.currentScreen = targetScreen
-            if (targetScreen == Screen.Albums) {
-                viewModel.loadBuckets()
-            }
         }
     }
 
