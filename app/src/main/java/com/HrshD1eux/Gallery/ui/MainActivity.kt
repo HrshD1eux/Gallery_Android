@@ -355,8 +355,13 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                                 text = "${selectionState.selectedIds.size} Selected",
                                 style = MaterialTheme.typography.titleMedium
                             )
+                            val categoryName by viewModel.currentCategoryNameFlow.collectAsState()
+                            val trashedList by viewModel.trashed.collectAsState()
+                            val selectedIds = selectionState.selectedIds
+                            val isViewingTrash = categoryName == "Trash" || (selectedIds.isNotEmpty() && trashedList.any { selectedIds.contains(it.id) })
+
                             Row {
-                                if (viewModel.currentCategoryName == "Trash") {
+                                if (isViewingTrash) {
                                     IconButton(onClick = { viewModel.restoreSelectedMedia(context) }) {
                                         Icon(imageVector = Icons.Default.RestoreFromTrash, contentDescription = "Restore")
                                     }

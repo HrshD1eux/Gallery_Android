@@ -97,6 +97,7 @@ class MainViewModel @Inject constructor(
         }
 
     private val _currentCategoryName = MutableStateFlow<String?>(savedStateHandle.get<String>("current_category_name"))
+    val currentCategoryNameFlow: StateFlow<String?> = _currentCategoryName.asStateFlow()
     var currentCategoryName: String?
         get() = _currentCategoryName.value
         set(value) {

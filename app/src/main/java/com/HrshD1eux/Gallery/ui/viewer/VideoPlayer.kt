@@ -16,14 +16,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AspectRatio
@@ -63,7 +61,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem as Media3Item
 import androidx.media3.common.Player
-import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -106,6 +103,7 @@ fun VideoPlayerContainer(
     var duration by remember { mutableLongStateOf(0L) }
     var isSeeking by remember { mutableStateOf(false) }
     var sliderPosition by remember { mutableFloatStateOf(0f) }
+    var pendingSeekMs by remember { mutableLongStateOf(-1L) }
     var resizeModeState by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var isLocked by remember { mutableStateOf(false) }
     var internalRotation by remember { mutableFloatStateOf(rotationDegrees) }
@@ -125,9 +123,18 @@ fun VideoPlayerContainer(
             prepare()
             playWhenReady = isSelectedPage
         }
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) {
+                    pendingSeekMs = -1L
+                }
+            }
+        }
+        player.addListener(listener)
         exoPlayer = player
 
         onDispose {
+            player.removeListener(listener)
             player.stop()
             player.clearMediaItems()
             player.release()
@@ -151,10 +158,12 @@ fun VideoPlayerContainer(
         val player = exoPlayer ?: return@LaunchedEffect
         while (isActive) {
             isPlaying = player.isPlaying
-            if (!isSeeking) {
+            if (!isSeeking && pendingSeekMs < 0L) {
                 currentPosition = player.currentPosition.coerceAtLeast(0L)
             }
-            duration = player.duration.coerceAtLeast(0L)
+            if (player.duration > 0L) {
+                duration = player.duration
+            }
             delay(200)
         }
     }
@@ -184,15 +193,17 @@ fun VideoPlayerContainer(
                                 if (offset.x < width / 2) {
                                     // Rewind 10 seconds
                                     val newPos = (player.currentPosition - 10000L).coerceAtLeast(0L)
-                                    player.seekTo(newPos)
+                                    pendingSeekMs = newPos
                                     currentPosition = newPos
+                                    player.seekTo(newPos)
                                     doubleTapOverlayText = "◀◀ 10s Rewind"
                                 } else {
                                     // Fast Forward 10 seconds
                                     val targetMax = if (player.duration > 0) player.duration else Long.MAX_VALUE
                                     val newPos = (player.currentPosition + 10000L).coerceAtMost(targetMax)
-                                    player.seekTo(newPos)
+                                    pendingSeekMs = newPos
                                     currentPosition = newPos
+                                    player.seekTo(newPos)
                                     doubleTapOverlayText = "10s Fast Forward ▶▶"
                                 }
                             }
@@ -301,14 +312,22 @@ fun VideoPlayerContainer(
                     .background(Color.Black.copy(alpha = 0.65f))
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                // Time Indicators: Left = Current Position, Right = Total Duration
+                // Display time position: Left = Current Position, Right = Total Duration
+                val displayPos = if (isSeeking) {
+                    sliderPosition.toLong()
+                } else if (pendingSeekMs >= 0L) {
+                    pendingSeekMs
+                } else {
+                    currentPosition
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = formatVideoTime(if (isSeeking) sliderPosition.toLong() else currentPosition),
+                        text = formatVideoTime(displayPos),
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White
                     )
@@ -323,6 +342,8 @@ fun VideoPlayerContainer(
                 val maxSeek = if (duration > 0L) duration.toFloat() else 1000f
                 val currentSeek = if (isSeeking) {
                     sliderPosition.coerceIn(0f, maxSeek)
+                } else if (pendingSeekMs >= 0L) {
+                    pendingSeekMs.toFloat().coerceIn(0f, maxSeek)
                 } else {
                     currentPosition.toFloat().coerceIn(0f, maxSeek)
                 }
@@ -338,8 +359,9 @@ fun VideoPlayerContainer(
                     onValueChangeFinished = {
                         if (duration > 0L) {
                             val targetMs = sliderPosition.toLong().coerceIn(0L, duration)
-                            exoPlayer?.seekTo(targetMs)
+                            pendingSeekMs = targetMs
                             currentPosition = targetMs
+                            exoPlayer?.seekTo(targetMs)
                             isSeeking = false
                         }
                     },
@@ -395,8 +417,9 @@ fun VideoPlayerContainer(
                     IconButton(onClick = {
                         exoPlayer?.let { player ->
                             val newPos = (player.currentPosition - 10000L).coerceAtLeast(0L)
-                            player.seekTo(newPos)
+                            pendingSeekMs = newPos
                             currentPosition = newPos
+                            player.seekTo(newPos)
                             doubleTapOverlayText = "◀◀ 10s Rewind"
                         }
                     }) {
@@ -434,8 +457,9 @@ fun VideoPlayerContainer(
                         exoPlayer?.let { player ->
                             val targetMax = if (player.duration > 0) player.duration else Long.MAX_VALUE
                             val newPos = (player.currentPosition + 10000L).coerceAtMost(targetMax)
-                            player.seekTo(newPos)
+                            pendingSeekMs = newPos
                             currentPosition = newPos
+                            player.seekTo(newPos)
                             doubleTapOverlayText = "10s Fast Forward ▶▶"
                         }
                     }) {
