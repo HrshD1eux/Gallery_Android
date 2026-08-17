@@ -218,6 +218,7 @@ fun VideoPlayerContainer(
                 update = { view ->
                     view.player = player
                     view.resizeMode = resizeModeState
+                    view.rotation = internalRotation
                 },
                 onRelease = { view ->
                     view.player = null
@@ -319,21 +320,31 @@ fun VideoPlayerContainer(
                 }
 
                 // Custom Orange Seek Slider
-                val maxSeek = if (duration > 0L) duration.toFloat() else 1f
-                val currentSeek = if (isSeeking) sliderPosition else currentPosition.toFloat().coerceIn(0f, maxSeek)
+                val maxSeek = if (duration > 0L) duration.toFloat() else 1000f
+                val currentSeek = if (isSeeking) {
+                    sliderPosition.coerceIn(0f, maxSeek)
+                } else {
+                    currentPosition.toFloat().coerceIn(0f, maxSeek)
+                }
 
                 Slider(
                     value = currentSeek,
                     onValueChange = { pos ->
-                        isSeeking = true
-                        sliderPosition = pos
+                        if (duration > 0L) {
+                            isSeeking = true
+                            sliderPosition = pos
+                        }
                     },
                     onValueChangeFinished = {
-                        exoPlayer?.seekTo(sliderPosition.toLong())
-                        currentPosition = sliderPosition.toLong()
-                        isSeeking = false
+                        if (duration > 0L) {
+                            val targetMs = sliderPosition.toLong().coerceIn(0L, duration)
+                            exoPlayer?.seekTo(targetMs)
+                            currentPosition = targetMs
+                            isSeeking = false
+                        }
                     },
                     valueRange = 0f..maxSeek,
+                    enabled = duration > 0L,
                     colors = SliderDefaults.colors(
                         thumbColor = Color(0xFFFF5722),
                         activeTrackColor = Color(0xFFFF5722),

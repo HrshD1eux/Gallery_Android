@@ -40,6 +40,8 @@ import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.RestoreFromTrash
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
@@ -354,23 +356,32 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                                 style = MaterialTheme.typography.titleMedium
                             )
                             Row {
-                                IconButton(onClick = { showSelectionShareDialog = true }) {
-                                    Icon(imageVector = Icons.Default.Share, contentDescription = "Share")
-                                }
-                                IconButton(onClick = {
-                                    val selected = viewModel.mediaItems.value.filter { selectionState.selectedIds.contains(it.id) }
-                                    selected.forEach { viewModel.toggleHidden(context, it) }
-                                    selectionState.clear()
-                                }) {
-                                    Icon(imageVector = Icons.Default.VisibilityOff, contentDescription = "Hide")
-                                }
-                                 IconButton(onClick = { showMoveToAlbumDialog = true }) {
-                                    Icon(imageVector = Icons.Default.DriveFileMove, contentDescription = "Move to Album")
-                                }
-                                IconButton(onClick = {
-                                    viewModel.deleteSelectedMedia(context)
-                                }) {
-                                    Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete")
+                                if (viewModel.currentCategoryName == "Trash") {
+                                    IconButton(onClick = { viewModel.restoreSelectedMedia(context) }) {
+                                        Icon(imageVector = Icons.Default.RestoreFromTrash, contentDescription = "Restore")
+                                    }
+                                    IconButton(onClick = { viewModel.deleteSelectedMediaPermanently(context) }) {
+                                        Icon(imageVector = Icons.Default.DeleteForever, contentDescription = "Delete Permanently", tint = MaterialTheme.colorScheme.error)
+                                    }
+                                } else {
+                                    IconButton(onClick = { showSelectionShareDialog = true }) {
+                                        Icon(imageVector = Icons.Default.Share, contentDescription = "Share")
+                                    }
+                                    IconButton(onClick = {
+                                        val selected = viewModel.mediaItems.value.filter { selectionState.selectedIds.contains(it.id) }
+                                        selected.forEach { viewModel.toggleHidden(context, it) }
+                                        selectionState.clear()
+                                    }) {
+                                        Icon(imageVector = Icons.Default.VisibilityOff, contentDescription = "Hide")
+                                    }
+                                    IconButton(onClick = { showMoveToAlbumDialog = true }) {
+                                        Icon(imageVector = Icons.Default.DriveFileMove, contentDescription = "Move to Album")
+                                    }
+                                    IconButton(onClick = {
+                                        viewModel.deleteSelectedMedia(context)
+                                    }) {
+                                        Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete")
+                                    }
                                 }
                                 IconButton(onClick = { selectionState.clear() }) {
                                     Icon(imageVector = Icons.Default.Close, contentDescription = "Cancel")
