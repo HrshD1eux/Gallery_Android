@@ -193,10 +193,12 @@ fun PhotoViewerScreen(
                     if (item.isVideo) {
                         VideoPlayerContainer(
                             uri = item.uri,
+                            title = item.path.substringAfterLast('/'),
                             isSelectedPage = (page == pagerState.currentPage),
                             showChrome = showChrome,
                             onTap = { showChrome = !showChrome },
                             rotationDegrees = rotationDegrees,
+                            onRotationChange = { rotationDegrees = it },
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
