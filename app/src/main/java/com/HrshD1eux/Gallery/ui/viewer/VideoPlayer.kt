@@ -16,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem as Media3Item
@@ -32,6 +33,7 @@ fun VideoPlayerContainer(
     isSelectedPage: Boolean,
     showChrome: Boolean,
     onTap: () -> Unit,
+    rotationDegrees: Float = 0f,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -104,11 +106,15 @@ fun VideoPlayerContainer(
                             ViewGroup.LayoutParams.MATCH_PARENT
                         )
 
-                        // Offset Media3 bottom controls (seek bar & time text) by 84dp so they render cleanly above the bottom action bar
+                        // Offset Media3 bottom controls container (seek bar & time text) by 96dp bottom margin so it floats above the action bar
                         val bottomBar = findViewById<android.view.View>(androidx.media3.ui.R.id.exo_bottom_bar)
                         bottomBar?.let { bar ->
-                            val paddingPx = (84 * ctx.resources.displayMetrics.density).toInt()
-                            bar.setPadding(bar.paddingLeft, bar.paddingTop, bar.paddingRight, paddingPx)
+                            val marginPx = (96 * ctx.resources.displayMetrics.density).toInt()
+                            val params = bar.layoutParams as? ViewGroup.MarginLayoutParams
+                            params?.let { lp ->
+                                lp.bottomMargin = marginPx
+                                bar.layoutParams = lp
+                            }
                         }
 
                         if (showChrome) {
@@ -128,7 +134,11 @@ fun VideoPlayerContainer(
                     view.player = null
                     playerViewRef = null
                 },
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        rotationZ = rotationDegrees
+                    }
             )
         }
     }

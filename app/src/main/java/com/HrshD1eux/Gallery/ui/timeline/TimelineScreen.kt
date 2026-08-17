@@ -6,6 +6,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -68,6 +69,7 @@ fun TimelineScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
+            .clipToBounds()
             .pointerInput(Unit) {
                 detectTransformGestures { _, _, zoom: Float, _ ->
                     if (zoom != 1f) {
@@ -134,11 +136,12 @@ fun TimelineScreen(
                                 } else {
                                     1f
                                 }
+                                val cellRatio = if (viewModel.gridStyle == com.HrshD1eux.Gallery.ui.GridStyle.SQUARE) 1f else naturalRatio
                                 MediaGridCell(
                                     item = mediaItem,
                                     isSelected = isSelected,
                                     inSelectionMode = selectionState.inSelectionMode,
-                                    aspectRatio = naturalRatio,
+                                    aspectRatio = cellRatio,
                                     onClick = {
                                         if (selectionState.inSelectionMode) {
                                             selectionState.toggle(mediaItem.id)

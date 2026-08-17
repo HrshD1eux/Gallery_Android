@@ -41,6 +41,11 @@ enum class TimelineSortMode {
     FLAT_NEWEST_FIRST
 }
 
+enum class GridStyle {
+    SQUARE,
+    NATURAL
+}
+
 @HiltViewModel
 class MainViewModel @Inject constructor(
     private val repository: MediaRepository,
@@ -143,6 +148,17 @@ class MainViewModel @Inject constructor(
         } else {
             TimelineSortMode.DATE_GROUPED
         }
+    }
+
+    private var _gridStyleState = mutableStateOf(GridStyle.NATURAL)
+    var gridStyle: GridStyle
+        get() = _gridStyleState.value
+        set(value) {
+            _gridStyleState.value = value
+        }
+
+    fun toggleGridStyle() {
+        gridStyle = if (gridStyle == GridStyle.NATURAL) GridStyle.SQUARE else GridStyle.NATURAL
     }
 
     val flatTimelineList: StateFlow<List<TimelineItem>> = combine(
@@ -535,35 +551,91 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    var pendingBatchActionItems: List<MediaItem>? = null
+
+    fun deleteSelectedMedia(context: Context) {
+        val selectedItems = mediaItems.value.filter { selectionState.selectedIds.contains(it.id) }
+        if (selectedItems.isEmpty()) return
+
+        viewModelScope.launch {
+            try {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    val activity = context as? android.app.Activity
+                    if (activity != null) {
+                        pendingBatchActionItems = selectedItems
+                        val uris = selectedItems.map { it.uri }
+                        val pendingIntent = android.provider.MediaStore.createTrashRequest(
+                            context.contentResolver,
+                            uris,
+                            true
+                        )
+                        activity.startIntentSenderForResult(
+                            pendingIntent.intentSender,
+                            1005,
+                            null,
+                            0,
+                            0,
+                            0
+                        )
+                    }
+                } else {
+                    selectedItems.forEach { item ->
+                        repository.toggleTrashed(item)
+                    }
+                    selectionState.clear()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
     fun handleActivityResult(requestCode: Int, resultCode: Int) {
-        val item = pendingActionItem ?: return
+        val item = pendingActionItem
+        val batchItems = pendingBatchActionItems
+
         if (resultCode == android.app.Activity.RESULT_OK) {
             when (requestCode) {
                 1001 -> {
-                    viewModelScope.launch {
-                        repository.deleteMetadataPermanently(item.id)
-                        if (activeMediaItem?.id == item.id) {
-                            activeMediaItem = null
+                    if (item != null) {
+                        viewModelScope.launch {
+                            repository.deleteMetadataPermanently(item.id)
+                            if (activeMediaItem?.id == item.id) {
+                                activeMediaItem = null
+                            }
+                            pendingActionItem = null
                         }
-                        pendingActionItem = null
                     }
                 }
                 1002 -> {
-                    viewModelScope.launch {
-                        repository.toggleTrashed(item)
-                        if (activeMediaItem?.id == item.id) {
-                            activeMediaItem = null
+                    if (item != null) {
+                        viewModelScope.launch {
+                            repository.toggleTrashed(item)
+                            if (activeMediaItem?.id == item.id) {
+                                activeMediaItem = null
+                            }
+                            pendingActionItem = null
                         }
-                        pendingActionItem = null
                     }
                 }
                 1004 -> {
                     pendingActionItem = null
                 }
+                1005 -> {
+                    if (batchItems != null) {
+                        viewModelScope.launch {
+                            batchItems.forEach { batchItem ->
+                                repository.toggleTrashed(batchItem)
+                            }
+                            selectionState.clear()
+                            pendingBatchActionItems = null
+                        }
+                    }
+                }
             }
         } else {
             // Cancelled flow
-            if (requestCode == 1004) {
+            if (requestCode == 1004 && item != null) {
                 // Rollback: delete vault file and Room entry
                 viewModelScope.launch {
                     repository.deleteMetadataPermanently(item.id)
@@ -571,6 +643,7 @@ class MainViewModel @Inject constructor(
                 }
             } else {
                 pendingActionItem = null
+                pendingBatchActionItems = null
             }
         }
     }
