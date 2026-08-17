@@ -21,6 +21,8 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
@@ -432,6 +434,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
         ) {
             HorizontalPager(
                 state = mainPagerState,
+                beyondBoundsPageCount = 2,
                 modifier = Modifier.fillMaxSize(),
                 userScrollEnabled = viewModel.activeMediaItem == null
             ) { page ->
@@ -444,8 +447,8 @@ fun MainScreenLayout(viewModel: MainViewModel) {
 
             AnimatedVisibility(
                 visible = viewModel.activeMediaItem != null,
-                enter = fadeIn(),
-                exit = fadeOut()
+                enter = fadeIn() + scaleIn(initialScale = 0.94f),
+                exit = fadeOut() + scaleOut(targetScale = 0.94f)
             ) {
                 PhotoViewerScreen(viewModel = viewModel)
             }
