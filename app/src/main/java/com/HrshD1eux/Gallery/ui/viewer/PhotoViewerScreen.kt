@@ -250,10 +250,6 @@ fun PhotoViewerScreen(
                     modifier = Modifier.align(Alignment.CenterEnd),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { rotationDegrees = (rotationDegrees + 90f) % 360f }) {
-                        Icon(imageVector = Icons.Default.RotateRight, contentDescription = "Rotate", tint = Color.White)
-                    }
-
                     IconButton(onClick = { showInfoSheet = true }) {
                         Icon(imageVector = Icons.Default.Info, contentDescription = "Info", tint = Color.White)
                     }
@@ -342,7 +338,13 @@ fun PhotoViewerScreen(
                             Icon(imageVector = Icons.Default.DriveFileMove, contentDescription = "Move to Album", tint = Color.White)
                         }
 
-                        IconButton(onClick = { showDeleteConfirmDialog = true }) {
+                        IconButton(onClick = {
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                                viewModel.toggleTrashed(context, item)
+                            } else {
+                                showDeleteConfirmDialog = true
+                            }
+                        }) {
                             Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete", tint = Color.White)
                         }
                     }

@@ -3,6 +3,7 @@ package com.HrshD1eux.Gallery.ui.viewer
 import android.net.Uri
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -10,27 +11,31 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.SubtitlesOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -51,11 +56,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem as Media3Item
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -100,6 +108,15 @@ fun VideoPlayerContainer(
     var sliderPosition by remember { mutableFloatStateOf(0f) }
     var resizeModeState by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var isLocked by remember { mutableStateOf(false) }
+    var internalRotation by remember { mutableFloatStateOf(rotationDegrees) }
+    var subtitlesEnabled by remember { mutableStateOf(true) }
+
+    // Double-tap gesture feedback overlay state
+    var doubleTapOverlayText by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(rotationDegrees) {
+        internalRotation = rotationDegrees
+    }
 
     DisposableEffect(uri) {
         val player = ExoPlayer.Builder(context).build().apply {
@@ -142,18 +159,47 @@ fun VideoPlayerContainer(
         }
     }
 
+    // Dismiss gesture feedback overlay after 800ms
+    LaunchedEffect(doubleTapOverlayText) {
+        if (doubleTapOverlayText != null) {
+            delay(800)
+            doubleTapOverlayText = null
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = {
-                    if (!isLocked) {
-                        onTap()
+            .pointerInput(isLocked) {
+                detectTapGestures(
+                    onTap = {
+                        if (!isLocked) {
+                            onTap()
+                        }
+                    },
+                    onDoubleTap = { offset ->
+                        if (!isLocked) {
+                            exoPlayer?.let { player ->
+                                val width = size.width
+                                if (offset.x < width / 2) {
+                                    // Rewind 10 seconds
+                                    val newPos = (player.currentPosition - 10000L).coerceAtLeast(0L)
+                                    player.seekTo(newPos)
+                                    currentPosition = newPos
+                                    doubleTapOverlayText = "◀◀ 10s Rewind"
+                                } else {
+                                    // Fast Forward 10 seconds
+                                    val targetMax = if (player.duration > 0) player.duration else Long.MAX_VALUE
+                                    val newPos = (player.currentPosition + 10000L).coerceAtMost(targetMax)
+                                    player.seekTo(newPos)
+                                    currentPosition = newPos
+                                    doubleTapOverlayText = "10s Fast Forward ▶▶"
+                                }
+                            }
+                        }
                     }
-                }
-            )
+                )
+            }
     ) {
         exoPlayer?.let { player ->
             AndroidView(
@@ -179,7 +225,7 @@ fun VideoPlayerContainer(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        rotationZ = rotationDegrees
+                        rotationZ = internalRotation
                     }
             )
         }
@@ -202,27 +248,44 @@ fun VideoPlayerContainer(
             }
         }
 
-        // Lock button floating on left side
-        if (showChrome || isLocked) {
+        // Double-tap gesture feedback overlay indicator
+        doubleTapOverlayText?.let { text ->
             Box(
                 modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .padding(start = 16.dp)
+                    .align(Alignment.Center)
+                    .background(Color.Black.copy(alpha = 0.7f), CircleShape)
+                    .padding(horizontal = 20.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White
+                )
+            }
+        }
+
+        // If screen is locked, show a single Lock icon on top-left to unlock
+        if (isLocked) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .padding(16.dp)
             ) {
                 IconButton(
-                    onClick = { isLocked = !isLocked },
-                    modifier = Modifier.background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                    onClick = { isLocked = false },
+                    modifier = Modifier.background(Color.Black.copy(alpha = 0.6f), CircleShape)
                 ) {
                     Icon(
-                        imageVector = if (isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
-                        contentDescription = if (isLocked) "Unlock controls" else "Lock controls",
-                        tint = if (isLocked) Color(0xFFFF5722) else Color.White
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = "Unlock controls",
+                        tint = Color(0xFFFF5722)
                     )
                 }
             }
         }
 
-        // Custom Video Controls Overlay matching Screenshot 2
+        // Custom Video Controls Overlay matching Screenshot 2 (Zero Overlap)
         AnimatedVisibility(
             visible = showChrome && !isLocked,
             enter = fadeIn() + slideInVertically { it },
@@ -281,33 +344,59 @@ fun VideoPlayerContainer(
                         .height(28.dp)
                 )
 
-                // Custom Player Control Bar (Screenshot 2 style)
+                // Custom Player Control Bar (Single set of non-duplicate controls)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Subtitles / Audio Tracks
-                    IconButton(onClick = { /* Toggle subtitles/audio */ }) {
+                    // Subtitles / Audio Tracks Button
+                    IconButton(onClick = {
+                        exoPlayer?.let { player ->
+                            val textTracksExist = player.currentTracks.groups.any { group ->
+                                group.type == C.TRACK_TYPE_TEXT
+                            }
+                            if (textTracksExist) {
+                                subtitlesEnabled = !subtitlesEnabled
+                                val builder = player.trackSelectionParameters.buildUpon()
+                                builder.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !subtitlesEnabled)
+                                player.trackSelectionParameters = builder.build()
+                                Toast.makeText(
+                                    context,
+                                    if (subtitlesEnabled) "Subtitles Enabled" else "Subtitles Disabled",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            } else {
+                                Toast.makeText(context, "No subtitles available in video", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }) {
                         Icon(
-                            imageVector = Icons.Default.Subtitles,
+                            imageVector = if (subtitlesEnabled) Icons.Default.Subtitles else Icons.Default.SubtitlesOff,
                             contentDescription = "Subtitles",
                             tint = Color.White
                         )
                     }
 
-                    // Rotate
-                    IconButton(onClick = { onRotationChange?.invoke((rotationDegrees + 90f) % 360f) }) {
+                    // Fast Rewind 10s Button
+                    IconButton(onClick = {
+                        exoPlayer?.let { player ->
+                            val newPos = (player.currentPosition - 10000L).coerceAtLeast(0L)
+                            player.seekTo(newPos)
+                            currentPosition = newPos
+                            doubleTapOverlayText = "◀◀ 10s Rewind"
+                        }
+                    }) {
                         Icon(
-                            imageVector = Icons.Default.RotateRight,
-                            contentDescription = "Rotate",
+                            imageVector = Icons.Default.FastRewind,
+                            contentDescription = "Rewind 10s",
                             tint = Color.White
                         )
                     }
 
-                    // Center Play / Pause Big Button
+                    // Center Big Play / Pause Button
                     IconButton(
                         onClick = {
                             exoPlayer?.let { player ->
@@ -329,6 +418,35 @@ fun VideoPlayerContainer(
                         )
                     }
 
+                    // Fast Forward 10s Button
+                    IconButton(onClick = {
+                        exoPlayer?.let { player ->
+                            val targetMax = if (player.duration > 0) player.duration else Long.MAX_VALUE
+                            val newPos = (player.currentPosition + 10000L).coerceAtMost(targetMax)
+                            player.seekTo(newPos)
+                            currentPosition = newPos
+                            doubleTapOverlayText = "10s Fast Forward ▶▶"
+                        }
+                    }) {
+                        Icon(
+                            imageVector = Icons.Default.FastForward,
+                            contentDescription = "Forward 10s",
+                            tint = Color.White
+                        )
+                    }
+
+                    // Rotate 90° Button
+                    IconButton(onClick = {
+                        internalRotation = (internalRotation + 90f) % 360f
+                        onRotationChange?.invoke(internalRotation)
+                    }) {
+                        Icon(
+                            imageVector = Icons.Default.RotateRight,
+                            contentDescription = "Rotate",
+                            tint = Color.White
+                        )
+                    }
+
                     // Aspect Ratio / Fit Screen mode
                     IconButton(onClick = {
                         resizeModeState = when (resizeModeState) {
@@ -344,11 +462,11 @@ fun VideoPlayerContainer(
                         )
                     }
 
-                    // Lock Button
+                    // Lock Screen Controls Button
                     IconButton(onClick = { isLocked = true }) {
                         Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = "Lock",
+                            imageVector = Icons.Default.LockOpen,
+                            contentDescription = "Lock Controls",
                             tint = Color.White
                         )
                     }
