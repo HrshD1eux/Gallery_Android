@@ -101,9 +101,11 @@ fun VideoPlayerContainer(
     var isPlaying by remember { mutableStateOf(false) }
     var currentPosition by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
-    var isSeeking by remember { mutableStateOf(false) }
-    var sliderPosition by remember { mutableFloatStateOf(0f) }
-    var pendingSeekMs by remember { mutableLongStateOf(-1L) }
+
+    // Bulletproof Seeking State
+    var isUserSeeking by remember { mutableStateOf(false) }
+    var dragPositionMs by remember { mutableLongStateOf(0L) }
+
     var resizeModeState by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var isLocked by remember { mutableStateOf(false) }
     var internalRotation by remember { mutableFloatStateOf(rotationDegrees) }
@@ -123,18 +125,9 @@ fun VideoPlayerContainer(
             prepare()
             playWhenReady = isSelectedPage
         }
-        val listener = object : Player.Listener {
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_READY) {
-                    pendingSeekMs = -1L
-                }
-            }
-        }
-        player.addListener(listener)
         exoPlayer = player
 
         onDispose {
-            player.removeListener(listener)
             player.stop()
             player.clearMediaItems()
             player.release()
@@ -153,12 +146,12 @@ fun VideoPlayerContainer(
         }
     }
 
-    // Ticker coroutine to update playback position smoothly
+    // Ticker coroutine to update playback position smoothly when user is NOT dragging slider
     LaunchedEffect(exoPlayer, isSelectedPage) {
         val player = exoPlayer ?: return@LaunchedEffect
         while (isActive) {
             isPlaying = player.isPlaying
-            if (!isSeeking && pendingSeekMs < 0L) {
+            if (!isUserSeeking) {
                 currentPosition = player.currentPosition.coerceAtLeast(0L)
             }
             if (player.duration > 0L) {
@@ -193,7 +186,6 @@ fun VideoPlayerContainer(
                                 if (offset.x < width / 2) {
                                     // Rewind 10 seconds
                                     val newPos = (player.currentPosition - 10000L).coerceAtLeast(0L)
-                                    pendingSeekMs = newPos
                                     currentPosition = newPos
                                     player.seekTo(newPos)
                                     doubleTapOverlayText = "◀◀ 10s Rewind"
@@ -201,7 +193,6 @@ fun VideoPlayerContainer(
                                     // Fast Forward 10 seconds
                                     val targetMax = if (player.duration > 0) player.duration else Long.MAX_VALUE
                                     val newPos = (player.currentPosition + 10000L).coerceAtMost(targetMax)
-                                    pendingSeekMs = newPos
                                     currentPosition = newPos
                                     player.seekTo(newPos)
                                     doubleTapOverlayText = "10s Fast Forward ▶▶"
@@ -213,33 +204,37 @@ fun VideoPlayerContainer(
             }
     ) {
         exoPlayer?.let { player ->
-            AndroidView(
-                factory = { ctx ->
-                    PlayerView(ctx).apply {
-                        this.player = player
-                        useController = false // Completely disable built-in controller to eliminate all overlap
-                        setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
-                        resizeMode = resizeModeState
-                        layoutParams = FrameLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                    }
-                },
-                update = { view ->
-                    view.player = player
-                    view.resizeMode = resizeModeState
-                    view.rotation = internalRotation
-                },
-                onRelease = { view ->
-                    view.player = null
-                },
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
                         rotationZ = internalRotation
                     }
-            )
+            ) {
+                AndroidView(
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
+                            this.player = player
+                            useController = false // Completely disable built-in controller to eliminate all overlap
+                            setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
+                            resizeMode = resizeModeState
+                            layoutParams = FrameLayout.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                        }
+                    },
+                    update = { view ->
+                        view.player = player
+                        view.resizeMode = resizeModeState
+                        view.rotation = internalRotation
+                    },
+                    onRelease = { view ->
+                        view.player = null
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         }
 
         // Title Bar at top center (when chrome is visible)
@@ -313,13 +308,7 @@ fun VideoPlayerContainer(
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 // Display time position: Left = Current Position, Right = Total Duration
-                val displayPos = if (isSeeking) {
-                    sliderPosition.toLong()
-                } else if (pendingSeekMs >= 0L) {
-                    pendingSeekMs
-                } else {
-                    currentPosition
-                }
+                val displayPosMs = if (isUserSeeking) dragPositionMs else currentPosition
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -327,7 +316,7 @@ fun VideoPlayerContainer(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = formatVideoTime(displayPos),
+                        text = formatVideoTime(displayPosMs),
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White
                     )
@@ -338,34 +327,27 @@ fun VideoPlayerContainer(
                     )
                 }
 
-                // Custom Orange Seek Slider
-                val maxSeek = if (duration > 0L) duration.toFloat() else 1000f
-                val currentSeek = if (isSeeking) {
-                    sliderPosition.coerceIn(0f, maxSeek)
-                } else if (pendingSeekMs >= 0L) {
-                    pendingSeekMs.toFloat().coerceIn(0f, maxSeek)
-                } else {
-                    currentPosition.toFloat().coerceIn(0f, maxSeek)
-                }
+                // Custom Orange Seek Slider (Indestructible state tracking)
+                val maxSeekMs = if (duration > 0L) duration.toFloat() else 1000f
+                val sliderValueFloat = (if (isUserSeeking) dragPositionMs.toFloat() else currentPosition.toFloat()).coerceIn(0f, maxSeekMs)
 
                 Slider(
-                    value = currentSeek,
+                    value = sliderValueFloat,
                     onValueChange = { pos ->
                         if (duration > 0L) {
-                            isSeeking = true
-                            sliderPosition = pos
+                            isUserSeeking = true
+                            dragPositionMs = pos.toLong()
                         }
                     },
                     onValueChangeFinished = {
                         if (duration > 0L) {
-                            val targetMs = sliderPosition.toLong().coerceIn(0L, duration)
-                            pendingSeekMs = targetMs
+                            val targetMs = dragPositionMs.coerceIn(0L, duration)
                             currentPosition = targetMs
                             exoPlayer?.seekTo(targetMs)
-                            isSeeking = false
+                            isUserSeeking = false
                         }
                     },
-                    valueRange = 0f..maxSeek,
+                    valueRange = 0f..maxSeekMs,
                     enabled = duration > 0L,
                     colors = SliderDefaults.colors(
                         thumbColor = Color(0xFFFF5722),
@@ -417,7 +399,6 @@ fun VideoPlayerContainer(
                     IconButton(onClick = {
                         exoPlayer?.let { player ->
                             val newPos = (player.currentPosition - 10000L).coerceAtLeast(0L)
-                            pendingSeekMs = newPos
                             currentPosition = newPos
                             player.seekTo(newPos)
                             doubleTapOverlayText = "◀◀ 10s Rewind"
@@ -457,7 +438,6 @@ fun VideoPlayerContainer(
                         exoPlayer?.let { player ->
                             val targetMax = if (player.duration > 0) player.duration else Long.MAX_VALUE
                             val newPos = (player.currentPosition + 10000L).coerceAtMost(targetMax)
-                            pendingSeekMs = newPos
                             currentPosition = newPos
                             player.seekTo(newPos)
                             doubleTapOverlayText = "10s Fast Forward ▶▶"
