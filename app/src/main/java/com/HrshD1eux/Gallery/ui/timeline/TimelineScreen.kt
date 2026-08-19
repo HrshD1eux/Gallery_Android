@@ -158,6 +158,13 @@ fun TimelineScreen(
                                     )
                                 }
                             }
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(1f)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                            )
                         }
                     }
                 }

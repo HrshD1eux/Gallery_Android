@@ -16,14 +16,19 @@ class MediaPagingSource(
         val limit = params.loadSize
 
         return try {
+            val totalCount = repository.getTotalMediaCount(bucketId)
             val items = repository.loadMediaPaged(limit = limit, offset = offset, bucketId = bucketId, sortOrder = sortOrder)
-            val nextKey = if (items.size < limit) null else offset + items.size
+            val nextKey = if (items.size < limit || offset + items.size >= totalCount) null else offset + items.size
             val prevKey = if (offset == 0) null else (offset - limit).coerceAtLeast(0)
+            val itemsBefore = offset.coerceAtMost(totalCount)
+            val itemsAfter = (totalCount - (offset + items.size)).coerceAtLeast(0)
 
             LoadResult.Page(
                 data = items,
                 prevKey = prevKey,
-                nextKey = nextKey
+                nextKey = nextKey,
+                itemsBefore = itemsBefore,
+                itemsAfter = itemsAfter
             )
         } catch (e: Exception) {
             LoadResult.Error(e)

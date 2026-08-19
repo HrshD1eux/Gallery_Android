@@ -32,19 +32,55 @@ class MediaStoreDataSource @Inject constructor(
             override fun onChange(selfChange: Boolean) {
                 trySend(Unit)
             }
+            override fun onChange(selfChange: Boolean, uri: Uri?) {
+                trySend(Unit)
+            }
         }
-        // Observe external file modifications
-        contentResolver.registerContentObserver(
-            MediaStore.Files.getContentUri("external"),
-            true,
-            observer
-        )
+        // Observe image, video, and file modifications for universal OEM compatibility
+        try {
+            contentResolver.registerContentObserver(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, true, observer)
+        } catch (_: Exception) {}
+        try {
+            contentResolver.registerContentObserver(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, true, observer)
+        } catch (_: Exception) {}
+        try {
+            contentResolver.registerContentObserver(MediaStore.Files.getContentUri("external"), true, observer)
+        } catch (_: Exception) {}
         
         // Emit initial value to fetch baseline
         trySend(Unit)
         
         awaitClose {
-            contentResolver.unregisterContentObserver(observer)
+            try {
+                contentResolver.unregisterContentObserver(observer)
+            } catch (_: Exception) {}
+        }
+    }
+
+    suspend fun getTotalMediaCount(bucketId: Long? = null): Int = withContext(Dispatchers.IO) {
+        val collection = MediaStore.Files.getContentUri("external")
+        val projection = arrayOf(MediaStore.Files.FileColumns._ID)
+        val selection = if (bucketId != null) {
+            "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}, ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO}) AND ${MediaStore.Files.FileColumns.BUCKET_ID} = ?"
+        } else {
+            "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}, ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO})"
+        }
+        val selectionArgs = if (bucketId != null) arrayOf(bucketId.toString()) else null
+
+        val queryArgs = Bundle().apply {
+            putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+            putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                putInt(QUERY_ARG_MATCH_NOMEDIA, MediaStore.MATCH_INCLUDE)
+            }
+        }
+
+        try {
+            contentResolver.query(collection, projection, queryArgs, null)?.use {
+                it.count
+            } ?: 0
+        } catch (_: Exception) {
+            0
         }
     }
 
@@ -145,7 +181,7 @@ class MediaStoreDataSource @Inject constructor(
                 val rawDateTaken = it.getLong(dateCol)
                 val addedSecs = it.getLong(addedCol)
                 val addedMs = if (addedSecs > 0) addedSecs * 1000L else 0L
-                val dateTaken = if (rawDateTaken > 100000000000L) maxOf(rawDateTaken, addedMs) else addedMs
+                val dateTaken = if (rawDateTaken > 100000000000L) rawDateTaken else addedMs
                 
                 val size = it.getLong(sizeCol)
                 val width = it.getInt(widthCol)
@@ -588,19 +624,12 @@ class MediaStoreDataSource @Inject constructor(
                 java.io.File(externalStorage, "Android/media/org.telegram.messenger/Telegram"),
                 java.io.File(externalStorage, "Android/media/org.telegram.messenger.web/Telegram"),
                 java.io.File(externalStorage, "WhatsApp/Media"),
-                java.io.File(externalStorage, "WhatsApp Business/Media"),
-                java.io.File(externalStorage, "Telegram"),
-                java.io.File(externalStorage, "Pictures"),
-                java.io.File(externalStorage, "DCIM"),
-                java.io.File(externalStorage, "Download"),
-                java.io.File(externalStorage, "Downloads"),
-                java.io.File(externalStorage, "Movies"),
-                java.io.File(externalStorage, "Documents")
+                java.io.File(externalStorage, "Telegram")
             )
 
             val unindexedFiles = mutableListOf<String>()
             secondaryPaths.filter { it.exists() && it.isDirectory }.forEach { dir ->
-                dir.walkTopDown().maxDepth(12).forEach { file ->
+                dir.walkTopDown().maxDepth(4).take(200).forEach { file ->
                     if (file.isFile && validExtensions.contains(file.extension.lowercase(java.util.Locale.getDefault()))) {
                         unindexedFiles.add(file.absolutePath)
                     }
@@ -685,23 +714,30 @@ class MediaStoreDataSource @Inject constructor(
         }
 
         cursor?.use {
+            val count = it.count
+            if (count == 0) return@withContext emptyList()
+
             val dateCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_TAKEN)
             val addedCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_ADDED)
             var currentHeader = ""
-            var itemIndex = 0
 
-            while (it.moveToNext()) {
-                val rawDateTaken = it.getLong(dateCol)
-                val addedSecs = it.getLong(addedCol)
-                val addedMs = if (addedSecs > 0) addedSecs * 1000L else 0L
-                val dateTaken = if (rawDateTaken > 100000000000L) maxOf(rawDateTaken, addedMs) else addedMs
+            // For small collections evaluate all items; for large 100k libraries, sample ~50 points with moveToPosition
+            val sampleStep = (count / 50).coerceAtLeast(1)
+            var pos = 0
+            while (pos < count) {
+                if (it.moveToPosition(pos)) {
+                    val rawDateTaken = it.getLong(dateCol)
+                    val addedSecs = it.getLong(addedCol)
+                    val addedMs = if (addedSecs > 0) addedSecs * 1000L else 0L
+                    val dateTaken = if (rawDateTaken > 100000000000L) rawDateTaken else addedMs
 
-                val headerTitle = getHeaderTitle(dateTaken)
-                if (headerTitle != currentHeader) {
-                    currentHeader = headerTitle
-                    result.add(com.HrshD1eux.Gallery.data.repository.DatePositionHeader(headerTitle, itemIndex))
+                    val headerTitle = getHeaderTitle(dateTaken)
+                    if (headerTitle != currentHeader) {
+                        currentHeader = headerTitle
+                        result.add(com.HrshD1eux.Gallery.data.repository.DatePositionHeader(headerTitle, pos))
+                    }
                 }
-                itemIndex++
+                pos += sampleStep
             }
         }
         result

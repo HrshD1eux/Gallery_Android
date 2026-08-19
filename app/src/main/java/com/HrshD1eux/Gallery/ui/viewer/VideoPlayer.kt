@@ -127,7 +127,31 @@ fun VideoPlayerContainer(
 
     DisposableEffect(uri, isSelectedPage) {
         val player = ExoPlayer.Builder(context).build().apply {
-            setMediaItem(Media3Item.fromUri(uri))
+            val path = uri.path
+            if (path != null && (path.contains("/vault/") || path.contains("vault_") || uri.scheme == "vault")) {
+                val file = java.io.File(path)
+                if (file.exists()) {
+                    try {
+                        val byteOut = java.io.ByteArrayOutputStream()
+                        file.inputStream().use { input ->
+                            com.HrshD1eux.Gallery.core.util.VaultCrypto.decrypt(input, byteOut)
+                        }
+                        val bytes = byteOut.toByteArray()
+                        val mediaSource = androidx.media3.exoplayer.source.ProgressiveMediaSource.Factory(
+                            androidx.media3.datasource.DataSource.Factory {
+                                androidx.media3.datasource.ByteArrayDataSource(bytes)
+                            }
+                        ).createMediaSource(Media3Item.fromUri(uri))
+                        setMediaSource(mediaSource)
+                    } catch (_: Exception) {
+                        setMediaItem(Media3Item.fromUri(uri))
+                    }
+                } else {
+                    setMediaItem(Media3Item.fromUri(uri))
+                }
+            } else {
+                setMediaItem(Media3Item.fromUri(uri))
+            }
             repeatMode = Player.REPEAT_MODE_OFF
             prepare()
             playWhenReady = true

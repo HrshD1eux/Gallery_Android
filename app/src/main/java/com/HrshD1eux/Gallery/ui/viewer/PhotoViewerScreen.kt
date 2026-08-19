@@ -169,19 +169,15 @@ fun PhotoViewerScreen(
     }
 
     val infoSheetState = rememberModalBottomSheetState()
-    val zoomState = rememberZoomState()
 
-    // Reset zoom state when user pages to another image
-    LaunchedEffect(pagerState.currentPage) {
-        zoomState.reset()
-    }
+    // Track whether the current page is zoomed (each page manages its own ZoomState internally)
+    var isCurrentPageZoomed by remember { mutableStateOf(false) }
 
     // Swipe down to dismiss state
     var dragOffsetY by remember { mutableStateOf(0f) }
     
     // Disable drag dismiss if image is zoomed in to avoid gesture collision.
-    // Uses draggable to track drag offsets and swipe velocity (flinging downwards closes the viewer)
-    val swipeDismissModifier = if (zoomState.scale == 1f) {
+    val swipeDismissModifier = if (!isCurrentPageZoomed) {
         Modifier.draggable(
             state = rememberDraggableState { delta ->
                 if (delta > 0 || dragOffsetY > 0) {
@@ -213,7 +209,7 @@ fun PhotoViewerScreen(
         HorizontalPager(
             state = pagerState,
             key = { page -> mediaItems.getOrNull(page)?.id ?: page },
-            userScrollEnabled = zoomState.scale <= 1.05f && !isSlideshowActive,
+            userScrollEnabled = !isCurrentPageZoomed && !isSlideshowActive,
             beyondBoundsPageCount = 1,
             modifier = Modifier
                 .fillMaxSize()
@@ -251,6 +247,23 @@ fun PhotoViewerScreen(
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
+                        // Each page gets its own independent zoom state
+                        val pageZoomState = rememberZoomState()
+
+                        // Reset zoom when this page is no longer the active page
+                        LaunchedEffect(pagerState.currentPage) {
+                            if (page != pagerState.currentPage) {
+                                pageZoomState.reset()
+                            }
+                        }
+
+                        // Report zoom state to the parent for pager scroll locking
+                        LaunchedEffect(pageZoomState.scale) {
+                            if (page == pagerState.currentPage) {
+                                isCurrentPageZoomed = pageZoomState.scale > 1.05f
+                            }
+                        }
+
                         AsyncImage(
                             model = imageRequest,
                             contentDescription = null,
@@ -258,7 +271,7 @@ fun PhotoViewerScreen(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .zoomable(
-                                    state = zoomState,
+                                    state = pageZoomState,
                                     onTap = { showChrome = !showChrome }
                                 )
                         )

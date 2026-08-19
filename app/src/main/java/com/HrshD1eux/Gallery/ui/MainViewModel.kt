@@ -197,8 +197,8 @@ class MainViewModel @Inject constructor(
     private val _mediaItems = MutableStateFlow<List<MediaItem>>(emptyList())
     val mediaItems: StateFlow<List<MediaItem>> = _mediaItems.asStateFlow()
 
-    val buckets: StateFlow<List<BucketInfo>> = repository.getBucketsFlow()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    private val _buckets = MutableStateFlow<List<BucketInfo>>(emptyList())
+    val buckets: StateFlow<List<BucketInfo>> = _buckets.asStateFlow()
 
     private val _favorites = MutableStateFlow<List<MediaItem>>(emptyList())
     val favorites: StateFlow<List<MediaItem>> = _favorites.asStateFlow()
@@ -340,13 +340,13 @@ class MainViewModel @Inject constructor(
                 PagingData.from(sorted)
             }
             "Videos" -> Pager(
-                config = PagingConfig(pageSize = 100, enablePlaceholders = false),
+                config = PagingConfig(pageSize = 60, prefetchDistance = 30, enablePlaceholders = true),
                 pagingSourceFactory = { MediaPagingSource(repository, bucketId, order) }
             ).flow.map { pagingData ->
                 pagingData.filter { it is MediaItem.Video }
             }
             else -> Pager(
-                config = PagingConfig(pageSize = 100, enablePlaceholders = false),
+                config = PagingConfig(pageSize = 60, prefetchDistance = 30, enablePlaceholders = true),
                 pagingSourceFactory = { MediaPagingSource(repository, bucketId, order) }
             ).flow
         }
@@ -398,7 +398,13 @@ class MainViewModel @Inject constructor(
 
     init {
         loadNextPage()
+        loadBuckets()
         
+        viewModelScope.launch {
+            repository.getBucketsFlow().collect {
+                _buckets.value = it
+            }
+        }
         viewModelScope.launch {
             repository.getFavoriteMediaFlow().collect {
                 _favorites.value = it
@@ -421,15 +427,9 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             @OptIn(FlowPreview::class)
             repository.observeMediaChanges()
-                .debounce(1000)
+                .debounce(300)
                 .collectLatest {
-                    refreshTrigger.value++
-                    val refreshedItems = repository.loadMediaPaged(
-                        limit = PAGE_SIZE,
-                        offset = 0,
-                        bucketId = currentBucketId
-                    )
-                    _mediaItems.value = refreshedItems
+                    refreshAll()
                 }
         }
 
@@ -497,11 +497,24 @@ class MainViewModel @Inject constructor(
     }
 
     fun loadMediaStream() {
-        loadNextPage()
+        refreshAll()
+    }
+
+    suspend fun getAllPhotosForDuplicateScan(): List<MediaItem.Photo> = withContext(Dispatchers.IO) {
+        val allMedia = repository.loadMediaPaged(limit = 5000, offset = 0, bucketId = null)
+        allMedia.filterIsInstance<MediaItem.Photo>()
     }
 
     fun loadBuckets() {
-        // Handled reactively
+        viewModelScope.launch(Dispatchers.IO) {
+            _buckets.value = repository.getBuckets()
+        }
+    }
+
+    fun refreshAll() {
+        refreshTrigger.value++
+        loadBuckets()
+        loadNextPage()
     }
 
     fun moveMediaToFolder(context: Context, items: List<MediaItem>, folderName: String) {
@@ -581,10 +594,13 @@ class MainViewModel @Inject constructor(
                                 }
                             }
                         }
+                        refreshAll()
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
+            } else {
+                refreshAll()
             }
         }
     }
@@ -595,15 +611,14 @@ class MainViewModel @Inject constructor(
                 val userPrefs = context.getSharedPreferences("user_albums", Context.MODE_PRIVATE)
                 val currentSet = userPrefs.getStringSet("created_albums", emptySet()) ?: emptySet()
                 val updatedSet = currentSet.toMutableSet().apply { add(albumName) }
-                userPrefs.edit().putStringSet("created_albums", updatedSet).apply()
+                userPrefs.edit().putStringSet("created_albums", updatedSet).commit()
 
                 val picturesDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES)
                 val newAlbumDir = java.io.File(picturesDir, albumName)
                 if (!newAlbumDir.exists()) {
                     newAlbumDir.mkdirs()
                 }
-                refreshTrigger.value++
-                loadBuckets()
+                refreshAll()
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -617,12 +632,13 @@ class MainViewModel @Inject constructor(
                 val currentSet = userPrefs.getStringSet("created_albums", emptySet()) ?: emptySet()
                 if (currentSet.contains(bucketName)) {
                     val updatedSet = currentSet.toMutableSet().apply { remove(bucketName) }
-                    userPrefs.edit().putStringSet("created_albums", updatedSet).apply()
+                    userPrefs.edit().putStringSet("created_albums", updatedSet).commit()
                 }
 
                 val itemsInAlbum = repository.loadMediaPaged(limit = 2000, offset = 0, bucketId = bucketId)
                 if (itemsInAlbum.isNotEmpty()) {
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                        pendingBatchActionItems = itemsInAlbum
                         val pendingIntent = android.provider.MediaStore.createTrashRequest(
                             context.contentResolver,
                             itemsInAlbum.map { it.uri },
@@ -643,8 +659,7 @@ class MainViewModel @Inject constructor(
                 if (albumFolder.exists()) {
                     albumFolder.deleteRecursively()
                 }
-                refreshTrigger.value++
-                loadBuckets()
+                refreshAll()
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -662,6 +677,7 @@ class MainViewModel @Inject constructor(
                     null -> null
                 }
             }
+            refreshAll()
         }
     }
 
@@ -669,6 +685,7 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 repository.toggleHidden(context, item)
+                refreshAll()
             } catch (e: Exception) {
                 val recoverable = e as? android.app.RecoverableSecurityException
                     ?: e.cause as? android.app.RecoverableSecurityException
@@ -731,6 +748,7 @@ class MainViewModel @Inject constructor(
                     if (activeMediaItem?.id == item.id) {
                         activeMediaItem = null
                     }
+                    refreshAll()
                 }
             } catch (e: Exception) {
                 val recoverable = e as? android.app.RecoverableSecurityException
@@ -763,6 +781,7 @@ class MainViewModel @Inject constructor(
                     repository.deleteMetadataPermanently(item.id)
                 }
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    pendingBatchActionItems = trashedItems
                     val pendingIntent = android.provider.MediaStore.createDeleteRequest(
                         context.contentResolver,
                         trashedItems.map { it.uri }
@@ -770,8 +789,7 @@ class MainViewModel @Inject constructor(
                     val activity = context as? android.app.Activity
                     activity?.startIntentSenderForResult(pendingIntent.intentSender, 1003, null, 0, 0, 0)
                 }
-                refreshTrigger.value++
-                loadNextPage()
+                refreshAll()
             }
         }
     }
@@ -782,23 +800,7 @@ class MainViewModel @Inject constructor(
             viewModelScope.launch {
                 val selectedList = visibleMediaItems.value.filter { selectedIds.contains(it.id) }
                 if (selectedList.isNotEmpty()) {
-                    val itemsToShare = selectedList.map { item ->
-                        if (item.isHidden) {
-                            val cacheFile = repository.getDecryptedVaultFile(context, item)
-                            if (cacheFile != null) {
-                                val contentUri = androidx.core.content.FileProvider.getUriForFile(
-                                    context,
-                                    "${context.packageName}.fileprovider",
-                                    cacheFile
-                                )
-                                when (item) {
-                                    is MediaItem.Photo -> item.copy(uri = contentUri)
-                                    is MediaItem.Video -> item.copy(uri = contentUri)
-                                }
-                            } else item
-                        } else item
-                    }
-                    SharingUtils.shareMedia(context, itemsToShare, stripMetadata)
+                    SharingUtils.shareMedia(context, selectedList, stripMetadata)
                     selectionState.clear()
                 }
             }
@@ -814,6 +816,7 @@ class MainViewModel @Inject constructor(
                 toggleHidden(context, item)
             }
             selectionState.clear()
+            refreshAll()
         }
     }
 
@@ -825,6 +828,7 @@ class MainViewModel @Inject constructor(
             if (selectedItems.isNotEmpty()) {
                 moveMediaToFolder(context, selectedItems, folderName)
                 selectionState.clear()
+                refreshAll()
             }
         }
     }
@@ -858,6 +862,7 @@ class MainViewModel @Inject constructor(
                     if (activeMediaItem?.id == item.id) {
                         activeMediaItem = null
                     }
+                    refreshAll()
                 }
             } catch (e: Exception) {
                 val recoverable = e as? android.app.RecoverableSecurityException
@@ -917,6 +922,7 @@ class MainViewModel @Inject constructor(
                         repository.toggleTrashed(item)
                     }
                     selectionState.clear()
+                    refreshAll()
                 }
             } catch (e: Exception) {
                 val recoverable = e as? android.app.RecoverableSecurityException
@@ -950,6 +956,7 @@ class MainViewModel @Inject constructor(
                 repository.toggleTrashed(item)
             }
             selectionState.clear()
+            refreshAll()
         }
     }
 
@@ -1003,6 +1010,7 @@ class MainViewModel @Inject constructor(
                         }
                     }
                     selectionState.clear()
+                    refreshAll()
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -1024,6 +1032,7 @@ class MainViewModel @Inject constructor(
                             }
                             selectionState.clear()
                             pendingBatchActionItems = null
+                            refreshAll()
                         }
                     } else if (item != null) {
                         viewModelScope.launch {
@@ -1032,6 +1041,7 @@ class MainViewModel @Inject constructor(
                                 activeMediaItem = null
                             }
                             pendingActionItem = null
+                            refreshAll()
                         }
                     }
                 }
@@ -1043,11 +1053,27 @@ class MainViewModel @Inject constructor(
                                 activeMediaItem = null
                             }
                             pendingActionItem = null
+                            refreshAll()
                         }
+                    }
+                }
+                1003 -> {
+                    if (batchItems != null) {
+                        viewModelScope.launch {
+                            batchItems.forEach { batchItem ->
+                                repository.deleteMetadataPermanently(batchItem.id)
+                            }
+                            selectionState.clear()
+                            pendingBatchActionItems = null
+                            refreshAll()
+                        }
+                    } else {
+                        refreshAll()
                     }
                 }
                 1004 -> {
                     pendingActionItem = null
+                    refreshAll()
                 }
                 1005 -> {
                     if (batchItems != null) {
@@ -1057,7 +1083,10 @@ class MainViewModel @Inject constructor(
                             }
                             selectionState.clear()
                             pendingBatchActionItems = null
+                            refreshAll()
                         }
+                    } else {
+                        refreshAll()
                     }
                 }
             }
@@ -1068,10 +1097,12 @@ class MainViewModel @Inject constructor(
                 viewModelScope.launch {
                     repository.deleteMetadataPermanently(item.id)
                     pendingActionItem = null
+                    refreshAll()
                 }
             } else {
                 pendingActionItem = null
                 pendingBatchActionItems = null
+                refreshAll()
             }
         }
     }

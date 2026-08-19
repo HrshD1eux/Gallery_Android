@@ -24,8 +24,26 @@ object ImageCompressor {
     ): Uri? = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
         val originalBitmap = try {
+            val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             resolver.openInputStream(item.uri)?.use { input ->
-                BitmapFactory.decodeStream(input)
+                BitmapFactory.decodeStream(input, null, boundsOptions)
+            }
+            if (boundsOptions.outWidth <= 0 || boundsOptions.outHeight <= 0) return@withContext null
+
+            // Determine safe inSampleSize to prevent OOM on 50MP-200MP images (max dimension 4096px)
+            val maxDim = maxOf(boundsOptions.outWidth, boundsOptions.outHeight)
+            var sampleSize = 1
+            while (maxDim / sampleSize > 4096) {
+                sampleSize *= 2
+            }
+
+            val decodeOptions = BitmapFactory.Options().apply {
+                inSampleSize = sampleSize
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+
+            resolver.openInputStream(item.uri)?.use { input ->
+                BitmapFactory.decodeStream(input, null, decodeOptions)
             }
         } catch (_: Exception) { null } ?: return@withContext null
 

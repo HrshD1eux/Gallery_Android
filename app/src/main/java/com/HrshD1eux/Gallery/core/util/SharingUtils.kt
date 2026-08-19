@@ -32,12 +32,20 @@ object SharingUtils {
 
         val uris = items.mapNotNull { item ->
             try {
-                val fileName = item.path.substringAfterLast('/', "shared_media_${item.id}")
+                val fileName = "${item.id}_${item.path.substringAfterLast('/', "shared_media")}"
                 val tempFile = File(sharedFolder, fileName)
                 
                 context.contentResolver.openInputStream(item.uri)?.use { input ->
                     FileOutputStream(tempFile).use { output ->
-                        input.copyTo(output)
+                        if (item.isHidden) {
+                            try {
+                                VaultCrypto.decrypt(input, output)
+                            } catch (_: Exception) {
+                                input.copyTo(output)
+                            }
+                        } else {
+                            input.copyTo(output)
+                        }
                     }
                 } ?: return@mapNotNull null
 

@@ -73,7 +73,9 @@ fun DuplicateFinderScreen(
 
     LaunchedEffect(Unit) {
         isScanning = true
-        val result = DuplicateFinder.findDuplicates(context, visibleMedia)
+        val allPhotos = viewModel.getAllPhotosForDuplicateScan()
+        val photosToScan = if (allPhotos.isNotEmpty()) allPhotos else visibleMedia.filterIsInstance<MediaItem.Photo>()
+        val result = DuplicateFinder.findDuplicates(context, photosToScan)
         groups = result
         // Auto-select all duplicates except the best item in each group
         selectedToDelete.clear()
@@ -241,10 +243,11 @@ fun DuplicateFinderScreen(
                     Button(
                         onClick = {
                             showDeleteConfirmDialog = false
-                            val toDeleteList = visibleMedia.filter { selectedToDelete.contains(it.id) }
-                            toDeleteList.forEach { item ->
-                                viewModel.toggleTrashed(context, item)
+                            viewModel.selectionState.clear()
+                            selectedToDelete.forEach { id ->
+                                viewModel.selectionState.select(id)
                             }
+                            viewModel.deleteSelectedMedia(context)
                             onBackClick()
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)

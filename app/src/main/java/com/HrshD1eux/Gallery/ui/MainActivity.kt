@@ -167,7 +167,6 @@ class MainActivity : ComponentActivity() {
             }
             GalleryTheme(darkTheme = isDarkTheme) {
                 val hasPermissions by hasPermissionsState
-                val activeItem = viewModel.activeMediaItem
 
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -183,8 +182,6 @@ class MainActivity : ComponentActivity() {
                                 mediaItem = editingItem,
                                 onDismiss = { viewModel.editingMediaItem = null }
                             )
-                        } else if (activeItem != null) {
-                            PhotoViewerScreen(viewModel = viewModel)
                         }
                     } else {
                         PermissionFallbackScreen(
@@ -201,6 +198,9 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         checkPermissions()
+        if (hasPermissionsState.value) {
+            viewModel.refreshAll()
+        }
     }
 
     private fun checkPermissions() {
@@ -216,7 +216,7 @@ class MainActivity : ComponentActivity() {
         }
         hasPermissionsState.value = isGranted
         if (isGranted) {
-            viewModel.loadMediaStream()
+            viewModel.refreshAll()
         }
     }
 
@@ -235,10 +235,26 @@ fun MainScreenLayout(viewModel: MainViewModel) {
     var showSelectionShareDialog by remember { androidx.compose.runtime.mutableStateOf(false) }
     var stripMetadataOnShare by remember { androidx.compose.runtime.mutableStateOf(true) }
     var showMoveToAlbumDialog by remember { androidx.compose.runtime.mutableStateOf(false) }
+    val isVaultUnlocked by viewModel.isVaultUnlocked.collectAsState()
+    val isVaultActive = (isVaultUnlocked && viewModel.currentCategoryName == "Hidden Vault") ||
+            viewModel.activeMediaItem?.isHidden == true
+    val activity = context as? android.app.Activity
+
+    DisposableEffect(isVaultActive) {
+        if (isVaultActive) {
+            activity?.window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            activity?.window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        }
+        onDispose {
+            activity?.window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        }
+    }
+
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) {
+            if (event == Lifecycle.Event.ON_STOP || event == Lifecycle.Event.ON_DESTROY) {
                 viewModel.lockVault(context)
             }
         }
@@ -302,7 +318,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
 
     Scaffold(
         topBar = {
-            if (currentScreen != Screen.DuplicateFinder && currentScreen != Screen.Search) {
+            if (viewModel.activeMediaItem == null && currentScreen != Screen.DuplicateFinder && currentScreen != Screen.Search) {
                 TopAppBar(
                 title = {
                     Text(
@@ -447,7 +463,8 @@ fun MainScreenLayout(viewModel: MainViewModel) {
         }
     },
         bottomBar = {
-            AnimatedContent(
+            if (viewModel.activeMediaItem == null && currentScreen != Screen.DuplicateFinder && currentScreen != Screen.Search) {
+                AnimatedContent(
                 targetState = selectionState.inSelectionMode,
                 transitionSpec = {
                     slideInVertically { it } togetherWith slideOutVertically { it }
@@ -552,6 +569,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                 }
             }
         }
+    }
     ) { paddingValues ->
         Box(
             modifier = Modifier

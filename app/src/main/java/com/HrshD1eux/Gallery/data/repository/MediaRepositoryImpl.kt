@@ -70,6 +70,10 @@ class MediaRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun getTotalMediaCount(bucketId: Long?): Int = withContext(Dispatchers.IO) {
+        mediaStoreDataSource.getTotalMediaCount(bucketId)
+    }
+
     override fun observeMediaChanges(): Flow<Unit> {
         return mediaStoreDataSource.observeMediaStore()
     }
@@ -106,16 +110,12 @@ class MediaRepositoryImpl @Inject constructor(
     }
 
     override fun getBucketsFlow(): Flow<List<BucketInfo>> {
-        return mediaStoreDataSource.observeMediaStore()
-            .flatMapLatest {
-                flow {
-                    emit(getBuckets())
-                }
-            }
-            .combine(metadataDao.getAllMetadataFlow()) { _, _ ->
-                getBuckets()
-            }
-            .flowOn(Dispatchers.IO)
+        return combine(
+            mediaStoreDataSource.observeMediaStore().onStart { emit(Unit) },
+            metadataDao.getAllMetadataFlow().onStart { emit(emptyList()) }
+        ) { _, _ ->
+            getBuckets()
+        }.flowOn(Dispatchers.IO)
     }
 
     override suspend fun toggleFavorite(mediaItem: MediaItem) {
@@ -166,9 +166,9 @@ class MediaRepositoryImpl @Inject constructor(
                         vaultFile.delete()
                         val metaFile = java.io.File(currentMeta.vaultPath + ".meta")
                         if (metaFile.exists()) metaFile.delete()
+                        metadataDao.delete(currentMeta)
                     }
                 }
-                metadataDao.delete(currentMeta)
             }
         } else {
             // Hide and encrypt into secure vault
@@ -336,41 +336,21 @@ class MediaRepositoryImpl @Inject constructor(
         }
     }
 
-    private fun getDecryptedCacheFile(context: Context, entity: MediaMetadataEntity): java.io.File? {
-        return try {
-            val vaultFile = java.io.File(entity.vaultPath)
-            if (!vaultFile.exists()) return null
-            val cacheDir = java.io.File(context.cacheDir, "vault_cache").apply { mkdirs() }
-            val ext = entity.mimeType.substringAfter("/").ifEmpty { "jpg" }
-            val cacheFile = java.io.File(cacheDir, "decrypted_${entity.mediaId}.$ext")
-            if (!cacheFile.exists() || cacheFile.length() == 0L) {
-                java.io.FileOutputStream(cacheFile).use { out ->
-                    vaultFile.inputStream().use { input ->
-                        com.HrshD1eux.Gallery.core.util.VaultCrypto.decrypt(input, out)
-                    }
-                }
-            }
-            cacheFile
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
-    }
-
     override fun getHiddenMediaFlow(isVaultUnlocked: Boolean): Flow<List<MediaItem>> {
         return metadataDao.getAllMetadataFlow()
             .onStart { if (isVaultUnlocked) syncVaultMetadata() }
             .map { metadataList ->
                 if (!isVaultUnlocked) return@map emptyList<MediaItem>()
                 metadataList.filter { it.isHidden && !it.isTrashed }.mapNotNull { entity ->
-                    val cacheFile = getDecryptedCacheFile(context, entity) ?: return@mapNotNull null
-                    val uri = android.net.Uri.fromFile(cacheFile)
+                    val vaultFile = java.io.File(entity.vaultPath)
+                    if (!vaultFile.exists()) return@mapNotNull null
+                    val uri = android.net.Uri.fromFile(vaultFile)
 
                     if (entity.mimeType.contains("video", ignoreCase = true)) {
                         MediaItem.Video(
                             id = entity.mediaId,
                             uri = uri,
-                            path = cacheFile.absolutePath,
+                            path = entity.originalPath.ifEmpty { entity.vaultPath },
                             mimeType = entity.mimeType,
                             dateTaken = entity.dateTaken,
                             size = entity.size,
@@ -387,7 +367,7 @@ class MediaRepositoryImpl @Inject constructor(
                         MediaItem.Photo(
                             id = entity.mediaId,
                             uri = uri,
-                            path = cacheFile.absolutePath,
+                            path = entity.originalPath.ifEmpty { entity.vaultPath },
                             mimeType = entity.mimeType,
                             dateTaken = entity.dateTaken,
                             size = entity.size,
@@ -421,31 +401,6 @@ class MediaRepositoryImpl @Inject constructor(
             imageLoader.diskCache?.clear()
         } catch (e: Exception) {
             e.printStackTrace()
-        }
-    }
-
-    override suspend fun getDecryptedVaultFile(context: Context, mediaItem: MediaItem): java.io.File? = withContext(Dispatchers.IO) {
-        try {
-            val vaultDir = java.io.File(context.filesDir, "vault")
-            val encryptedFile = java.io.File(vaultDir, "vault_${mediaItem.id}")
-            if (!encryptedFile.exists()) return@withContext null
-
-            val cacheDir = java.io.File(context.cacheDir, "vault_cache")
-            if (!cacheDir.exists()) cacheDir.mkdirs()
-
-            val ext = if (mediaItem.mimeType.contains("png")) "png" else if (mediaItem.mimeType.contains("mp4")) "mp4" else "jpg"
-            val cacheFile = java.io.File(cacheDir, "decrypted_${mediaItem.id}.$ext")
-            if (!cacheFile.exists() || cacheFile.length() == 0L) {
-                encryptedFile.inputStream().use { input ->
-                    cacheFile.outputStream().use { output ->
-                        com.HrshD1eux.Gallery.core.util.VaultCrypto.decrypt(input, output)
-                    }
-                }
-            }
-            cacheFile
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
         }
     }
 
