@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -171,8 +172,8 @@ class MediaRepositoryImplTest {
         fakeDao.dbMap.clear()
         assertTrue(fakeDao.getMetadataForMedia(123L) == null)
 
-        // 3. Collect from the hidden media flow, which should trigger syncVaultMetadata()
-        val flow = repository.getHiddenMediaFlow()
+        // 3. Collect from the hidden media flow (when vault is unlocked), which should trigger syncVaultMetadata()
+        val flow = repository.getHiddenMediaFlow(isVaultUnlocked = true)
         val itemsList = flow.first()
 
         // 4. Verify the database record has been self-healed and restored from sidecar!
@@ -257,5 +258,183 @@ class MediaRepositoryImplTest {
         assertEquals(1L, result[0].id)
         assertEquals("Camera", result[0].name)
         assertEquals(6, result[0].count)
+    }
+
+    @Test
+    fun testHiddenMediaFlow_doesNotDecryptWhenVaultIsLocked() {
+        runBlocking {
+            val fakeDao = FakeMetadataDao()
+            val mockContext = mockk<Context>(relaxed = true)
+            val tempFolder = java.nio.file.Files.createTempDirectory("vault_security_test").toFile()
+            every { mockContext.filesDir } returns tempFolder
+            every { mockContext.cacheDir } returns tempFolder
+
+            val resolver = mockk<android.content.ContentResolver>(relaxed = true)
+            every { mockContext.contentResolver } returns resolver
+            val mockUri = mockk<android.net.Uri>(relaxed = true)
+            mockkStatic(android.net.Uri::class)
+            every { android.net.Uri.fromFile(any()) } returns mockUri
+
+            val repository = MediaRepositoryImpl(
+                context = mockContext,
+                mediaStoreDataSource = MediaStoreDataSource(mockContext),
+                metadataDao = fakeDao
+            )
+
+            // Seed DB with a hidden metadata entry
+            val vaultFile = java.io.File(tempFolder, "vault_999").apply { writeText("encrypted_data") }
+            fakeDao.dbMap[999L] = MediaMetadataEntity(
+                mediaId = 999L,
+                isHidden = true,
+                vaultPath = vaultFile.absolutePath,
+                mimeType = "image/jpeg"
+            )
+
+            // Collect getHiddenMediaFlow with isVaultUnlocked = false (default)
+            val items = repository.getHiddenMediaFlow(isVaultUnlocked = false).first()
+
+            assertEquals(0, items.size)
+
+            // Assert that NO vault_cache directory was created and NO decrypted file exists
+            val cacheDir = java.io.File(tempFolder, "vault_cache")
+            val decryptedFile = java.io.File(cacheDir, "decrypted_999")
+            assertTrue(!decryptedFile.exists())
+
+            tempFolder.deleteRecursively()
+            unmockkStatic(android.net.Uri::class)
+        }
+    }
+
+    @Test
+    fun testHiddenMediaFlow_decryptsWhenVaultIsUnlocked() {
+        runBlocking {
+            val fakeDao = FakeMetadataDao()
+            val mockContext = mockk<Context>(relaxed = true)
+            val tempFolder = java.nio.file.Files.createTempDirectory("vault_security_test2").toFile()
+            every { mockContext.filesDir } returns tempFolder
+            every { mockContext.cacheDir } returns tempFolder
+
+            val resolver = mockk<android.content.ContentResolver>(relaxed = true)
+            every { mockContext.contentResolver } returns resolver
+            val mockUri = mockk<android.net.Uri>(relaxed = true)
+            mockkStatic(android.net.Uri::class)
+            every { android.net.Uri.fromFile(any()) } returns mockUri
+
+            val repository = MediaRepositoryImpl(
+                context = mockContext,
+                mediaStoreDataSource = MediaStoreDataSource(mockContext),
+                metadataDao = fakeDao
+            )
+
+            val vaultFile = java.io.File(tempFolder, "vault_888").apply { writeText("encrypted_data") }
+            fakeDao.dbMap[888L] = MediaMetadataEntity(
+                mediaId = 888L,
+                isHidden = true,
+                vaultPath = vaultFile.absolutePath,
+                mimeType = "image/jpeg"
+            )
+
+            // Collect getHiddenMediaFlow with isVaultUnlocked = true
+            val items = repository.getHiddenMediaFlow(isVaultUnlocked = true).first()
+
+            assertEquals(1, items.size)
+            assertEquals(888L, items[0].id)
+
+            // Assert zero plaintext files exist in vault_cache because decryption is strictly in-memory via VaultFetcher
+            val decryptedFile = java.io.File(tempFolder, "vault_cache/decrypted_888")
+            assertTrue(!decryptedFile.exists())
+
+            tempFolder.deleteRecursively()
+            unmockkStatic(android.net.Uri::class)
+        }
+    }
+
+    @OptIn(coil.annotation.ExperimentalCoilApi::class)
+    @Test
+    fun testVaultFetcher_decryptsInMemoryAndDisablesDiskCache() {
+        runBlocking {
+            val tempFolder = java.nio.file.Files.createTempDirectory("vault_fetcher_test").toFile()
+            val plaintextData = "Secret Vault Photo Content".toByteArray()
+
+            val vaultFile = java.io.File(tempFolder, "vault_12345").apply {
+                outputStream().use { out ->
+                    com.HrshD1eux.Gallery.core.util.VaultCrypto.encrypt(plaintextData.inputStream(), out)
+                }
+            }
+
+            val mockContext = mockk<Context>(relaxed = true)
+            val mockUri = mockk<android.net.Uri>(relaxed = true)
+            every { mockUri.path } returns vaultFile.absolutePath
+            every { mockUri.scheme } returns "file"
+
+            val options = coil.request.Options(mockContext)
+            val mockImageLoader = mockk<coil.ImageLoader>(relaxed = true)
+
+            val factory = com.HrshD1eux.Gallery.core.util.VaultFetcher.Factory()
+            val fetcher = factory.create(mockUri, options, mockImageLoader)
+
+            assertNotNull(fetcher)
+            val result = fetcher?.fetch()
+            assertTrue(result is coil.fetch.SourceResult)
+            
+            val sourceResult = result as coil.fetch.SourceResult
+            assertEquals(coil.decode.DataSource.MEMORY, sourceResult.dataSource)
+
+            tempFolder.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun testGetMediaByIds_resolvesItemsWithMetadata() = runBlocking {
+        val fakeDao = FakeMetadataDao()
+        val mockContext = mockk<Context>(relaxed = true)
+        val mockDataSource = mockk<MediaStoreDataSource>(relaxed = true)
+        val mockUri = mockk<android.net.Uri>(relaxed = true)
+
+        val item1 = MediaItem.Photo(100L, mockUri, "/path100.jpg", "image/jpeg", 1000L, 100L, 100, 100, false, false, false, 1L, "Camera")
+        val item2 = MediaItem.Photo(500L, mockUri, "/path500.jpg", "image/jpeg", 2000L, 200L, 100, 100, false, false, false, 1L, "Camera")
+        
+        coEvery { mockDataSource.fetchMediaByIds(setOf(100L, 500L)) } returns listOf(item1, item2)
+        fakeDao.dbMap[500L] = MediaMetadataEntity(mediaId = 500L, isFavorite = true)
+
+        val repository = MediaRepositoryImpl(
+            context = mockContext,
+            mediaStoreDataSource = mockDataSource,
+            metadataDao = fakeDao
+        )
+
+        val result = repository.getMediaByIds(setOf(100L, 500L))
+
+        assertEquals(2, result.size)
+        assertEquals(100L, result[0].id)
+        assertEquals(500L, result[1].id)
+        assertTrue(result[1].isFavorite)
+    }
+
+    @Test
+    fun testSearchMedia_delegatesToDataSourceAndFiltersHidden() = runBlocking {
+        val fakeDao = FakeMetadataDao()
+        val mockContext = mockk<Context>(relaxed = true)
+        val mockDataSource = mockk<MediaStoreDataSource>(relaxed = true)
+        val mockUri = mockk<android.net.Uri>(relaxed = true)
+
+        val item1 = MediaItem.Photo(1L, mockUri, "/path/sunset.jpg", "image/jpeg", 1000L, 100L, 100, 100, false, false, false, 1L, "Camera")
+        val item2 = MediaItem.Photo(2L, mockUri, "/path/sunset2.jpg", "image/jpeg", 2000L, 200L, 100, 100, false, false, false, 1L, "Camera")
+        
+        coEvery { mockDataSource.searchMedia("sunset") } returns listOf(item1, item2)
+        // Mark item2 as hidden in DAO
+        fakeDao.dbMap[2L] = MediaMetadataEntity(mediaId = 2L, isHidden = true)
+
+        val repository = MediaRepositoryImpl(
+            context = mockContext,
+            mediaStoreDataSource = mockDataSource,
+            metadataDao = fakeDao
+        )
+
+        val result = repository.searchMedia("sunset")
+
+        // Should return only non-hidden item1
+        assertEquals(1, result.size)
+        assertEquals(1L, result[0].id)
     }
 }

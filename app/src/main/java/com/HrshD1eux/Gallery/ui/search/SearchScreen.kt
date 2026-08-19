@@ -17,7 +17,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -56,45 +61,23 @@ fun SearchScreen(
     viewModel: MainViewModel,
     modifier: Modifier = Modifier
 ) {
-    var searchQuery by remember { mutableStateOf("") }
-    val allItems by viewModel.visibleMediaItems.collectAsState()
+    val searchQuery by viewModel.searchQuery.collectAsState()
+    val searchResults by viewModel.searchResults.collectAsState()
 
-    val suggestions = listOf(
-        SearchTag("Sunset", "🌅"),
-        SearchTag("Dog", "🐕"),
-        SearchTag("Receipts", "🧾"),
-        SearchTag("Documents", "📄"),
-        SearchTag("Tickets", "🎟️"),
-        SearchTag("Travel", "✈️"),
-        SearchTag("Food", "🍔"),
-        SearchTag("Nature", "🌲")
-    )
+    val focusRequester = remember { FocusRequester() }
 
-    val dateFormatter = remember { SimpleDateFormat("yyyy MMMM dd EEEE", Locale.getDefault()) }
-
-    val searchResults = remember(searchQuery, allItems) {
-        if (searchQuery.isBlank()) {
-            emptyList()
-        } else {
-            val query = searchQuery.trim().lowercase(Locale.getDefault())
-            allItems.filter { item ->
-                val fileName = item.path.substringAfterLast('/').lowercase(Locale.getDefault())
-                val bucketName = item.bucketName.lowercase(Locale.getDefault())
-                val mime = item.mimeType.lowercase(Locale.getDefault())
-                val dateStr = dateFormatter.format(Date(item.dateTaken)).lowercase(Locale.getDefault())
-                
-                fileName.contains(query) ||
-                bucketName.contains(query) ||
-                mime.contains(query) ||
-                dateStr.contains(query)
-            }
-        }
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
     }
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
+            .clickable(
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = null
+            ) {}
             .clipToBounds()
     ) {
         Column(
@@ -102,98 +85,52 @@ fun SearchScreen(
                 .fillMaxSize()
                 .padding(16.dp)
         ) {
-            // Search input text field
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder = { Text("Search photos, folders, dates...") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }) {
-                            Icon(Icons.Default.Close, contentDescription = "Clear search")
-                        }
-                    }
-                },
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.surfaceVariant
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { viewModel.currentScreen = com.HrshD1eux.Gallery.ui.Screen.Albums }) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back"
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { viewModel.setSearchQuery(it) },
+                    placeholder = { Text("Search photos, folders, dates...") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { viewModel.setSearchQuery("") }) {
+                                Icon(Icons.Default.Close, contentDescription = "Clear search")
+                            }
+                        }
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(focusRequester),
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
                 )
-            )
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
             if (searchQuery.isBlank()) {
-                // Privacy card
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)
-                    ),
-                    modifier = Modifier.fillMaxWidth()
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "🔒",
-                            style = MaterialTheme.typography.titleLarge,
-                            modifier = Modifier.padding(end = 12.dp)
-                        )
-                        Column {
-                            Text(
-                                text = "Local Private Index",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = "All search indexing is performed strictly on your device. Zero cloud uploads.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                Text(
-                    text = "Suggested Searches",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onBackground,
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
-
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    items(suggestions) { item ->
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { searchQuery = item.label },
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-                            )
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                Text(text = item.emoji, style = MaterialTheme.typography.titleMedium)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(text = item.label, style = MaterialTheme.typography.bodyMedium)
-                            }
-                        }
-                    }
+                    Text(
+                        text = "Type a filename, folder, or format to search",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
                 }
             } else {
                 Text(
@@ -240,6 +177,20 @@ fun SearchResultGridCell(
     item: MediaItem,
     onClick: () -> Unit
 ) {
+    val context = LocalContext.current
+    val imageRequest = remember(item.uri) {
+        coil.request.ImageRequest.Builder(context)
+            .data(item.uri)
+            .crossfade(true)
+            .size(280, 280)
+            .diskCachePolicy(coil.request.CachePolicy.ENABLED)
+            .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+            .precision(coil.size.Precision.INEXACT)
+            .error(android.R.drawable.ic_menu_report_image)
+            .fallback(android.R.drawable.ic_menu_report_image)
+            .build()
+    }
+
     Box(
         modifier = Modifier
             .aspectRatio(1f)
@@ -247,13 +198,7 @@ fun SearchResultGridCell(
             .clickable(onClick = onClick)
     ) {
         AsyncImage(
-            model = coil.request.ImageRequest.Builder(LocalContext.current)
-                .data(item.uri)
-                .crossfade(true)
-                .size(320, 320)
-                .error(android.R.drawable.ic_menu_report_image)
-                .fallback(android.R.drawable.ic_menu_report_image)
-                .build(),
+            model = imageRequest,
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
@@ -288,5 +233,3 @@ fun SearchResultGridCell(
         }
     }
 }
-
-data class SearchTag(val label: String, val emoji: String)

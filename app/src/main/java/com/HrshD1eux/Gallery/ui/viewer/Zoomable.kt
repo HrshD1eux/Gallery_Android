@@ -17,14 +17,16 @@ import androidx.compose.ui.input.pointer.pointerInput
 @Composable
 fun rememberZoomState(
     maxScale: Float = 5f,
-    minScale: Float = 1f
+    minScale: Float = 1f,
+    doubleTapScale: Float = 2.5f
 ): ZoomState {
-    return remember { ZoomState(maxScale, minScale) }
+    return remember(maxScale, minScale, doubleTapScale) { ZoomState(maxScale, minScale, doubleTapScale) }
 }
 
 class ZoomState(
     val maxScale: Float,
-    val minScale: Float
+    val minScale: Float,
+    val doubleTapScale: Float = 2.5f
 ) {
     var scale by mutableStateOf(1f)
     var offsetX by mutableStateOf(0f)
@@ -47,7 +49,7 @@ class ZoomState(
         if (scale > 1f) {
             reset()
         } else {
-            scale = 2.5f
+            scale = doubleTapScale.coerceIn(minScale, maxScale)
             offsetX = 0f
             offsetY = 0f
         }

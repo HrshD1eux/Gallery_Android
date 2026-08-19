@@ -1,7 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
-    <!-- Exposes the subfolder 'shared_images' in cache directory -->
+    <!-- Exposes only the subfolder 'shared_images' in cache directory for secure sharing -->
     <cache-path name="shared_images" path="shared_images/" />
-    <!-- Exposes the 'vault' folder in internal storage for video playback sharing -->
-    <files-path name="vault" path="vault/" />
 </paths>

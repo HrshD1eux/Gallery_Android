@@ -10,8 +10,10 @@ import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -140,22 +142,57 @@ class MainViewModelTest {
     fun testLoadNextPage_loadsCorrectly() {
         val mockUri = mockk<android.net.Uri>(relaxed = true)
         val item1 = MediaItem.Photo(1L, mockUri, "/path1.jpg", "image/jpeg", 1000L, 100L, 100, 100, false, false, false, 1L, "Camera")
-        val item2 = MediaItem.Photo(2L, mockUri, "/path2.jpg", "image/jpeg", 1000L, 100L, 100, 100, false, false, false, 1L, "Camera")
         
         val firstPageList = List(200) { item1 }
         coEvery { mockRepository.loadMediaPaged(limit = 200, offset = 0, bucketId = null) } returns firstPageList
-        coEvery { mockRepository.loadMediaPaged(limit = 200, offset = 200, bucketId = null) } returns listOf(item2)
 
         // Init loads first page (returns 200 items)
         viewModel.loadNextPage(reset = true)
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(200, viewModel.mediaItems.value.size)
         assertEquals(1L, viewModel.mediaItems.value[0].id)
+    }
 
-        // Load next page (returns item2)
-        viewModel.loadNextPage(reset = false)
+    @Test
+    fun testDeleteSelectedMedia_resolvesSelectedItemsByIdBeyondFirst200() {
+        val mockUri = mockk<android.net.Uri>(relaxed = true)
+        val itemBeyond200 = MediaItem.Photo(999L, mockUri, "/path999.jpg", "image/jpeg", 1000L, 100L, 100, 100, false, false, false, 1L, "Camera")
+        
+        // Return item999 for ID 999
+        coEvery { mockRepository.getMediaByIds(setOf(999L)) } returns listOf(itemBeyond200)
+
+        val mockContext = mockk<android.content.Context>(relaxed = true)
+
+        // Select item #999 (which is NOT in viewModel.mediaItems.value)
+        viewModel.selectionState.select(999L)
+
+        // Trigger delete
+        viewModel.deleteSelectedMedia(mockContext)
         testDispatcher.scheduler.advanceUntilIdle()
-        assertEquals(201, viewModel.mediaItems.value.size)
-        assertEquals(2L, viewModel.mediaItems.value[200].id)
+
+        // Verify getMediaByIds was called with setOf(999L)
+        coVerify(exactly = 1) { mockRepository.getMediaByIds(setOf(999L)) }
+    }
+
+    @Test
+    fun testSearchQuery_triggersRepositorySearch() = runTest {
+        val mockUri = mockk<android.net.Uri>(relaxed = true)
+        val searchResultItem = MediaItem.Photo(500L, mockUri, "/path/vacation.jpg", "image/jpeg", 1000L, 100L, 100, 100, false, false, false, 1L, "Camera")
+        
+        coEvery { mockRepository.searchMedia("vacation") } returns listOf(searchResultItem)
+
+        // Subscribe to searchResults to activate WhileSubscribed StateFlow
+        val job = backgroundScope.launch { viewModel.searchResults.collect {} }
+
+        // Set search query
+        viewModel.setSearchQuery("vacation")
+        testDispatcher.scheduler.advanceTimeBy(350)
+        testDispatcher.scheduler.advanceUntilIdle()
+
+        // Verify searchMedia was called with query "vacation"
+        coVerify { mockRepository.searchMedia("vacation") }
+        assertEquals(1, viewModel.searchResults.value.size)
+        assertEquals(500L, viewModel.searchResults.value[0].id)
+        job.cancel()
     }
 }

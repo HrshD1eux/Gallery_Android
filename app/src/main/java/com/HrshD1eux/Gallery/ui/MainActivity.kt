@@ -38,13 +38,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.RestoreFromTrash
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.filled.Photo
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
@@ -52,7 +55,7 @@ import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.CropSquare
 import androidx.compose.material.icons.filled.ViewStream
-import androidx.compose.material.icons.filled.DriveFileMove
+import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.heightIn
@@ -150,7 +153,13 @@ class MainActivity : ComponentActivity() {
         checkPermissions()
 
         setContent {
-            GalleryTheme {
+            val appTheme = viewModel.appTheme
+            val isDarkTheme = when (appTheme) {
+                "dark" -> true
+                "light" -> false
+                else -> isSystemInDarkTheme()
+            }
+            GalleryTheme(darkTheme = isDarkTheme) {
                 val hasPermissions by hasPermissionsState
                 val activeItem = viewModel.activeMediaItem
 
@@ -161,7 +170,14 @@ class MainActivity : ComponentActivity() {
                     if (hasPermissions) {
                         MainScreenLayout(viewModel)
                         
-                        if (activeItem != null) {
+                        val editingItem = viewModel.editingMediaItem
+                        if (editingItem != null) {
+                            com.HrshD1eux.Gallery.ui.editor.PhotoEditorScreen(
+                                viewModel = viewModel,
+                                mediaItem = editingItem,
+                                onDismiss = { viewModel.editingMediaItem = null }
+                            )
+                        } else if (activeItem != null) {
                             PhotoViewerScreen(viewModel = viewModel)
                         }
                     } else {
@@ -217,11 +233,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
-                if (viewModel.currentCategoryName == "Hidden Vault") {
-                    viewModel.currentCategoryName = null
-                    viewModel.currentScreen = Screen.Albums
-                }
-                viewModel.clearVaultCache(context)
+                viewModel.lockVault(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -230,7 +242,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
         }
     }
 
-    val screens = remember { listOf(Screen.Photos, Screen.Albums, Screen.Search) }
+    val screens = remember { listOf(Screen.Photos, Screen.Albums, Screen.Settings) }
     
     val backEnabled = viewModel.activeMediaItem != null ||
             viewModel.currentCategoryName != null ||
@@ -241,8 +253,12 @@ fun MainScreenLayout(viewModel: MainViewModel) {
         if (viewModel.activeMediaItem != null) {
             viewModel.activeMediaItem = null
         } else if (viewModel.currentCategoryName != null) {
-            viewModel.currentCategoryName = null
-            viewModel.currentScreen = Screen.Albums
+            if (viewModel.currentCategoryName == "Hidden Vault") {
+                viewModel.lockVault(context)
+            } else {
+                viewModel.currentCategoryName = null
+                viewModel.currentScreen = Screen.Albums
+            }
         } else if (viewModel.currentBucketId != null) {
             viewModel.selectBucket(null, null)
             viewModel.currentScreen = Screen.Albums
@@ -257,17 +273,24 @@ fun MainScreenLayout(viewModel: MainViewModel) {
 
     // Sync from screen change to pager page (instant smooth snap)
     LaunchedEffect(currentScreen) {
-        val page = screens.indexOf(currentScreen).coerceAtLeast(0)
-        if (mainPagerState.currentPage != page) {
-            mainPagerState.scrollToPage(page)
+        if (currentScreen != Screen.Search) {
+            val page = screens.indexOf(currentScreen)
+            if (page >= 0 && mainPagerState.currentPage != page) {
+                mainPagerState.scrollToPage(page)
+            }
         }
     }
 
     // Sync from user swipe gesture to screen change when settled
     LaunchedEffect(mainPagerState.settledPage) {
-        val targetScreen = screens.getOrNull(mainPagerState.settledPage)
-        if (targetScreen != null && viewModel.currentScreen != targetScreen) {
-            viewModel.currentScreen = targetScreen
+        if (currentScreen != Screen.Search) {
+            val targetScreen = screens.getOrNull(mainPagerState.settledPage)
+            if (targetScreen != null && viewModel.currentScreen != targetScreen) {
+                if (viewModel.currentCategoryName == "Hidden Vault" && targetScreen != Screen.Photos) {
+                    viewModel.lockVault(context)
+                }
+                viewModel.currentScreen = targetScreen
+            }
         }
     }
 
@@ -289,8 +312,12 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                 navigationIcon = {
                     if (viewModel.currentCategoryName != null && currentScreen == Screen.Photos) {
                         IconButton(onClick = { 
-                            viewModel.currentCategoryName = null 
-                            viewModel.currentScreen = Screen.Albums
+                            if (viewModel.currentCategoryName == "Hidden Vault") {
+                                viewModel.lockVault(context)
+                            } else {
+                                viewModel.currentCategoryName = null 
+                                viewModel.currentScreen = Screen.Albums
+                            }
                         }) {
                             Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "All Media")
                         }
@@ -313,6 +340,14 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                                     Icons.Default.GridView
                                 },
                                 contentDescription = "Toggle Grid Style"
+                            )
+                        }
+
+                        IconButton(onClick = { viewModel.toggleSortOrder() }) {
+                            Icon(
+                                imageVector = androidx.compose.material.icons.Icons.Default.SwapVert,
+                                contentDescription = if (viewModel.sortOrder == SortOrder.NEWEST_FIRST) "Newest First" else "Oldest First",
+                                tint = if (viewModel.sortOrder == SortOrder.OLDEST_FIRST) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                             )
                         }
 
@@ -375,14 +410,12 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                                         Icon(imageVector = Icons.Default.Share, contentDescription = "Share")
                                     }
                                     IconButton(onClick = {
-                                        val selected = viewModel.mediaItems.value.filter { selectionState.selectedIds.contains(it.id) }
-                                        selected.forEach { viewModel.toggleHidden(context, it) }
-                                        selectionState.clear()
+                                        viewModel.hideSelectedMedia(context)
                                     }) {
                                         Icon(imageVector = Icons.Default.VisibilityOff, contentDescription = "Hide")
                                     }
                                     IconButton(onClick = { showMoveToAlbumDialog = true }) {
-                                        Icon(imageVector = Icons.Default.DriveFileMove, contentDescription = "Move to Album")
+                                        Icon(imageVector = Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = "Move to Album")
                                     }
                                     IconButton(onClick = {
                                         viewModel.deleteSelectedMedia(context)
@@ -417,10 +450,10 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                             label = { Text("Albums") }
                         )
                         NavigationBarItem(
-                            selected = currentScreen == Screen.Search,
-                            onClick = { viewModel.currentScreen = Screen.Search },
-                            icon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-                            label = { Text("Search") }
+                            selected = currentScreen == Screen.Settings,
+                            onClick = { viewModel.currentScreen = Screen.Settings },
+                            icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
+                            label = { Text("Settings") }
                         )
                     }
                 }
@@ -441,8 +474,17 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                 when (screens[page]) {
                     Screen.Photos -> TimelineScreen(viewModel = viewModel)
                     Screen.Albums -> AlbumsScreen(viewModel = viewModel)
-                    Screen.Search -> SearchScreen(viewModel = viewModel)
+                    Screen.Settings -> com.HrshD1eux.Gallery.ui.settings.SettingsScreen(viewModel = viewModel)
+                    else -> TimelineScreen(viewModel = viewModel)
                 }
+            }
+
+            AnimatedVisibility(
+                visible = currentScreen == Screen.Search,
+                enter = fadeIn() + scaleIn(initialScale = 0.95f),
+                exit = fadeOut() + scaleOut(targetScale = 0.95f)
+            ) {
+                SearchScreen(viewModel = viewModel)
             }
 
             AnimatedVisibility(
@@ -528,9 +570,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                             items(bucketList) { bucket ->
                                 TextButton(
                                     onClick = {
-                                        val selected = viewModel.mediaItems.value.filter { selectionState.selectedIds.contains(it.id) }
-                                        viewModel.moveMediaToFolder(context, selected, bucket.name)
-                                        selectionState.clear()
+                                        viewModel.moveSelectedMediaToFolder(context, bucket.name)
                                         showMoveToAlbumDialog = false
                                     },
                                     modifier = Modifier.fillMaxWidth()
@@ -547,9 +587,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                     Button(
                         onClick = {
                             if (tempNewAlbumName.isNotBlank()) {
-                                val selected = viewModel.mediaItems.value.filter { selectionState.selectedIds.contains(it.id) }
-                                viewModel.moveMediaToFolder(context, selected, tempNewAlbumName.trim())
-                                selectionState.clear()
+                                viewModel.moveSelectedMediaToFolder(context, tempNewAlbumName.trim())
                                 showMoveToAlbumDialog = false
                                 createNewAlbumInMove = false
                                 tempNewAlbumName = ""

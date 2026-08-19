@@ -11,29 +11,22 @@ import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import com.HrshD1eux.Gallery.data.repository.DatePositionHeader
 import kotlinx.coroutines.launch
-import com.HrshD1eux.Gallery.data.model.TimelineItem
 
 @Composable
 fun TimelineScrubber(
     gridState: LazyStaggeredGridState,
-    flatList: List<TimelineItem>,
+    headers: List<DatePositionHeader>,
+    totalItemCount: Int,
     modifier: Modifier = Modifier
 ) {
     val coroutineScope = rememberCoroutineScope()
-
-    // Extract headers and their corresponding positions in the flat list
-    val headers = remember(flatList) {
-        flatList.mapIndexedNotNull { index, item ->
-            if (item is TimelineItem.Header) index to item.title else null
-        }
-    }
 
     if (headers.isEmpty()) return
 
@@ -45,15 +38,45 @@ fun TimelineScrubber(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(headers) {
+                .pointerInput(headers, totalItemCount) {
                     fun scrollToY(y: Float) {
-                        if (size.height <= 0) return
-                        val fraction = (y / size.height).coerceIn(0f, 1f)
+                        if (totalItemCount <= 0) return
+                        val totalHeight = size.height.toFloat()
+                        if (totalHeight <= 0f) return
+                        val fraction = (y / totalHeight).coerceIn(0f, 1f)
                         val index = (fraction * (headers.size - 1)).toInt().coerceIn(0, headers.lastIndex)
-                        val targetGridIndex = headers[index].first
+                        val rawTargetIndex = headers[index].positionIndex
+                        val targetGridIndex = rawTargetIndex.coerceIn(0, (totalItemCount - 1).coerceAtLeast(0))
+                        
                         coroutineScope.launch {
-                            // Instant fast scroll to corresponding layout index
-                            gridState.scrollToItem(targetGridIndex)
+                            try {
+                                gridState.scrollToItem(targetGridIndex)
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    }
+
+                    detectTapGestures { offset ->
+                        scrollToY(offset.y)
+                    }
+                }
+                .pointerInput(headers, totalItemCount) {
+                    fun scrollToY(y: Float) {
+                        if (totalItemCount <= 0) return
+                        val totalHeight = size.height.toFloat()
+                        if (totalHeight <= 0f) return
+                        val fraction = (y / totalHeight).coerceIn(0f, 1f)
+                        val index = (fraction * (headers.size - 1)).toInt().coerceIn(0, headers.lastIndex)
+                        val rawTargetIndex = headers[index].positionIndex
+                        val targetGridIndex = rawTargetIndex.coerceIn(0, (totalItemCount - 1).coerceAtLeast(0))
+                        
+                        coroutineScope.launch {
+                            try {
+                                gridState.scrollToItem(targetGridIndex)
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
                         }
                     }
 
@@ -64,9 +87,8 @@ fun TimelineScrubber(
                 },
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Render scrubber markers
-            headers.forEach { (_, title) ->
-                // Use first 3 letters for month headers, or 'T'/'Y' for Today/Yesterday
+            headers.forEach { header ->
+                val title = header.title
                 val displayLabel = if (title == "Today") "TD" else if (title == "Yesterday") "YS" else title.take(3).uppercase()
                 Text(
                     text = displayLabel,

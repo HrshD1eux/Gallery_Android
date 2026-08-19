@@ -1,6 +1,7 @@
 package com.HrshD1eux.Gallery.ui
 
 import android.content.Context
+import android.graphics.Bitmap
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -12,9 +13,11 @@ import com.HrshD1eux.Gallery.data.model.MediaItem
 import com.HrshD1eux.Gallery.data.repository.MediaRepository
 import com.HrshD1eux.Gallery.ui.selection.SelectionState
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.SharingStarted
@@ -24,6 +27,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flowOn
 import com.HrshD1eux.Gallery.data.model.isVideo
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -35,6 +39,29 @@ import javax.inject.Inject
 
 import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.SavedStateHandle
+
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
+import androidx.paging.insertSeparators
+import androidx.paging.map
+import androidx.paging.filter
+import com.HrshD1eux.Gallery.data.paging.MediaPagingSource
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
+
+private data class PagingParams(
+    val bucketId: Long?,
+    val category: String?,
+    val sortMode: TimelineSortMode,
+    val favs: List<MediaItem>,
+    val trash: List<MediaItem>,
+    val vault: List<MediaItem>
+)
 
 enum class TimelineSortMode {
     DATE_GROUPED,
@@ -54,6 +81,64 @@ class MainViewModel @Inject constructor(
 
     val selectionState = SelectionState()
     var pendingActionItem: MediaItem? = null
+    
+    var editingMediaItem by mutableStateOf<MediaItem.Photo?>(null)
+
+    suspend fun saveEditedPhoto(context: Context, originalItem: MediaItem.Photo, editedBitmap: Bitmap) = withContext(Dispatchers.IO) {
+        try {
+            val resolver = context.contentResolver
+            val filename = "Edited_${System.currentTimeMillis()}.jpg"
+            val contentValues = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, filename)
+                put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+                put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/Edited")
+            }
+            val targetUri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+            if (targetUri != null) {
+                resolver.openOutputStream(targetUri)?.use { output ->
+                    editedBitmap.compress(Bitmap.CompressFormat.JPEG, 95, output)
+                }
+                // Copy original EXIF metadata (camera info, GPS, creation timestamps) to the newly saved photo
+                com.HrshD1eux.Gallery.core.util.PhotoEditorUtils.copyExifAttributes(
+                    context,
+                    originalItem.uri,
+                    targetUri
+                )
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private val refreshTrigger = MutableStateFlow(0L)
+
+    private val _isVaultUnlocked = MutableStateFlow(false)
+    val isVaultUnlocked: StateFlow<Boolean> = _isVaultUnlocked.asStateFlow()
+
+    fun unlockVault() {
+        _isVaultUnlocked.value = true
+    }
+
+    fun lockVault(context: Context) {
+        _isVaultUnlocked.value = false
+        if (currentCategoryName == "Hidden Vault") {
+            currentCategoryName = null
+            currentScreen = Screen.Albums
+        }
+        clearVaultCache(context)
+    }
+
+    private var _appThemeState = mutableStateOf(savedStateHandle.get<String>("app_theme") ?: "system")
+    var appTheme: String
+        get() = _appThemeState.value
+        set(value) {
+            _appThemeState.value = value
+            savedStateHandle["app_theme"] = value
+        }
+
+    suspend fun scanSecondaryMediaDirectories(): Int {
+        return repository.scanSecondaryMediaDirectories()
+    }
 
     private var _currentScreenState = mutableStateOf(savedStateHandle.get<Screen>("current_screen") ?: Screen.Photos)
     var currentScreen: Screen
@@ -96,7 +181,7 @@ class MainViewModel @Inject constructor(
             savedStateHandle["current_bucket_name"] = value
         }
 
-    private val _currentCategoryName = MutableStateFlow<String?>(savedStateHandle.get<String>("current_category_name"))
+    private val _currentCategoryName = MutableStateFlow<String?>(savedStateHandle.get<String>("current_category_name")?.takeIf { it != "Hidden Vault" })
     val currentCategoryNameFlow: StateFlow<String?> = _currentCategoryName.asStateFlow()
     var currentCategoryName: String?
         get() = _currentCategoryName.value
@@ -127,14 +212,40 @@ class MainViewModel @Inject constructor(
     val visibleMediaItems: StateFlow<List<MediaItem>> = combine(
         mediaItems, favorites, trashed, hidden, _currentCategoryName
     ) { raw, favs, trash, vault, category ->
-        when (category) {
+        val list = when (category) {
             "Favorites" -> favs
             "Trash" -> trash
             "Hidden Vault" -> vault
             "Videos" -> raw.filterIsInstance<MediaItem.Video>()
             else -> raw
         }
+        if (sortOrder == SortOrder.OLDEST_FIRST) {
+            list.sortedBy { it.dateTaken }
+        } else {
+            list.sortedByDescending { it.dateTaken }
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    fun setSearchQuery(query: String) {
+        _searchQuery.value = query
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
+    val searchResults: StateFlow<List<MediaItem>> = _searchQuery
+        .debounce(300)
+        .flatMapLatest { query ->
+            flow {
+                if (query.isBlank()) {
+                    emit(emptyList())
+                } else {
+                    emit(repository.searchMedia(query))
+                }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private var _sortModeState = mutableStateOf(TimelineSortMode.DATE_GROUPED)
     var sortMode: TimelineSortMode
@@ -151,6 +262,18 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    private var _sortOrderState = mutableStateOf(SortOrder.NEWEST_FIRST)
+    var sortOrder: SortOrder
+        get() = _sortOrderState.value
+        set(value) {
+            _sortOrderState.value = value
+            refreshTrigger.value++
+        }
+
+    fun toggleSortOrder() {
+        sortOrder = if (sortOrder == SortOrder.NEWEST_FIRST) SortOrder.OLDEST_FIRST else SortOrder.NEWEST_FIRST
+    }
+
     private var _gridStyleState = mutableStateOf(GridStyle.NATURAL)
     var gridStyle: GridStyle
         get() = _gridStyleState.value
@@ -162,51 +285,96 @@ class MainViewModel @Inject constructor(
         gridStyle = if (gridStyle == GridStyle.NATURAL) GridStyle.SQUARE else GridStyle.NATURAL
     }
 
-    val flatTimelineList: StateFlow<List<TimelineItem>> = combine(
-        visibleMediaItems,
-        snapshotFlow { sortMode }
-    ) { items, mode ->
-        val sortedItems = items.sortedByDescending { it.dateTaken }
-        if (mode == TimelineSortMode.FLAT_NEWEST_FIRST) {
-            sortedItems.map { TimelineItem.Media(it) }
-        } else {
-            val result = mutableListOf<TimelineItem>()
-            val sameYearFormatter = DateTimeFormatter.ofPattern("EEE, d MMM", Locale.getDefault())
-            val otherYearFormatter = DateTimeFormatter.ofPattern("EEE, d MMM yyyy", Locale.getDefault())
-            val zoneId = ZoneId.systemDefault()
-            val today = LocalDate.now(zoneId)
-            val yesterday = today.minusDays(1)
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val datePositionHeaders: StateFlow<List<com.HrshD1eux.Gallery.data.repository.DatePositionHeader>> = combine(
+        snapshotFlow { currentBucketId },
+        snapshotFlow { sortOrder },
+        refreshTrigger
+    ) { bucketId, order, _ ->
+        Pair(bucketId, order)
+    }.flatMapLatest { (bucketId, order) ->
+        flow {
+            emit(repository.getDatePositionIndex(bucketId, order))
+        }
+    }.flowOn(Dispatchers.IO)
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-            val grouped = LinkedHashMap<String, MutableList<MediaItem>>()
-            for (item in sortedItems) {
-                val dateMs = if (item.dateTaken > 0) item.dateTaken else System.currentTimeMillis()
-                val localDate = Instant.ofEpochMilli(dateMs).atZone(zoneId).toLocalDate()
-                val headerText = when (localDate) {
-                    today -> "Today"
-                    yesterday -> "Yesterday"
-                    else -> if (localDate.year == today.year) {
-                        localDate.format(sameYearFormatter)
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val pagingDataFlow: Flow<PagingData<TimelineItem>> = combine(
+        snapshotFlow { currentBucketId },
+        _currentCategoryName,
+        snapshotFlow { sortMode },
+        snapshotFlow { sortOrder },
+        refreshTrigger
+    ) { bucketId, category, mode, order, _ ->
+        val itemsFlow: Flow<PagingData<MediaItem>> = when (category) {
+            "Favorites" -> favorites.map { list ->
+                val sorted = if (order == SortOrder.OLDEST_FIRST) list.sortedBy { it.dateTaken } else list.sortedByDescending { it.dateTaken }
+                PagingData.from(sorted)
+            }
+            "Trash" -> trashed.map { list ->
+                val sorted = if (order == SortOrder.OLDEST_FIRST) list.sortedBy { it.dateTaken } else list.sortedByDescending { it.dateTaken }
+                PagingData.from(sorted)
+            }
+            "Hidden Vault" -> hidden.map { list ->
+                val sorted = if (order == SortOrder.OLDEST_FIRST) list.sortedBy { it.dateTaken } else list.sortedByDescending { it.dateTaken }
+                PagingData.from(sorted)
+            }
+            "Videos" -> Pager(
+                config = PagingConfig(pageSize = 100, enablePlaceholders = false),
+                pagingSourceFactory = { MediaPagingSource(repository, bucketId, order) }
+            ).flow.map { pagingData ->
+                pagingData.filter { it is MediaItem.Video }
+            }
+            else -> Pager(
+                config = PagingConfig(pageSize = 100, enablePlaceholders = false),
+                pagingSourceFactory = { MediaPagingSource(repository, bucketId, order) }
+            ).flow
+        }
+        itemsFlow.map { pagingData ->
+            val mapped: PagingData<TimelineItem> = pagingData.map { TimelineItem.Media(it) }
+            if (mode == TimelineSortMode.DATE_GROUPED) {
+                mapped.insertSeparators { before: TimelineItem?, after: TimelineItem? ->
+                    val zoneId = ZoneId.systemDefault()
+                    val today = LocalDate.now(zoneId)
+                    val yesterday = today.minusDays(1)
+                    val sameYearFormatter = DateTimeFormatter.ofPattern("EEE, d MMM", Locale.getDefault())
+                    val otherYearFormatter = DateTimeFormatter.ofPattern("EEE, d MMM yyyy", Locale.getDefault())
+
+                    fun getHeaderTitle(dateMs: Long): String {
+                        val ms = if (dateMs > 0) dateMs else System.currentTimeMillis()
+                        val localDate = Instant.ofEpochMilli(ms).atZone(zoneId).toLocalDate()
+                        return when (localDate) {
+                            today -> "Today"
+                            yesterday -> "Yesterday"
+                            else -> if (localDate.year == today.year) {
+                                localDate.format(sameYearFormatter)
+                            } else {
+                                localDate.format(otherYearFormatter)
+                            }
+                        }
+                    }
+
+                    if (before == null && after is TimelineItem.Media) {
+                        TimelineItem.Header(getHeaderTitle(after.item.dateTaken))
+                    } else if (before is TimelineItem.Media && after is TimelineItem.Media) {
+                        val beforeTitle = getHeaderTitle(before.item.dateTaken)
+                        val afterTitle = getHeaderTitle(after.item.dateTaken)
+                        if (beforeTitle != afterTitle) {
+                            TimelineItem.Header(afterTitle)
+                        } else {
+                            null
+                        }
                     } else {
-                        localDate.format(otherYearFormatter)
+                        null
                     }
                 }
-                grouped.getOrPut(headerText) { mutableListOf() }.add(item)
+            } else {
+                mapped
             }
-
-            grouped.forEach { (header, list) ->
-                result.add(TimelineItem.Header(header))
-                list.forEach { item ->
-                    result.add(TimelineItem.Media(item))
-                }
-            }
-            result
         }
-    }.flowOn(Dispatchers.Default)
-     .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.flatMapLatest { it }.cachedIn(viewModelScope)
 
-    private var currentOffset = 0
-    private var isLastPage = false
-    private var isLoadingPage = false
     private val PAGE_SIZE = 200
 
     init {
@@ -223,71 +391,74 @@ class MainViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            repository.getHiddenMediaFlow().collect {
+            _isVaultUnlocked.flatMapLatest { unlocked ->
+                repository.getHiddenMediaFlow(unlocked)
+            }.collect {
                 _hidden.value = it
             }
         }
         
-        // Reactive MediaStore observer to reload current visible range in-place
+        // Reactive MediaStore observer to reload current visible range in-place with debouncing
         viewModelScope.launch {
-            repository.observeMediaChanges().collectLatest {
-                val loadedCount = if (currentOffset > 0) currentOffset else PAGE_SIZE
-                val refreshedItems = repository.loadMediaPaged(
-                    limit = loadedCount,
-                    offset = 0,
-                    bucketId = currentBucketId
-                )
-                _mediaItems.value = refreshedItems
-                
-                // Clean orphaned database metadata in the background using full active ID list
-                try {
-                    val activeIds = repository.getActiveMediaIds()
-                    if (activeIds.isNotEmpty()) {
-                        repository.deleteOrphanedMetadata(activeIds)
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
+            @OptIn(FlowPreview::class)
+            repository.observeMediaChanges()
+                .debounce(1000)
+                .collectLatest {
+                    refreshTrigger.value++
+                    val refreshedItems = repository.loadMediaPaged(
+                        limit = PAGE_SIZE,
+                        offset = 0,
+                        bucketId = currentBucketId
+                    )
+                    _mediaItems.value = refreshedItems
                 }
+        }
+
+        // Clean orphaned database metadata and scan secondary directories asynchronously after boot delay
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                repository.purgeExpiredTrashMedia()
+                kotlinx.coroutines.delay(2000) // Defer scan by 2s so cold boot media rendering completes instantly
+                repository.scanSecondaryMediaDirectories()
+                val activeIds = repository.getActiveMediaIds()
+                if (activeIds.isNotEmpty()) {
+                    repository.deleteOrphanedMetadata(activeIds)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
     }
 
-    private var loadPageJob: kotlinx.coroutines.Job? = null
+    fun renameMedia(context: Context, item: MediaItem, newName: String) {
+        viewModelScope.launch {
+            val success = repository.renameMedia(context, item, newName)
+            if (success) {
+                val file = java.io.File(item.path)
+                val ext = file.extension.ifEmpty { "jpg" }
+                val finalName = if (newName.contains(".")) newName else "$newName.$ext"
+                val newPath = if (file.parentFile != null) java.io.File(file.parentFile, finalName).absolutePath else item.path
+
+                val currentActive = activeMediaItem
+                if (currentActive?.id == item.id) {
+                    activeMediaItem = when (currentActive) {
+                        is MediaItem.Photo -> currentActive.copy(path = newPath)
+                        is MediaItem.Video -> currentActive.copy(path = newPath)
+                    }
+                }
+                refreshTrigger.value++
+            }
+        }
+    }
 
     fun loadNextPage(reset: Boolean = false) {
-        if (reset) {
-            loadPageJob?.cancel()
-            isLoadingPage = false
-        } else {
-            if (isLoadingPage || isLastPage) return
-        }
-        
-        isLoadingPage = true
-        loadPageJob = viewModelScope.launch {
-            if (reset) {
-                currentOffset = 0
-                isLastPage = false
-            }
-            
-            val newItems = repository.loadMediaPaged(
+        viewModelScope.launch {
+            val items = repository.loadMediaPaged(
                 limit = PAGE_SIZE,
-                offset = currentOffset,
+                offset = 0,
                 bucketId = currentBucketId
             )
-            
-            if (!isActive) return@launch
-            
-            if (newItems.size < PAGE_SIZE) {
-                isLastPage = true
-            }
-            
-            if (reset) {
-                _mediaItems.value = newItems
-            } else {
-                _mediaItems.value = _mediaItems.value + newItems
-            }
-            currentOffset += newItems.size
-            isLoadingPage = false
+            _mediaItems.value = items
         }
     }
 
@@ -318,6 +489,13 @@ class MainViewModel @Inject constructor(
             val sourceUris = mutableListOf<android.net.Uri>()
             val resolver = context.contentResolver
             
+            // Cleanup any empty album placeholder image in target folder
+            try {
+                val placeholderSelection = "${android.provider.MediaStore.MediaColumns.RELATIVE_PATH} LIKE ? AND ${android.provider.MediaStore.MediaColumns.DISPLAY_NAME} = ?"
+                val placeholderArgs = arrayOf("Pictures/$folderName%", ".placeholder.jpg")
+                resolver.delete(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, placeholderSelection, placeholderArgs)
+            } catch (_: Exception) {}
+
             items.forEach { item ->
                 try {
                     val contentValues = android.content.ContentValues().apply {
@@ -363,7 +541,25 @@ class MainViewModel @Inject constructor(
                         }
                     } else {
                         sourceUris.forEach { uri ->
-                            resolver.delete(uri, null, null)
+                            try {
+                                resolver.delete(uri, null, null)
+                            } catch (e: Exception) {
+                                val recoverable = e as? android.app.RecoverableSecurityException
+                                    ?: e.cause as? android.app.RecoverableSecurityException
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q && recoverable != null) {
+                                    val activity = context as? android.app.Activity
+                                    activity?.startIntentSenderForResult(
+                                        recoverable.userAction.actionIntent.intentSender,
+                                        1003,
+                                        null,
+                                        0,
+                                        0,
+                                        0
+                                    )
+                                } else {
+                                    e.printStackTrace()
+                                }
+                            }
                         }
                     }
                 } catch (e: Exception) {
@@ -423,6 +619,8 @@ class MainViewModel @Inject constructor(
             try {
                 repository.toggleHidden(context, item)
             } catch (e: Exception) {
+                val recoverable = e as? android.app.RecoverableSecurityException
+                    ?: e.cause as? android.app.RecoverableSecurityException
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
                     val activity = context as? android.app.Activity
                     if (activity != null) {
@@ -440,12 +638,12 @@ class MainViewModel @Inject constructor(
                             0
                         )
                     }
-                } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q && e is android.app.RecoverableSecurityException) {
+                } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q && recoverable != null) {
                     val activity = context as? android.app.Activity
                     if (activity != null) {
                         pendingActionItem = item
                         activity.startIntentSenderForResult(
-                            e.userAction.actionIntent.intentSender,
+                            recoverable.userAction.actionIntent.intentSender,
                             1004,
                             null,
                             0,
@@ -484,16 +682,60 @@ class MainViewModel @Inject constructor(
                     }
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                val recoverable = e as? android.app.RecoverableSecurityException
+                    ?: e.cause as? android.app.RecoverableSecurityException
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q && recoverable != null) {
+                    val activity = context as? android.app.Activity
+                    if (activity != null) {
+                        pendingActionItem = item
+                        activity.startIntentSenderForResult(
+                            recoverable.userAction.actionIntent.intentSender,
+                            1002,
+                            null,
+                            0,
+                            0,
+                            0
+                        )
+                    }
+                } else {
+                    e.printStackTrace()
+                }
             }
         }
     }
 
     fun shareSelectedMedia(context: Context, stripMetadata: Boolean) {
-        val selectedList = mediaItems.value.filter { selectionState.selectedIds.contains(it.id) }
-        if (selectedList.isNotEmpty()) {
+        val selectedIds = selectionState.selectedIds.toSet()
+        if (selectedIds.isNotEmpty()) {
             viewModelScope.launch {
-                SharingUtils.shareMedia(context, selectedList, stripMetadata)
+                val selectedList = repository.getMediaByIds(selectedIds)
+                if (selectedList.isNotEmpty()) {
+                    SharingUtils.shareMedia(context, selectedList, stripMetadata)
+                    selectionState.clear()
+                }
+            }
+        }
+    }
+
+    fun hideSelectedMedia(context: Context) {
+        val selectedIds = selectionState.selectedIds.toSet()
+        if (selectedIds.isEmpty()) return
+        viewModelScope.launch {
+            val selectedItems = repository.getMediaByIds(selectedIds)
+            selectedItems.forEach { item ->
+                toggleHidden(context, item)
+            }
+            selectionState.clear()
+        }
+    }
+
+    fun moveSelectedMediaToFolder(context: Context, folderName: String) {
+        val selectedIds = selectionState.selectedIds.toSet()
+        if (selectedIds.isEmpty()) return
+        viewModelScope.launch {
+            val selectedItems = repository.getMediaByIds(selectedIds)
+            if (selectedItems.isNotEmpty()) {
+                moveMediaToFolder(context, selectedItems, folderName)
                 selectionState.clear()
             }
         }
@@ -529,13 +771,15 @@ class MainViewModel @Inject constructor(
                         activeMediaItem = null
                     }
                 }
-            } catch (e: SecurityException) {
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q && e is android.app.RecoverableSecurityException) {
+            } catch (e: Exception) {
+                val recoverable = e as? android.app.RecoverableSecurityException
+                    ?: e.cause as? android.app.RecoverableSecurityException
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q && recoverable != null) {
                     val activity = context as? android.app.Activity
                     if (activity != null) {
                         pendingActionItem = item
                         activity.startIntentSenderForResult(
-                            e.userAction.actionIntent.intentSender,
+                            recoverable.userAction.actionIntent.intentSender,
                             1001,
                             null,
                             0,
@@ -546,8 +790,6 @@ class MainViewModel @Inject constructor(
                 } else {
                     e.printStackTrace()
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
             }
         }
     }
@@ -555,10 +797,13 @@ class MainViewModel @Inject constructor(
     var pendingBatchActionItems: List<MediaItem>? = null
 
     fun deleteSelectedMedia(context: Context) {
-        val selectedItems = mediaItems.value.filter { selectionState.selectedIds.contains(it.id) }
-        if (selectedItems.isEmpty()) return
+        val selectedIds = selectionState.selectedIds.toSet()
+        if (selectedIds.isEmpty()) return
 
         viewModelScope.launch {
+            val selectedItems = repository.getMediaByIds(selectedIds)
+            if (selectedItems.isEmpty()) return@launch
+
             try {
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
                     val activity = context as? android.app.Activity
@@ -586,7 +831,24 @@ class MainViewModel @Inject constructor(
                     selectionState.clear()
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                val recoverable = e as? android.app.RecoverableSecurityException
+                    ?: e.cause as? android.app.RecoverableSecurityException
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q && recoverable != null) {
+                    val activity = context as? android.app.Activity
+                    if (activity != null) {
+                        pendingBatchActionItems = selectedItems
+                        activity.startIntentSenderForResult(
+                            recoverable.userAction.actionIntent.intentSender,
+                            1005,
+                            null,
+                            0,
+                            0,
+                            0
+                        )
+                    }
+                } else {
+                    e.printStackTrace()
+                }
             }
         }
     }
@@ -628,8 +890,29 @@ class MainViewModel @Inject constructor(
                     }
                 } else {
                     selectedItems.forEach { item ->
-                        context.contentResolver.delete(item.uri, null, null)
-                        repository.deleteMetadataPermanently(item.id)
+                        try {
+                            context.contentResolver.delete(item.uri, null, null)
+                            repository.deleteMetadataPermanently(item.id)
+                        } catch (e: Exception) {
+                            val recoverable = e as? android.app.RecoverableSecurityException
+                                ?: e.cause as? android.app.RecoverableSecurityException
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q && recoverable != null) {
+                                val activity = context as? android.app.Activity
+                                if (activity != null) {
+                                    pendingBatchActionItems = selectedItems
+                                    activity.startIntentSenderForResult(
+                                        recoverable.userAction.actionIntent.intentSender,
+                                        1001,
+                                        null,
+                                        0,
+                                        0,
+                                        0
+                                    )
+                                }
+                            } else {
+                                e.printStackTrace()
+                            }
+                        }
                     }
                     selectionState.clear()
                 }
@@ -707,5 +990,11 @@ class MainViewModel @Inject constructor(
 }
 
 enum class Screen {
-    Photos, Albums, Search
+    Photos, Albums, Search, Settings
 }
+
+enum class SortOrder {
+    NEWEST_FIRST, OLDEST_FIRST
+}
+
+private data class Tuple4<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)

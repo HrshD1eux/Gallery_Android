@@ -1,5 +1,7 @@
 package com.HrshD1eux.Gallery.ui.albums
 
+import android.content.Context
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +25,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FloatingActionButton
@@ -83,6 +86,34 @@ fun AlbumsScreen(
                 .padding(horizontal = 16.dp),
             contentPadding = PaddingValues(top = 16.dp, bottom = 100.dp)
         ) {
+        // Search Bar at top of Albums
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp)
+                    .background(
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        shape = MaterialTheme.shapes.medium
+                    )
+                    .clickable { viewModel.currentScreen = com.HrshD1eux.Gallery.ui.Screen.Search }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = "Search",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "Search photos, videos, albums...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
         // Smart Albums header
         item {
             Text(
@@ -125,11 +156,35 @@ fun AlbumsScreen(
 
         // Smart Album: Hidden
         item {
+            val isBiometricEnabled = remember(context) {
+                context.getSharedPreferences("vault_prefs", Context.MODE_PRIVATE).getBoolean("vault_biometric_enabled", false)
+            }
             AlbumRowItem(
                 icon = Icons.Default.Lock,
                 title = "Hidden Vault",
                 count = hidden.size,
-                onClick = { showHiddenLockedDialog = true }
+                onClick = {
+                    val activity = context as? android.app.Activity
+                    if (isBiometricEnabled && activity != null) {
+                        com.HrshD1eux.Gallery.core.util.BiometricAuthHelper.authenticate(
+                            activity = activity,
+                            title = "Unlock Hidden Vault",
+                            subtitle = "Use fingerprint or face unlock to access your hidden photos",
+                            onSuccess = {
+                                viewModel.unlockVault()
+                                viewModel.currentBucketId = null
+                                viewModel.currentBucketName = null
+                                viewModel.currentCategoryName = "Hidden Vault"
+                                viewModel.currentScreen = com.HrshD1eux.Gallery.ui.Screen.Photos
+                            },
+                            onError = { _ ->
+                                showHiddenLockedDialog = true
+                            }
+                        )
+                    } else {
+                        showHiddenLockedDialog = true
+                    }
+                }
             )
         }
 
@@ -181,8 +236,8 @@ fun AlbumsScreen(
             }
         }
     }
-        
-        FloatingActionButton(
+
+    FloatingActionButton(
             onClick = { showCreateAlbumDialog = true },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
@@ -235,9 +290,8 @@ fun AlbumsScreen(
                 }
             )
         }
-    }
 
-    if (showHiddenLockedDialog) {
+        if (showHiddenLockedDialog) {
         AlertDialog(
             onDismissRequest = { 
                 showHiddenLockedDialog = false
@@ -312,19 +366,21 @@ fun AlbumsScreen(
                                 if (pinInput == pinConfirmInput) {
                                     val salt = com.HrshD1eux.Gallery.core.util.VaultCrypto.generateSalt()
                                     val saltBase64 = android.util.Base64.encodeToString(salt, android.util.Base64.NO_WRAP)
-                                    val pinHash = com.HrshD1eux.Gallery.core.util.VaultCrypto.hashPin(pinInput, salt)
+                                    val rawPinHash = com.HrshD1eux.Gallery.core.util.VaultCrypto.hashPin(pinInput, salt)
+                                    val encryptedPinHash = com.HrshD1eux.Gallery.core.util.VaultCrypto.encryptString(rawPinHash)
                                     prefs.edit()
-                                        .putString("vault_pin_hash", pinHash)
+                                        .putString("vault_pin_hash", encryptedPinHash)
                                         .putString("vault_salt", saltBase64)
                                         .remove("vault_pin")
                                         .apply()
-                                    storedPinHash = pinHash
+                                    storedPinHash = encryptedPinHash
                                     storedSaltBase64 = saltBase64
                                     legacyPin = null
                                     pinInput = ""
                                     isSettingPinMode = false
                                     
                                     // Grant access and navigate inside
+                                    viewModel.unlockVault()
                                     showHiddenLockedDialog = false
                                     viewModel.currentBucketId = null
                                     viewModel.currentBucketName = null
@@ -341,24 +397,31 @@ fun AlbumsScreen(
                             if (storedPinHash != null && storedSaltBase64 != null) {
                                 val salt = android.util.Base64.decode(storedSaltBase64, android.util.Base64.NO_WRAP)
                                 val inputHash = com.HrshD1eux.Gallery.core.util.VaultCrypto.hashPin(pinInput, salt)
-                                isValid = (inputHash == storedPinHash)
+                                val decryptedHash = try {
+                                    com.HrshD1eux.Gallery.core.util.VaultCrypto.decryptString(storedPinHash!!)
+                                } catch (_: Exception) {
+                                    storedPinHash
+                                }
+                                isValid = (inputHash == decryptedHash || inputHash == storedPinHash)
                             } else if (legacyPin != null && pinInput == legacyPin) {
-                                // Automatically upgrade legacy plaintext PIN to SHA-256 hash
+                                // Automatically upgrade legacy plaintext PIN to KeyStore encrypted hash
                                 val salt = com.HrshD1eux.Gallery.core.util.VaultCrypto.generateSalt()
                                 val saltBase64 = android.util.Base64.encodeToString(salt, android.util.Base64.NO_WRAP)
-                                val pinHash = com.HrshD1eux.Gallery.core.util.VaultCrypto.hashPin(pinInput, salt)
+                                val rawPinHash = com.HrshD1eux.Gallery.core.util.VaultCrypto.hashPin(pinInput, salt)
+                                val encryptedPinHash = com.HrshD1eux.Gallery.core.util.VaultCrypto.encryptString(rawPinHash)
                                 prefs.edit()
-                                    .putString("vault_pin_hash", pinHash)
+                                    .putString("vault_pin_hash", encryptedPinHash)
                                     .putString("vault_salt", saltBase64)
                                     .remove("vault_pin")
                                     .apply()
-                                storedPinHash = pinHash
+                                storedPinHash = encryptedPinHash
                                 storedSaltBase64 = saltBase64
                                 legacyPin = null
                                 isValid = true
                             }
 
                             if (isValid) {
+                                viewModel.unlockVault()
                                 showHiddenLockedDialog = false
                                 pinInput = ""
                                 viewModel.currentBucketId = null
@@ -396,6 +459,7 @@ fun AlbumsScreen(
             }
         )
     }
+}
 }
 
 @Composable

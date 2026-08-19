@@ -137,4 +137,25 @@ object VaultCrypto {
         SecureRandom().nextBytes(salt)
         return salt
     }
+
+    /**
+     * Encrypts plaintext string using AndroidKeyStore master key returning Base64 representation.
+     */
+    fun encryptString(plaintext: String): String {
+        val inStream = java.io.ByteArrayInputStream(plaintext.toByteArray(Charsets.UTF_8))
+        val outStream = java.io.ByteArrayOutputStream()
+        encrypt(inStream, outStream)
+        return Base64.encodeToString(outStream.toByteArray(), Base64.NO_WRAP)
+    }
+
+    /**
+     * Decrypts AndroidKeyStore master key encrypted Base64 string back to plaintext.
+     */
+    fun decryptString(ciphertextBase64: String): String {
+        val bytes = Base64.decode(ciphertextBase64, Base64.NO_WRAP)
+        val inStream = java.io.ByteArrayInputStream(bytes)
+        val outStream = java.io.ByteArrayOutputStream()
+        decrypt(inStream, outStream)
+        return String(outStream.toByteArray(), Charsets.UTF_8)
+    }
 }

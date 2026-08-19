@@ -183,7 +183,7 @@ fun VideoPlayerContainer(
             if (dur > 0L) {
                 duration = dur
             }
-            delay(200)
+            delay(50)
         }
     }
 
