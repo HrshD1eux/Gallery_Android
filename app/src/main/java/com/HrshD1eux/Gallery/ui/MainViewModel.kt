@@ -592,30 +592,59 @@ class MainViewModel @Inject constructor(
     fun createEmptyAlbum(context: Context, albumName: String) {
         viewModelScope.launch {
             try {
-                val resolver = context.contentResolver
-                val contentValues = android.content.ContentValues().apply {
-                    put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, "album_cover.jpg")
-                    put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-                    put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/$albumName")
-                }
-                val targetUri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
-                if (targetUri != null) {
-                    resolver.openOutputStream(targetUri)?.use { output ->
-                        val dummyJpegBytes = byteArrayOf(
-                            -1, -40, -1, -32, 0, 16, 74, 70, 73, 70, 0, 1, 1, 1, 0, 96, 0, 96, 0, 0,
-                            -1, -37, 0, 67, 0, 8, 6, 6, 7, 6, 5, 8, 7, 7, 7, 9, 9, 8, 10, 12,
-                            20, 13, 12, 11, 11, 12, 25, 18, 19, 15, 20, 29, 26, 31, 30, 29, 26, 28, 28, 32,
-                            36, 46, 39, 32, 34, 44, 35, 28, 28, 40, 55, 41, 44, 48, 49, 52, 52, 52, 31, 39,
-                            57, 61, 56, 50, 60, 46, 51, 52, 50, -1, -64, 0, 11, 8, 0, 1, 0, 1, 1, 1,
-                            17, 0, -1, -60, 0, 20, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0,
-                            0, 0, 0, 0, 0, 5, -1, -38, 0, 12, 1, 1, 0, 2, 17, 3, 17, 0, 63, 0,
-                            -113, -128, -1, -39
-                        )
-                        output.write(dummyJpegBytes)
-                    }
+                val userPrefs = context.getSharedPreferences("user_albums", Context.MODE_PRIVATE)
+                val currentSet = userPrefs.getStringSet("created_albums", emptySet()) ?: emptySet()
+                val updatedSet = currentSet.toMutableSet().apply { add(albumName) }
+                userPrefs.edit().putStringSet("created_albums", updatedSet).apply()
+
+                val picturesDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES)
+                val newAlbumDir = java.io.File(picturesDir, albumName)
+                if (!newAlbumDir.exists()) {
+                    newAlbumDir.mkdirs()
                 }
                 refreshTrigger.value++
-                loadNextPage()
+                loadBuckets()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun deleteAlbum(context: Context, bucketId: Long, bucketName: String) {
+        viewModelScope.launch {
+            try {
+                val userPrefs = context.getSharedPreferences("user_albums", Context.MODE_PRIVATE)
+                val currentSet = userPrefs.getStringSet("created_albums", emptySet()) ?: emptySet()
+                if (currentSet.contains(bucketName)) {
+                    val updatedSet = currentSet.toMutableSet().apply { remove(bucketName) }
+                    userPrefs.edit().putStringSet("created_albums", updatedSet).apply()
+                }
+
+                val itemsInAlbum = repository.loadMediaPaged(limit = 2000, offset = 0, bucketId = bucketId)
+                if (itemsInAlbum.isNotEmpty()) {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                        val pendingIntent = android.provider.MediaStore.createTrashRequest(
+                            context.contentResolver,
+                            itemsInAlbum.map { it.uri },
+                            true
+                        )
+                        val activity = context as? android.app.Activity
+                        activity?.startIntentSenderForResult(pendingIntent.intentSender, 1005, null, 0, 0, 0)
+                    } else {
+                        itemsInAlbum.forEach { item ->
+                            repository.toggleTrashed(item)
+                        }
+                    }
+                }
+                val albumFolder = java.io.File(
+                    android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES),
+                    bucketName
+                )
+                if (albumFolder.exists()) {
+                    albumFolder.deleteRecursively()
+                }
+                refreshTrigger.value++
+                loadBuckets()
             } catch (e: Exception) {
                 e.printStackTrace()
             }

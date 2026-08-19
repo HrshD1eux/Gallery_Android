@@ -213,6 +213,7 @@ fun PhotoViewerScreen(
         HorizontalPager(
             state = pagerState,
             key = { page -> mediaItems.getOrNull(page)?.id ?: page },
+            userScrollEnabled = zoomState.scale <= 1.05f && !isSlideshowActive,
             beyondBoundsPageCount = 1,
             modifier = Modifier
                 .fillMaxSize()

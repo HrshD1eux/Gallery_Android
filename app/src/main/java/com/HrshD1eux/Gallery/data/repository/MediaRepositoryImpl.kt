@@ -83,12 +83,26 @@ class MediaRepositoryImpl @Inject constructor(
             .groupBy { it.bucketId }
             .mapValues { it.value.size }
             
-        rawBuckets.map { bucket ->
+        val userPrefs = context.getSharedPreferences("user_albums", Context.MODE_PRIVATE)
+        val createdAlbums = userPrefs.getStringSet("created_albums", emptySet()) ?: emptySet()
+
+        val processedBuckets = rawBuckets.map { bucket ->
             val subtractCount = hiddenOrTrashedCounts[bucket.id] ?: 0
             val newCount = (bucket.count - subtractCount).coerceAtLeast(0)
             BucketInfo(bucket.id, bucket.name, newCount)
-        }.filter { it.count > 0 }
-         .sortedByDescending { it.count }
+        }.toMutableList()
+
+        // Include user-created albums that may currently be empty in MediaStore
+        val existingNames = processedBuckets.map { it.name }.toSet()
+        for (albumName in createdAlbums) {
+            if (!existingNames.contains(albumName)) {
+                val bucketId = albumName.hashCode().toLong()
+                processedBuckets.add(BucketInfo(bucketId, albumName, 0))
+            }
+        }
+
+        processedBuckets.filter { it.count > 0 || createdAlbums.contains(it.name) }
+            .sortedWith(compareByDescending<BucketInfo> { it.count }.thenBy { it.name })
     }
 
     override fun getBucketsFlow(): Flow<List<BucketInfo>> {
@@ -119,10 +133,18 @@ class MediaRepositoryImpl @Inject constructor(
                 val vaultFile = java.io.File(currentMeta.vaultPath)
                 if (vaultFile.exists()) {
                     val resolver = context.contentResolver
+                    val originalName = if (currentMeta.originalPath.isNotBlank() && java.io.File(currentMeta.originalPath).name.isNotBlank()) {
+                        java.io.File(currentMeta.originalPath).name
+                    } else {
+                        "restored_${currentMeta.mediaId}.${if (currentMeta.mimeType.contains("png")) "png" else "jpg"}"
+                    }
                     val contentValues = android.content.ContentValues().apply {
-                        put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, java.io.File(currentMeta.originalPath).name)
-                        put(android.provider.MediaStore.MediaColumns.MIME_TYPE, currentMeta.mimeType)
+                        put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, originalName)
+                        put(android.provider.MediaStore.MediaColumns.MIME_TYPE, if (currentMeta.mimeType.isNotBlank()) currentMeta.mimeType else "image/jpeg")
                         put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/Restored")
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                            put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1)
+                        }
                     }
                     val collectionUri = if (currentMeta.mimeType.contains("video", ignoreCase = true)) {
                         android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI
@@ -135,6 +157,11 @@ class MediaRepositoryImpl @Inject constructor(
                             vaultFile.inputStream().use { input ->
                                 com.HrshD1eux.Gallery.core.util.VaultCrypto.decrypt(input, output)
                             }
+                        }
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                            contentValues.clear()
+                            contentValues.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0)
+                            resolver.update(targetUri, contentValues, null, null)
                         }
                         vaultFile.delete()
                         val metaFile = java.io.File(currentMeta.vaultPath + ".meta")

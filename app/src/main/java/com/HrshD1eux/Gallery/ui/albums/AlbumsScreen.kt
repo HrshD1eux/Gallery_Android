@@ -374,9 +374,8 @@ fun AlbumsScreen(
                     Button(
                         onClick = {
                             showDeleteAlbumConfirm = false
+                            viewModel.deleteAlbum(context, bucket.id, bucket.name)
                             activeOptionsBucket = null
-                            viewModel.selectBucket(bucket.id, bucket.name)
-                            viewModel.deleteSelectedMedia(context)
                         },
                         colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                     ) {
