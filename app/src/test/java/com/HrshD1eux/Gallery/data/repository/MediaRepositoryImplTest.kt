@@ -326,7 +326,11 @@ class MediaRepositoryImplTest {
                 metadataDao = fakeDao
             )
 
-            val vaultFile = java.io.File(tempFolder, "vault_888").apply { writeText("encrypted_data") }
+            val vaultFile = java.io.File(tempFolder, "vault_888").apply {
+                outputStream().use { out ->
+                    com.HrshD1eux.Gallery.core.util.VaultCrypto.encrypt("Test Photo Data".toByteArray().inputStream(), out)
+                }
+            }
             fakeDao.dbMap[888L] = MediaMetadataEntity(
                 mediaId = 888L,
                 isHidden = true,
@@ -340,8 +344,13 @@ class MediaRepositoryImplTest {
             assertEquals(1, items.size)
             assertEquals(888L, items[0].id)
 
-            // Assert zero plaintext files exist in vault_cache because decryption is strictly in-memory via VaultFetcher
-            val decryptedFile = java.io.File(tempFolder, "vault_cache/decrypted_888")
+            // Assert that decrypted cache file exists in vault_cache while unlocked
+            val cacheDir = java.io.File(tempFolder, "vault_cache")
+            val decryptedFile = java.io.File(cacheDir, "decrypted_888.jpeg")
+            assertTrue(decryptedFile.exists())
+
+            // Assert that clearVaultCache purges vault_cache completely
+            repository.clearVaultCache(mockContext)
             assertTrue(!decryptedFile.exists())
 
             tempFolder.deleteRecursively()
