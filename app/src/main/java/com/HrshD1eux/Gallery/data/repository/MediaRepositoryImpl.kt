@@ -388,16 +388,13 @@ class MediaRepositoryImpl @Inject constructor(
         } catch (e: Exception) {
             e.printStackTrace()
         }
-        withContext(Dispatchers.Main) {
-            try {
-                val imageLoader = coil.Coil.imageLoader(context)
-                imageLoader.memoryCache?.clear()
-                imageLoader.diskCache?.clear()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+        try {
+            val imageLoader = coil.Coil.imageLoader(context)
+            imageLoader.memoryCache?.clear()
+            imageLoader.diskCache?.clear()
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
-        Unit
     }
 
     private fun applyMetadata(item: MediaItem, meta: MediaMetadataEntity?): MediaItem {

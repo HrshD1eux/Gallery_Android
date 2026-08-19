@@ -1,10 +1,8 @@
-# UNDER PROCESS
-
 # 🖼️ Android Gallery — Production-Grade Media & Vault App
 
 A high-performance, privacy-focused, production-grade Android Gallery application built with **Jetpack Compose**, **Hilt**, **Room**, **Coil**, **Media3 ExoPlayer**, and **Hardware-Backed AES-256-GCM Cryptography**.
 
-Designed to handle **100,000+ photo libraries** with fluid 60 FPS scrolling, zero OOM memory bottlenecks, native video playback, and a secure encrypted vault.
+Designed to handle **100,000+ photo libraries** with fluid 60 FPS scrolling, zero OOM memory bottlenecks, native video playback, and an ultra-secure encrypted vault.
 
 ---
 
@@ -13,31 +11,32 @@ Designed to handle **100,000+ photo libraries** with fluid 60 FPS scrolling, zer
 ### 🚀 100k+ Photo Scalability & Performance Engine
 - **Paginated Media Loading**: Built with offset-based paged loading (`PAGE_SIZE = 200`) and **Jetpack Paging 3** (`MediaPagingSource`) to prevent out-of-memory (OOM) crashes on large media libraries.
 - **Batched Metadata Queries (N+1 Solved)**: Uses SQL `WHERE mediaId IN (:ids)` batch queries to fetch Room metadata overlay for entire pages at once, reducing SQL queries per page from 200 to **1**.
-- **Lightweight Active ID Projections**: Background orphan metadata cleanup queries only the `_ID` column from `MediaStore`, eliminating unnecessary `MediaItem` allocations.
 - **Pre-Aggregated Folder Discovery**: Queries `MediaStore` with SQL `GROUP BY (bucket_id)` and `COUNT(*)`, loading pre-counted album summaries directly from the database engine instead of scanning 100,000 rows in memory.
+- **Dynamic Timeline Scrubber**: Fast vertical right scrubber with dynamic sampling (max 6 date headers evenly spaced via `Arrangement.SpaceBetween`), eliminating vertical label crowding (`WED THU SAT SUN TD`) and re-indexing automatically when switching sort orders.
 - **Off-Main-Thread Timeline Computations**: Timeline date grouping runs entirely on `Dispatchers.Default` via reactive `StateFlow` streams.
 - **Grid Thumbnail Downsampling**: Coil `AsyncImage` requests explicitly downsample thumbnails to `.size(320, 320)` for minimal GPU/memory footprint.
 
-### 🔐 Hardware-Backed Encrypted Vault
+### 🔐 Hardware-Backed Encrypted Vault & Stealth Security
 - **AES-256-GCM Encryption**: Files moved to the "Hidden Vault" are encrypted at rest using AES-256-GCM via `AndroidKeyStore` (`AES/GCM/NoPadding`, 12-byte random IV header, 128-bit authentication tag).
-- **Encrypted Metadata Sidecars**: Metadata sidecar files (`.meta`) store item properties in encrypted binary form.
-- **Salted SHA-256 PIN Verification**: Vault access is secured with a 4-digit PIN hashed using SHA-256 and a 16-byte cryptographically secure random salt generated via `SecureRandom`.
-- **Automatic Decrypted Cache Purging**: Temporary decrypted preview files in `cacheDir/vault_cache/` are immediately purged on app backgrounding (`Lifecycle.Event.ON_STOP`) or when locking the vault.
+- **Multi-Factor Lock Options**: Support for **PIN (Numeric)**, custom 3x3 **Pattern Lock** (Canvas gesture with KeyStore hashing), and **Biometric (Fingerprint/Face)** authentication.
+- **Stealth Mode & Secret Search Passphrase**: Hide the Vault album from the Albums tab and configure a secret passphrase (e.g. `#openvault`). Typing this exact word in the top search bar triggers the security prompt and unlocks the vault.
+- **Isolated In-Vault Security Settings**: Vault privacy and lock settings are completely hidden from main app settings. They can only be accessed via the 3-dots top bar menu inside the unlocked vault (`VaultSecurityDialog`).
+- **On-the-Fly Decrypted Cache & Purging**: Vault items are decrypted into temporary files (`cacheDir/vault_cache/`) on-the-fly while unlocked so Coil and PhotoViewer load full quality images/videos without corruption. Temporary cache files are immediately purged on lock (`clearVaultCache`) or app backgrounding.
+
+### 🏷️ System-Wide Scoped Storage File Renaming
+- **Atomic MediaStore & Physical Rename**: Updates `DISPLAY_NAME` and `TITLE` via `ContentResolver`, performs physical file rename (`java.io.File.renameTo`), and issues dual-path `MediaScannerConnection` scans to sync new filenames across the entire Android system.
+
+### 🚀 In-App GitHub Releases Auto-Update Engine
+- **GitHub Release Tracking**: Checks `https://api.github.com/repos/HrshD1eux/Gallery_Android/releases/latest` for the latest APK releases, comparing version tags (`v1.0.1` vs `v1.0.0`).
+- **In-App Download & Installation**: Downloads release APKs with a live percentage progress bar dialog to `cacheDir/updates/update.apk` and launches the native Package Installer via `FileProvider`.
 
 ### 🎥 Native Media3 (ExoPlayer) Video Playback
 - **Inline Video Player**: Powered by **AndroidX Media3 ExoPlayer** (`media3-exoplayer` & `media3-ui`), supporting inline video playback directly within the fullscreen photo viewer.
-- **Lifecycle-Aware Playback**: Automatically starts playback when a video is the active page in `HorizontalPager` and pauses/releases hardware decoders when swiped away or backgrounded.
-- **Encrypted Vault Video Support**: Seamlessly plays both public `MediaStore` videos and decrypted hidden vault videos.
+- **Lifecycle-Aware Playback**: Automatically starts playback when a video is the active page in `HorizontalPager` and pauses/releases decoders when swiped away or backgrounded.
 
 ### 🛡️ Privacy-Preserving Media Sharing
-- **EXIF Metadata Stripping**: Integrates `androidx.exifinterface` to strip sensitive EXIF tags (GPS latitude/longitude/altitude, camera make & model, software version, photographer name) before sharing media files.
-- **Scoped FileProvider**: Shared files are stored in a strictly scoped cache directory (`cache-path/shared_images`) with automated cleanup of temporary share files older than 30 minutes.
-
-### 🎨 Modern Jetpack Compose UI & User Experience
-- **Edge-to-Edge Design**: Full transparent system bars with dynamic window inset handling.
-- **Adaptive Grid Density**: Pinch-to-zoom gesture support for dynamically adjusting column width in the main timeline grid.
-- **Fluid Photo Viewer**: Built using `HorizontalPager` with pinch-to-zoom, bounds-constrained pan, double-tap zoom reset, and velocity-based vertical swipe-to-dismiss.
-- **Selection Mode**: Multi-select media items with set-based ID tracking (`Set<Long>`) and batch share/delete actions.
+- **EXIF Metadata Stripping**: Integrates `androidx.exifinterface` to strip sensitive EXIF tags (GPS coordinates, camera details, photographer name) before sharing media files.
+- **Scoped FileProvider**: Shared files are stored in a strictly scoped cache directory (`cache-path/shared_images`) with automated 30-minute cleanup.
 
 ---
 
@@ -65,7 +64,7 @@ Designed to handle **100,000+ photo libraries** with fluid 60 FPS scrolling, zer
 com.HrshD1eux.Gallery/
 ├── core/
 │   ├── di/                 # Hilt Dagger Modules (DatabaseModule, RepositoryModule)
-│   └── util/               # Cryptography & Sharing utilities (VaultCrypto, SharingUtils)
+│   └── util/               # Cryptography, Sharing & Updates (VaultCrypto, AppUpdateManager, SharingUtils)
 ├── data/
 │   ├── database/           # Room Database, DAO (MetadataDao), & Entities (MediaMetadataEntity)
 │   ├── media/              # MediaStoreDataSource (ContentResolver & ContentObserver)
@@ -74,18 +73,20 @@ com.HrshD1eux.Gallery/
 │   └── repository/         # MediaRepository interface & MediaRepositoryImpl
 ├── ui/
 │   ├── albums/             # AlbumsScreen (Smart categories & Folder discovery)
-│   ├── search/             # SearchScreen
+│   ├── search/             # SearchScreen (Stealth Passphrase detection)
 │   ├── selection/          # SelectionState manager
+│   ├── settings/           # SettingsScreen & Theme selector
 │   ├── theme/              # Color, Type, & Material3 Theme configuration
 │   ├── timeline/           # TimelineScreen (LazyStaggeredGrid & TimelineScrubber)
+│   ├── vault/              # PatternLockView, VaultUnlockDialog, VaultSecurityDialog
 │   ├── viewer/             # PhotoViewerScreen, Zoomable modifier, & VideoPlayerContainer
-│   ├── MainActivity.kt     # Main entry point & lifecycle observer
+│   ├── MainActivity.kt     # Main entry point & top app bar action router
 │   └── MainViewModel.kt    # Central state manager & media stream handler
 ```
 
 ---
 
-## 🔒 Cryptography & Security Details
+## 🔒 Cryptography & Vault Security Architecture
 
 ```
 [ Public Media File ] ──► Vault Hide Action
@@ -100,12 +101,18 @@ com.HrshD1eux.Gallery/
           [ Write IV + Ciphertext to filesDir/vault/ ]
                                 │
                                 ▼
-           [ Delete Original from Public MediaStore ]
+            [ Delete Original from Public MediaStore ]
+                                │
+                                ▼
+[ Decrypt On-The-Fly to cacheDir/vault_cache/ On Unlock ]
+                                │
+                                ▼
+    [ Purge Decrypted Cache On Lock or App Exit ]
 ```
 
 - **Master Key**: Generated inside the `AndroidKeyStore` hardware enclave under the alias `GalleryVaultMasterKey`.
 - **Cipher Specs**: `AES/GCM/NoPadding` with 256-bit key size and 128-bit authentication tag.
-- **PIN Security**: PIN is hashed via `SHA-256(salt + pin)` using a 16-byte random salt generated per device. The plaintext PIN is never stored on disk.
+- **PIN & Pattern Hashing**: PINs and 3x3 pattern index vectors are hashed via `SHA-256(salt + input)` using a 16-byte cryptographically secure random salt (`SecureRandom`). Plaintext secrets are never stored on disk.
 
 ---
 
@@ -129,18 +136,18 @@ The codebase includes automated unit tests, performance benchmarks, and instrume
 ```
 
 ### Included Test Suite:
-1. **`MediaRepositoryImplTest.kt`**: Tests paginated media loading, orphan metadata cleanup, folder count deductions, and vault self-healing.
+1. **`MediaRepositoryImplTest.kt`**: Tests paginated media loading, orphan metadata cleanup, folder count deductions, vault cache purging, and self-healing.
 2. **`MainViewModelTest.kt`**: Tests activity result handlers, deletion confirmation callbacks, and pagination resets.
 3. **`SelectionStateTest.kt`**: Tests range selection and toggle operations.
 4. **`TimelineBenchmarkTest.kt`**: Performance benchmark verifying 10,000 item timeline grouping completes in under 100ms.
 5. **`RoomDatabaseTest.kt`** *(Instrumentation)*: Verifies Room in-memory database creation, indices, and batch operations.
-6. **`VaultCryptoIntegrationTest.kt`** *(Instrumentation)*: Verifies AES-256-GCM encryption/decryption cycles and salted SHA-256 PIN hashing.
+6. **`VaultCryptoIntegrationTest.kt`** *(Instrumentation)*: Verifies AES-256-GCM encryption/decryption cycles and salted SHA-256 PIN/Pattern hashing.
 
 ---
-```📄
-License Agreement
 
-Copyright (c) 2026 HrshD1eux
+## 📄 License Agreement
+
+Copyright (c) 2026 **HrshD1eux**
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, and/or sublicense copies of the Software, subject to the following conditions:
 

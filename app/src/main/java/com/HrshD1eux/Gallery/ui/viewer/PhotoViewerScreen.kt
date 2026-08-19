@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.RestoreFromTrash
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Edit
@@ -138,6 +139,7 @@ fun PhotoViewerScreen(
     var showMoveToAlbumDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var renameInputText by remember { mutableStateOf("") }
+    var showVaultConfirmDialog by remember { mutableStateOf(false) }
 
     val infoSheetState = rememberModalBottomSheetState()
     val zoomState = rememberZoomState()
@@ -301,7 +303,11 @@ fun PhotoViewerScreen(
                                 },
                                 onClick = {
                                     showMoreMenu = false
-                                    viewModel.toggleHidden(context, item)
+                                    if (item.isHidden) {
+                                        viewModel.toggleHidden(context, item)
+                                    } else {
+                                        showVaultConfirmDialog = true
+                                    }
                                 }
                             )
                         }
@@ -590,6 +596,50 @@ fun PhotoViewerScreen(
                             tempNewAlbumName = ""
                         }
                     ) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        if (showVaultConfirmDialog) {
+            val item = mediaItems.getOrNull(pagerState.currentPage) ?: activeItem
+            AlertDialog(
+                onDismissRequest = { showVaultConfirmDialog = false },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                },
+                title = { Text("Move to Encrypted Vault?") },
+                text = {
+                    Column {
+                        Text(
+                            text = "This photo/video will be encrypted with hardware AES-256-GCM and stored safely in your private Vault.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "⚠️ Notice: The original unencrypted file will be removed from public device storage so other apps cannot see it.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showVaultConfirmDialog = false
+                            viewModel.toggleHidden(context, item)
+                        }
+                    ) {
+                        Text("Move to Vault")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showVaultConfirmDialog = false }) {
                         Text("Cancel")
                     }
                 }
