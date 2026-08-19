@@ -126,6 +126,21 @@ class MediaRepositoryImpl @Inject constructor(
         metadataDao.insertOrUpdate(updated)
     }
 
+    override suspend fun toggleFavoriteBatch(mediaIds: Set<Long>) {
+        if (mediaIds.isEmpty()) return
+        val idList = mediaIds.toList()
+        val metas = metadataDao.getMetadataForMediaIds(idList).associateBy { it.mediaId }
+        val allFavorited = idList.all { metas[it]?.isFavorite == true }
+        val newFavoriteState = !allFavorited
+
+        idList.chunked(500).forEach { chunk ->
+            chunk.forEach { id ->
+                val meta = metas[id] ?: MediaMetadataEntity(mediaId = id)
+                metadataDao.insertOrUpdate(meta.copy(isFavorite = newFavoriteState))
+            }
+        }
+    }
+
     override suspend fun toggleHidden(context: Context, mediaItem: MediaItem) {
         val currentMeta = metadataDao.getMetadataForMedia(mediaItem.id)
         if (mediaItem.isHidden) {
@@ -613,6 +628,69 @@ class MediaRepositoryImpl @Inject constructor(
         }
 
         false
+    }
+
+    override suspend fun batchRenameMedia(
+        context: Context,
+        itemsWithNewNames: List<Pair<MediaItem, String>>
+    ): Int = withContext(Dispatchers.IO) {
+        var successCount = 0
+        val resolver = context.contentResolver
+        val pathsToScan = mutableListOf<String>()
+
+        itemsWithNewNames.forEach { (item, newDisplayName) ->
+            try {
+                val file = java.io.File(item.path)
+                val ext = if (file.extension.isNotEmpty()) ".${file.extension}" else ""
+                val finalName = if (newDisplayName.endsWith(ext, ignoreCase = true)) newDisplayName else "$newDisplayName$ext"
+
+                val contentValues = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, finalName)
+                    put(android.provider.MediaStore.MediaColumns.TITLE, finalName.substringBeforeLast("."))
+                }
+
+                val rows = try {
+                    resolver.update(item.uri, contentValues, null, null)
+                } catch (_: Exception) { 0 }
+
+                if (rows > 0) {
+                    successCount++
+                    if (file.exists() && file.parentFile != null) {
+                        val targetFile = java.io.File(file.parentFile, finalName)
+                        pathsToScan.add(file.absolutePath)
+                        pathsToScan.add(targetFile.absolutePath)
+                        val entity = metadataDao.getMetadataForMedia(item.id)
+                        if (entity != null) {
+                            metadataDao.insertOrUpdate(entity.copy(originalPath = targetFile.absolutePath))
+                        }
+                    }
+                } else if (file.exists() && file.parentFile != null) {
+                    val targetFile = java.io.File(file.parentFile, finalName)
+                    if (file.renameTo(targetFile)) {
+                        successCount++
+                        pathsToScan.add(file.absolutePath)
+                        pathsToScan.add(targetFile.absolutePath)
+                        val entity = metadataDao.getMetadataForMedia(item.id)
+                        if (entity != null) {
+                            metadataDao.insertOrUpdate(entity.copy(originalPath = targetFile.absolutePath))
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        if (pathsToScan.isNotEmpty()) {
+            android.media.MediaScannerConnection.scanFile(
+                context,
+                pathsToScan.toTypedArray(),
+                null,
+                null
+            )
+        }
+
+        successCount
     }
 
     override suspend fun updateMediaDateTaken(context: Context, mediaItem: MediaItem, newDateMs: Long): Boolean = withContext(Dispatchers.IO) {

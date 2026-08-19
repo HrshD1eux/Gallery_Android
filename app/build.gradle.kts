@@ -22,8 +22,8 @@ android {
         applicationId = "com.HrshD1eux.Gallery"
         minSdk = 29
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.1.3"
+        versionCode = 8
+        versionName = "1.1.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -97,6 +97,7 @@ ksp {
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.biometric)
+    implementation(libs.androidx.work.runtime.ktx)
     implementation("androidx.fragment:fragment-ktx:1.8.2")
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)

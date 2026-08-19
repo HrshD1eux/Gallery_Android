@@ -58,6 +58,8 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.CropSquare
 import androidx.compose.material.icons.filled.ViewStream
@@ -167,13 +169,7 @@ class MainActivity : FragmentActivity() {
         checkPermissions()
 
         setContent {
-            val appTheme = viewModel.appTheme
-            val isDarkTheme = when (appTheme) {
-                "dark" -> true
-                "light" -> false
-                else -> isSystemInDarkTheme()
-            }
-            GalleryTheme(darkTheme = isDarkTheme) {
+            GalleryTheme(appTheme = viewModel.appTheme) {
                 val hasPermissions by hasPermissionsState
 
                 Surface(
@@ -259,6 +255,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
     var showSelectionShareDialog by remember { androidx.compose.runtime.mutableStateOf(false) }
     var stripMetadataOnShare by remember { androidx.compose.runtime.mutableStateOf(true) }
     var showMoveToAlbumDialog by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var showBatchRenameDialog by remember { androidx.compose.runtime.mutableStateOf(false) }
     val isVaultUnlocked by viewModel.isVaultUnlocked.collectAsState()
     val isVaultActive = (isVaultUnlocked && viewModel.currentCategoryName == "Hidden Vault") ||
             viewModel.activeMediaItem?.isHidden == true
@@ -575,6 +572,16 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                                 )
 
                                 SelectionActionButton(
+                                    icon = Icons.Default.Favorite,
+                                    label = "Favorite",
+                                    onClick = {
+                                        val selectedIdsSet = selectionState.selectedIds.toSet()
+                                        com.HrshD1eux.Gallery.core.util.HapticUtil.performSelection(context)
+                                        viewModel.toggleFavoriteSelectedMedia(selectedIdsSet)
+                                    }
+                                )
+
+                                SelectionActionButton(
                                     icon = Icons.Default.Share,
                                     label = "Share",
                                     onClick = { showSelectionShareDialog = true }
@@ -611,6 +618,12 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                                 )
 
                                 if (!isViewingVault) {
+                                    SelectionActionButton(
+                                        icon = Icons.Default.Edit,
+                                        label = "Rename",
+                                        onClick = { showBatchRenameDialog = true }
+                                    )
+
                                     SelectionActionButton(
                                         icon = Icons.AutoMirrored.Filled.DriveFileMove,
                                         label = "Move",
@@ -660,21 +673,25 @@ fun MainScreenLayout(viewModel: MainViewModel) {
     }
     ) { paddingValues ->
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
+            modifier = Modifier.fillMaxSize()
         ) {
-            HorizontalPager(
-                state = mainPagerState,
-                beyondBoundsPageCount = 2,
-                modifier = Modifier.fillMaxSize(),
-                userScrollEnabled = viewModel.activeMediaItem == null
-            ) { page ->
-                when (screens[page]) {
-                    Screen.Photos -> TimelineScreen(viewModel = viewModel)
-                    Screen.Albums -> AlbumsScreen(viewModel = viewModel)
-                    Screen.Settings -> com.HrshD1eux.Gallery.ui.settings.SettingsScreen(viewModel = viewModel)
-                    else -> TimelineScreen(viewModel = viewModel)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+            ) {
+                HorizontalPager(
+                    state = mainPagerState,
+                    beyondBoundsPageCount = 2,
+                    modifier = Modifier.fillMaxSize(),
+                    userScrollEnabled = viewModel.activeMediaItem == null
+                ) { page ->
+                    when (screens[page]) {
+                        Screen.Photos -> TimelineScreen(viewModel = viewModel)
+                        Screen.Albums -> AlbumsScreen(viewModel = viewModel)
+                        Screen.Settings -> com.HrshD1eux.Gallery.ui.settings.SettingsScreen(viewModel = viewModel)
+                        else -> TimelineScreen(viewModel = viewModel)
+                    }
                 }
             }
 
@@ -818,6 +835,22 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                 ) {
                     Text("Cancel")
                 }
+            }
+        )
+    }
+
+    if (showBatchRenameDialog) {
+        val selectedIdsSet = selectionState.selectedIds.toSet()
+        val allVisible by viewModel.visibleMediaItems.collectAsState()
+        val selectedItems = remember(selectedIdsSet, allVisible) {
+            allVisible.filter { selectedIdsSet.contains(it.id) }
+        }
+        com.HrshD1eux.Gallery.ui.common.BatchRenameDialog(
+            selectedItems = selectedItems,
+            onDismiss = { showBatchRenameDialog = false },
+            onConfirmRename = { renames ->
+                viewModel.batchRenameSelectedMedia(context, renames)
+                showBatchRenameDialog = false
             }
         )
     }

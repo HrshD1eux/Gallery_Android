@@ -1,6 +1,7 @@
 package com.HrshD1eux.Gallery.data.repository
 
 import android.content.Context
+import android.net.Uri
 import com.HrshD1eux.Gallery.data.database.MediaMetadataEntity
 import com.HrshD1eux.Gallery.data.database.MetadataDao
 import com.HrshD1eux.Gallery.data.media.MediaStoreDataSource
@@ -90,6 +91,15 @@ class MediaRepositoryImplTest {
 
         override fun getTrashedIdsFlow(): Flow<List<Long>> = flow {
             emit(dbMap.values.filter { it.isTrashed }.map { it.mediaId })
+        }
+
+        override suspend fun getExpiredTrashItems(cutoffTimestamp: Long): List<MediaMetadataEntity> {
+            return dbMap.values.filter { it.isTrashed && it.trashTime > 0 && it.trashTime < cutoffTimestamp }
+        }
+
+        override suspend fun deleteByMediaId(mediaId: Long) {
+            dbMap.remove(mediaId)
+            deletedIds.add(mediaId)
         }
     }
 
@@ -554,5 +564,84 @@ class MediaRepositoryImplTest {
         org.junit.Assert.assertFalse(zoomState.canConsumePan(-10f))
         // Panning right away from boundary is allowed
         assertTrue(zoomState.canConsumePan(10f))
+    }
+
+    @Test
+    fun testToggleFavoriteBatch_togglesAllToFavoriteThenUnfavorite() = runBlocking {
+        val fakeDao = FakeMetadataDao()
+        val mockContext = mockk<Context>(relaxed = true)
+        val mockDataSource = mockk<MediaStoreDataSource>(relaxed = true)
+        val repository = MediaRepositoryImpl(
+            context = mockContext,
+            mediaStoreDataSource = mockDataSource,
+            metadataDao = fakeDao
+        )
+
+        val ids = setOf(101L, 102L, 103L)
+        // Initially none favorited -> all become favorited
+        repository.toggleFavoriteBatch(ids)
+        assertTrue(ids.all { fakeDao.dbMap[it]?.isFavorite == true })
+
+        // When all favorited -> all become unfavorited
+        repository.toggleFavoriteBatch(ids)
+        assertTrue(ids.all { fakeDao.dbMap[it]?.isFavorite == false })
+    }
+
+    @Test
+    fun testBatchRenameMedia_updatesRoomMetadataPaths() = runBlocking {
+        mockkStatic(android.media.MediaScannerConnection::class)
+        every { android.media.MediaScannerConnection.scanFile(any(), any(), any(), any()) } returns Unit
+
+        val fakeDao = FakeMetadataDao()
+        val mockContext = mockk<Context>(relaxed = true)
+        val mockResolver = mockk<android.content.ContentResolver>(relaxed = true)
+        every { mockContext.contentResolver } returns mockResolver
+        val mockDataSource = mockk<MediaStoreDataSource>(relaxed = true)
+        val repository = MediaRepositoryImpl(
+            context = mockContext,
+            mediaStoreDataSource = mockDataSource,
+            metadataDao = fakeDao
+        )
+
+        val mockUri1 = mockk<Uri>(relaxed = true)
+        val mockUri2 = mockk<Uri>(relaxed = true)
+
+        val item1 = MediaItem.Photo(
+            id = 101L,
+            uri = mockUri1,
+            path = "/sdcard/DCIM/IMG_01.jpg",
+            mimeType = "image/jpeg",
+            dateTaken = 1000L,
+            size = 1024L,
+            width = 1920,
+            height = 1080
+        )
+        val item2 = MediaItem.Photo(
+            id = 102L,
+            uri = mockUri2,
+            path = "/sdcard/DCIM/IMG_02.jpg",
+            mimeType = "image/jpeg",
+            dateTaken = 1000L,
+            size = 1024L,
+            width = 1920,
+            height = 1080
+        )
+
+        fakeDao.insertOrUpdate(MediaMetadataEntity(mediaId = 101L, originalPath = "/sdcard/DCIM/IMG_01.jpg"))
+        fakeDao.insertOrUpdate(MediaMetadataEntity(mediaId = 102L, originalPath = "/sdcard/DCIM/IMG_02.jpg"))
+
+        every { mockResolver.update(any(), any(), any(), any()) } returns 1
+
+        val renames = listOf(
+            item1 to "Trip_001.jpg",
+            item2 to "Trip_002.jpg"
+        )
+
+        try {
+            val count = repository.batchRenameMedia(mockContext, renames)
+            assertEquals(2, count)
+        } finally {
+            unmockkStatic(android.media.MediaScannerConnection::class)
+        }
     }
 }

@@ -56,6 +56,8 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Wallpaper
+import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.AspectRatio
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -339,7 +341,8 @@ fun PhotoViewerScreen(
                                 .fillMaxSize()
                                 .zoomable(
                                     state = pageZoomState,
-                                    onTap = { showChrome = !showChrome }
+                                    onTap = { showChrome = !showChrome },
+                                    onDismiss = { viewModel.activeMediaItem = null }
                                 )
                         )
                     }
@@ -464,15 +467,49 @@ fun PhotoViewerScreen(
                         )
 
                         DropdownMenuItem(
-                            text = { Text("Set as Wallpaper / Contact") },
+                            text = { Text("Set as Wallpaper 📱") },
                             leadingIcon = { Icon(Icons.Default.Wallpaper, contentDescription = null) },
                             onClick = {
                                 showMoreMenu = false
-                                showSetAsDialog = true
+                                val activity = context as? android.app.Activity
+                                if (activity != null) {
+                                    com.HrshD1eux.Gallery.core.util.WallpaperUtil.openSystemWallpaperCropper(activity, item.uri)
+                                }
+                            }
+                        )
+
+                        DropdownMenuItem(
+                            text = { Text("Set as Album Cover 🖼️") },
+                            leadingIcon = { Icon(Icons.Default.Album, contentDescription = null) },
+                            onClick = {
+                                showMoreMenu = false
+                                viewModel.setCustomAlbumCover(item.bucketId, item.id)
+                                com.HrshD1eux.Gallery.core.util.HapticUtil.performSuccess(context)
+                                android.widget.Toast.makeText(context, "Set as album cover!", android.widget.Toast.LENGTH_SHORT).show()
                             }
                         )
 
                         if (item is com.HrshD1eux.Gallery.data.model.MediaItem.Video) {
+                            DropdownMenuItem(
+                                text = { Text("Extract Audio (.m4a) 🎵") },
+                                leadingIcon = { Icon(Icons.Default.Audiotrack, contentDescription = null) },
+                                onClick = {
+                                    showMoreMenu = false
+                                    scope.launch {
+                                        android.widget.Toast.makeText(context, "Extracting audio...", android.widget.Toast.LENGTH_SHORT).show()
+                                        val name = java.io.File(item.path).nameWithoutExtension
+                                        val audioUri = com.HrshD1eux.Gallery.core.util.AudioExtractor.extractAudioFromVideo(context, item.uri, name)
+                                        if (audioUri != null) {
+                                            com.HrshD1eux.Gallery.core.util.HapticUtil.performSuccess(context)
+                                            android.widget.Toast.makeText(context, "Audio saved to Music/Gallery_Audio", android.widget.Toast.LENGTH_LONG).show()
+                                        } else {
+                                            com.HrshD1eux.Gallery.core.util.HapticUtil.performError(context)
+                                            android.widget.Toast.makeText(context, "Could not extract audio", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }
+                            )
+
                             DropdownMenuItem(
                                 text = { Text("Trim Video / Make GIF 🎬") },
                                 leadingIcon = { Icon(Icons.Default.ContentCut, contentDescription = null) },

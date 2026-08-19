@@ -65,8 +65,7 @@ fun TimelineScreen(
     val context = LocalContext.current
     val selectionState = viewModel.selectionState
 
-    // 2. Pinch-to-zoom: continuous cell width
-    var targetColumnWidth by remember { mutableFloatStateOf(120f) }
+    var zoomAccumulator by remember { mutableFloatStateOf(1f) }
 
     val gridState = rememberLazyStaggeredGridState()
 
@@ -107,21 +106,49 @@ fun TimelineScreen(
         Modifier
     }
 
+    val pinchGestureModifier = if (!selectionState.inSelectionMode) {
+        Modifier.pointerInput(Unit) {
+            awaitPointerEventScope {
+                while (true) {
+                    val event = awaitPointerEvent()
+                    val activePointers = event.changes.filter { it.pressed }
+
+                    if (activePointers.size >= 2) {
+                        val zoom = event.calculateZoom()
+                        if (kotlin.math.abs(zoom - 1f) > 0.001f) {
+                            event.changes.forEach { it.consume() }
+                            zoomAccumulator *= zoom
+
+                            // Spreading fingers (zooming in -> larger photos -> fewer columns)
+                            if (zoomAccumulator > 1.25f) {
+                                if (viewModel.gridColumnCount > 1) {
+                                    viewModel.increaseZoom()
+                                    com.HrshD1eux.Gallery.core.util.HapticUtil.performSelection(context)
+                                }
+                                zoomAccumulator = 1f
+                            }
+                            // Pinching together (zooming out -> smaller photos -> more columns)
+                            else if (zoomAccumulator < 0.80f) {
+                                if (viewModel.gridColumnCount < 6) {
+                                    viewModel.decreaseZoom()
+                                    com.HrshD1eux.Gallery.core.util.HapticUtil.performSelection(context)
+                                }
+                                zoomAccumulator = 1f
+                            }
+                        }
+                    } else {
+                        zoomAccumulator = 1f
+                    }
+                }
+            }
+        }
+    } else Modifier
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .clipToBounds()
-            .then(
-                if (!selectionState.inSelectionMode) {
-                    Modifier.pointerInput(Unit) {
-                        detectTransformGestures(panZoomLock = true) { _, _, zoom: Float, _ ->
-                            if (kotlin.math.abs(zoom - 1f) > 0.02f) {
-                                targetColumnWidth = (targetColumnWidth / zoom).coerceIn(80f, 300f)
-                            }
-                        }
-                    }
-                } else Modifier
-            )
+            .then(pinchGestureModifier)
     ) {
         if (lazyPagingItems.itemCount == 0) {
             Box(
@@ -137,7 +164,7 @@ fun TimelineScreen(
         } else {
             Box(modifier = Modifier.fillMaxSize()) {
                 LazyVerticalStaggeredGrid(
-                    columns = StaggeredGridCells.Adaptive(minSize = targetColumnWidth.dp),
+                    columns = StaggeredGridCells.Fixed(viewModel.gridColumnCount),
                     state = gridState,
                     contentPadding = PaddingValues(
                         start = 2.dp,

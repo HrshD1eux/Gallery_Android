@@ -26,6 +26,21 @@ private val DarkColorScheme = darkColorScheme(
     error = Color(0xFFEF4444)
 )
 
+private val AmoledDarkColorScheme = darkColorScheme(
+    primary = Color(0xFF818CF8),
+    onPrimary = Color.Black,
+    primaryContainer = Color(0xFF312E81),
+    secondary = Color(0xFF22D3EE),
+    onSecondary = Color.Black,
+    background = Color.Black,
+    onBackground = Color.White,
+    surface = Color.Black,
+    onSurface = Color.White,
+    surfaceVariant = Color(0xFF121212),
+    onSurfaceVariant = Color(0xFFE2E8F0),
+    error = Color(0xFFEF4444)
+)
+
 private val LightColorScheme = lightColorScheme(
     primary = Color(0xFF4F46E5),
     onPrimary = Color.White,
@@ -43,16 +58,25 @@ private val LightColorScheme = lightColorScheme(
 
 @Composable
 fun GalleryTheme(
+    appTheme: String = "system",
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = true,
     content: @Composable () -> Unit
 ) {
+    val isSystemDark = isSystemInDarkTheme()
+    val isDark = when (appTheme) {
+        "dark", "amoled" -> true
+        "light" -> false
+        else -> isSystemDark
+    }
+
     val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+        appTheme == "amoled" -> AmoledDarkColorScheme
+        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && appTheme == "system" -> {
             val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+            if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
-        darkTheme -> DarkColorScheme
+        isDark -> DarkColorScheme
         else -> LightColorScheme
     }
 

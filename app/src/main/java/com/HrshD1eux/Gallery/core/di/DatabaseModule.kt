@@ -31,13 +31,7 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): GalleryDatabase {
-        return Room.databaseBuilder(
-            context,
-            GalleryDatabase::class.java,
-            "private_gallery.db"
-        )
-        .addMigrations(MIGRATION_2_3)
-        .build()
+        return GalleryDatabase.getInstance(context)
     }
 
     @Provides

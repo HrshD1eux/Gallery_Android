@@ -216,6 +216,73 @@ class MainViewModel @Inject constructor(
     )
     val excludedBucketIds: StateFlow<Set<String>> = _excludedBucketIds.asStateFlow()
 
+    enum class AlbumSortOrder {
+        NAME_ASC,
+        COUNT_DESC,
+        RECENT
+    }
+
+    enum class AlbumLayoutMode {
+        LIST,
+        GRID_2, // Large
+        GRID_3, // Medium
+        GRID_4  // Small
+    }
+
+    private val _albumSortOrder = MutableStateFlow(
+        try {
+            AlbumSortOrder.valueOf(prefs.getString("album_sort_order", AlbumSortOrder.NAME_ASC.name) ?: AlbumSortOrder.NAME_ASC.name)
+        } catch (_: Exception) {
+            AlbumSortOrder.NAME_ASC
+        }
+    )
+    val albumSortOrder: StateFlow<AlbumSortOrder> = _albumSortOrder.asStateFlow()
+
+    fun setAlbumSortOrder(order: AlbumSortOrder) {
+        _albumSortOrder.value = order
+        prefs.edit().putString("album_sort_order", order.name).apply()
+    }
+
+    private val _albumLayoutMode = MutableStateFlow(
+        try {
+            AlbumLayoutMode.valueOf(prefs.getString("album_layout_mode", AlbumLayoutMode.GRID_2.name) ?: AlbumLayoutMode.GRID_2.name)
+        } catch (_: Exception) {
+            AlbumLayoutMode.GRID_2
+        }
+    )
+    val albumLayoutMode: StateFlow<AlbumLayoutMode> = _albumLayoutMode.asStateFlow()
+
+    fun setAlbumLayoutMode(mode: AlbumLayoutMode) {
+        _albumLayoutMode.value = mode
+        prefs.edit().putString("album_layout_mode", mode.name).apply()
+    }
+
+    private val _customAlbumCovers = MutableStateFlow<Map<Long, Long>>(loadCustomAlbumCovers())
+    val customAlbumCovers: StateFlow<Map<Long, Long>> = _customAlbumCovers.asStateFlow()
+
+    private fun loadCustomAlbumCovers(): Map<Long, Long> {
+        val map = mutableMapOf<Long, Long>()
+        val allPrefs = prefs.all
+        for ((k, v) in allPrefs) {
+            if (k.startsWith("custom_cover_")) {
+                val bucketId = k.removePrefix("custom_cover_").toLongOrNull()
+                val mediaId = (v as? Long) ?: (v as? String)?.toLongOrNull()
+                if (bucketId != null && mediaId != null) {
+                    map[bucketId] = mediaId
+                }
+            }
+        }
+        return map
+    }
+
+    fun setCustomAlbumCover(bucketId: Long, mediaId: Long) {
+        val newMap = _customAlbumCovers.value.toMutableMap()
+        newMap[bucketId] = mediaId
+        _customAlbumCovers.value = newMap
+        prefs.edit().putLong("custom_cover_$bucketId", mediaId).apply()
+        refreshAll()
+    }
+
     private val _pinnedBucketIds = MutableStateFlow<Set<String>>(
         (prefs.getStringSet("pinned_buckets", null)
             ?: application.getSharedPreferences("album_prefs", Context.MODE_PRIVATE).getStringSet("pinned_buckets", emptySet())
@@ -224,9 +291,14 @@ class MainViewModel @Inject constructor(
     val pinnedBucketIds: StateFlow<Set<String>> = _pinnedBucketIds.asStateFlow()
 
     val visibleBuckets: StateFlow<List<BucketInfo>> = combine(
-        _buckets, _excludedBucketIds
-    ) { list, excluded ->
-        list.filter { !excluded.contains(it.id.toString()) }
+        _buckets, _excludedBucketIds, _albumSortOrder
+    ) { list, excluded, sortOrder ->
+        val filtered = list.filter { !excluded.contains(it.id.toString()) }
+        when (sortOrder) {
+            AlbumSortOrder.NAME_ASC -> filtered.sortedBy { it.name.lowercase() }
+            AlbumSortOrder.COUNT_DESC -> filtered.sortedByDescending { it.count }
+            AlbumSortOrder.RECENT -> filtered
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun excludeBucket(bucketId: Long) {
@@ -265,29 +337,48 @@ class MainViewModel @Inject constructor(
     val hidden: StateFlow<List<MediaItem>> = _hidden.asStateFlow()
 
     data class StorageStats(
+        val photosCount: Int = 0,
+        val videosCount: Int = 0,
+        val vaultCount: Int = 0,
+        val trashCount: Int = 0,
         val photosBytes: Long = 0L,
         val videosBytes: Long = 0L,
         val vaultBytes: Long = 0L,
         val trashBytes: Long = 0L
-    )
+    ) {
+        val totalBytes: Long get() = photosBytes + videosBytes + vaultBytes + trashBytes
+        val formattedTotal: String get() = com.HrshD1eux.Gallery.core.util.FormatUtils.formatFileSize(totalBytes)
+        val formattedPhotos: String get() = com.HrshD1eux.Gallery.core.util.FormatUtils.formatFileSize(photosBytes)
+        val formattedVideos: String get() = com.HrshD1eux.Gallery.core.util.FormatUtils.formatFileSize(videosBytes)
+        val formattedVault: String get() = com.HrshD1eux.Gallery.core.util.FormatUtils.formatFileSize(vaultBytes)
+        val formattedTrash: String get() = com.HrshD1eux.Gallery.core.util.FormatUtils.formatFileSize(trashBytes)
+    }
 
     val storageBreakdown: StateFlow<StorageStats> = combine(
         mediaItems, hidden, trashed, _excludedBucketIds
     ) { raw, vault, trash, excluded ->
         var photosBytes = 0L
         var videosBytes = 0L
+        var photosCount = 0
+        var videosCount = 0
         for (item in raw) {
             if (!excluded.contains(item.bucketId.toString())) {
                 if (item.isVideo) {
                     videosBytes += item.size
+                    videosCount++
                 } else {
                     photosBytes += item.size
+                    photosCount++
                 }
             }
         }
         val vaultBytes = vault.sumOf { it.size }
         val trashBytes = trash.sumOf { it.size }
         StorageStats(
+            photosCount = photosCount,
+            videosCount = videosCount,
+            vaultCount = vault.size,
+            trashCount = trash.size,
             photosBytes = photosBytes,
             videosBytes = videosBytes,
             vaultBytes = vaultBytes,
@@ -391,6 +482,35 @@ class MainViewModel @Inject constructor(
 
     fun toggleGridStyle() {
         gridStyle = if (gridStyle == GridStyle.NATURAL) GridStyle.SQUARE else GridStyle.NATURAL
+    }
+
+    private var _gridColumnCountState = mutableStateOf(
+        prefs.getInt("grid_column_count", 3).coerceIn(1, 6)
+    )
+    var gridColumnCount: Int
+        get() = _gridColumnCountState.value
+        set(value) {
+            val clamped = value.coerceIn(1, 6)
+            if (_gridColumnCountState.value != clamped) {
+                _gridColumnCountState.value = clamped
+                prefs.edit().putInt("grid_column_count", clamped).apply()
+            }
+        }
+
+    fun setGridColumns(columns: Int) {
+        gridColumnCount = columns
+    }
+
+    fun increaseZoom() {
+        if (gridColumnCount > 1) {
+            gridColumnCount--
+        }
+    }
+
+    fun decreaseZoom() {
+        if (gridColumnCount < 6) {
+            gridColumnCount++
+        }
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -847,6 +967,31 @@ class MainViewModel @Inject constructor(
                 }
             }
             refreshAll()
+        }
+    }
+
+    fun toggleFavoriteSelectedMedia(selectedIds: Set<Long>) {
+        if (selectedIds.isEmpty()) return
+        viewModelScope.launch {
+            repository.toggleFavoriteBatch(selectedIds)
+            selectionState.clear()
+            refreshAll()
+        }
+    }
+
+    fun batchRenameSelectedMedia(
+        context: Context,
+        renames: List<Pair<MediaItem, String>>
+    ) {
+        if (renames.isEmpty()) return
+        viewModelScope.launch {
+            val count = repository.batchRenameMedia(context, renames)
+            selectionState.clear()
+            refreshAll()
+            if (count > 0) {
+                com.HrshD1eux.Gallery.core.util.HapticUtil.performSuccess(context)
+                android.widget.Toast.makeText(context, "Renamed $count items", android.widget.Toast.LENGTH_SHORT).show()
+            }
         }
     }
 

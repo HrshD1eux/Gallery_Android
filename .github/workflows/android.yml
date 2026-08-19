@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: recursive
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -67,34 +67,40 @@ jobs:
               with open('keystore.properties', 'w') as f:
                   f.write(f'''storeFile=gallery-release.jks\nstorePassword={os.environ.get('RELEASE_KEYSTORE_PASSWORD')}\nkeyAlias={os.environ.get('RELEASE_KEY_ALIAS')}\nkeyPassword={os.environ.get('RELEASE_KEY_PASSWORD')}\n''')
               print('Keystore decoded and keystore.properties configured.')
+          else:
+              print('No RELEASE_KEYSTORE_BASE64 secret provided.')
           "
 
       - name: Run Tests
         run: ./gradlew testDebugUnitTest
 
-      - name: Build Release APK
+      - name: Build APK
         id: build_apk
         run: |
           if [ -f "keystore.properties" ]; then
             echo "Building signed Release APK..."
             ./gradlew assembleRelease
             APK_PATH=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
-            echo "APK_PATH=${APK_PATH}" >> $GITHUB_ENV
-            echo "IS_RELEASE=true" >> $GITHUB_ENV
           else
-            echo "No keystore secrets found, falling back to assembleDebug..."
+            echo "No keystore secrets found, building Debug APK..."
             ./gradlew assembleDebug
             APK_PATH=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
-            echo "APK_PATH=${APK_PATH}" >> $GITHUB_ENV
-            echo "IS_RELEASE=false" >> $GITHUB_ENV
           fi
+          
+          if [ -z "$APK_PATH" ] || [ ! -f "$APK_PATH" ]; then
+            # Fallback search for any built APK
+            APK_PATH=$(find app/build/outputs/apk -name "*.apk" | head -n 1)
+          fi
+          
+          echo "Found APK at: ${APK_PATH}"
+          echo "APK_PATH=${APK_PATH}" >> $GITHUB_ENV
 
       - name: Rename APK for Distribution
         run: |
           DIST_NAME="Gallery-v${VERSION_NAME}.apk"
           cp "$APK_PATH" "$DIST_NAME"
           echo "DIST_APK=${DIST_NAME}" >> $GITHUB_ENV
-          echo "Prepared $DIST_NAME for upload."
+          echo "Prepared $DIST_NAME for distribution."
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
@@ -104,7 +110,7 @@ jobs:
           if-no-files-found: error
 
       - name: Create Git Tag & GitHub Release
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && env.IS_RELEASE == 'true'
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION_NAME }}
@@ -128,10 +134,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Auto-Bump Version for Next Build
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && env.IS_RELEASE == 'true'
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
           
           python3 -c "
           import re
@@ -139,20 +148,20 @@ jobs:
               content = f.read()
           
           # Increment versionCode
-          code_match = re.search(r'versionCode = (\d+)', content)
+          code_match = re.search(r'versionCode\s*=\s*(\d+)', content)
           if code_match:
               old_code = int(code_match.group(1))
               new_code = old_code + 1
-              content = re.sub(r'versionCode = \d+', f'versionCode = {new_code}', content)
+              content = re.sub(r'versionCode\s*=\s*\d+', f'versionCode = {new_code}', content)
           
           # Increment patch in versionName (e.g. 1.1.3 -> 1.1.4)
-          name_match = re.search(r'versionName = \"(\d+\.\d+\.)(\d+)\"', content)
+          name_match = re.search(r'versionName\s*=\s*\"(\d+\.\d+\.)(\d+)\"', content)
           if name_match:
               prefix = name_match.group(1)
               patch = int(name_match.group(2)) + 1
               new_name = f'{prefix}{patch}'
-              content = re.sub(r'versionName = \"[^\"]+\"', f'versionName = \"{new_name}\"', content)
-              print(f'Bumped version to {new_name} (Code: {new_code})')
+              content = re.sub(r'versionName\s*=\s*\"[^\"]+\"', f'versionName = \"{new_name}\"', content)
+              print(f'Successfully bumped version to {new_name} (versionCode: {new_code})')
           
           with open('app/build.gradle.kts', 'w') as f:
               f.write(content)

@@ -11,7 +11,8 @@ import android.graphics.RectF
 object PhotoEditorUtils {
 
     /**
-     * Applies rotation, flip, crop, and brightness adjustments to a source bitmap in a single operation.
+     * Applies rotation, flip, crop, and color adjustments (brightness, contrast, saturation, warmth, presets)
+     * to a source bitmap in a single hardware-accelerated pass.
      */
     fun transformBitmap(
         source: Bitmap,
@@ -19,7 +20,11 @@ object PhotoEditorUtils {
         flipHorizontal: Boolean = false,
         flipVertical: Boolean = false,
         cropRect: RectF? = null,
-        brightnessOffset: Float = 0f // Range: -100 to 100
+        brightnessOffset: Float = 0f, // Range: -100 to 100
+        contrast: Float = 1.0f,       // Range: 0.5 to 2.0
+        saturation: Float = 1.0f,     // Range: 0.0 to 2.0
+        warmth: Float = 0f,           // Range: -50 to 50
+        preset: String = "none"       // "none", "bw", "sepia", "sunset", "cool", "vivid"
     ): Bitmap {
         val matrix = Matrix()
 
@@ -66,21 +71,14 @@ object PhotoEditorUtils {
             }
         }
 
-        // 4. Brightness adjustment
-        if (brightnessOffset != 0f) {
+        // 4. Color Adjustments (Brightness, Contrast, Saturation, Warmth, Presets)
+        val hasColorAdjustment = brightnessOffset != 0f || contrast != 1.0f || saturation != 1.0f || warmth != 0f || preset != "none"
+        if (hasColorAdjustment) {
             val result = Bitmap.createBitmap(intermediate.width, intermediate.height, intermediate.config ?: Bitmap.Config.ARGB_8888)
             val canvas = Canvas(result)
             val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
-            // Brightness color matrix
-            val colorMatrix = ColorMatrix(
-                floatArrayOf(
-                    1f, 0f, 0f, 0f, brightnessOffset,
-                    0f, 1f, 0f, 0f, brightnessOffset,
-                    0f, 0f, 1f, 0f, brightnessOffset,
-                    0f, 0f, 0f, 1f, 0f
-                )
-            )
+            val colorMatrix = buildColorMatrix(brightnessOffset, contrast, saturation, warmth, preset)
             paint.colorFilter = ColorMatrixColorFilter(colorMatrix)
             canvas.drawBitmap(intermediate, 0f, 0f, paint)
 
@@ -88,6 +86,100 @@ object PhotoEditorUtils {
         }
 
         return intermediate
+    }
+
+    fun buildColorMatrix(
+        brightness: Float,
+        contrast: Float,
+        saturation: Float,
+        warmth: Float,
+        preset: String
+    ): ColorMatrix {
+        val finalMatrix = ColorMatrix()
+
+        // 1. Preset filter baseline
+        when (preset) {
+            "bw" -> {
+                val bw = ColorMatrix()
+                bw.setSaturation(0f)
+                finalMatrix.postConcat(bw)
+            }
+            "sepia" -> {
+                val sepia = ColorMatrix(
+                    floatArrayOf(
+                        0.393f, 0.769f, 0.189f, 0f, 0f,
+                        0.349f, 0.686f, 0.168f, 0f, 0f,
+                        0.272f, 0.534f, 0.131f, 0f, 0f,
+                        0f,     0f,     0f,     1f, 0f
+                    )
+                )
+                finalMatrix.postConcat(sepia)
+            }
+            "sunset" -> {
+                val sunset = ColorMatrix(
+                    floatArrayOf(
+                        1.15f, 0f, 0f, 0f, 15f,
+                        0f, 1.0f, 0f, 0f, 5f,
+                        0f, 0f, 0.85f, 0f, -10f,
+                        0f, 0f, 0f, 1f, 0f
+                    )
+                )
+                finalMatrix.postConcat(sunset)
+            }
+            "cool" -> {
+                val cool = ColorMatrix(
+                    floatArrayOf(
+                        0.9f, 0f, 0f, 0f, -10f,
+                        0f, 0.95f, 0f, 0f, 0f,
+                        0f, 0f, 1.15f, 0f, 20f,
+                        0f, 0f, 0f, 1f, 0f
+                    )
+                )
+                finalMatrix.postConcat(cool)
+            }
+            "vivid" -> {
+                val vivid = ColorMatrix()
+                vivid.setSaturation(1.4f)
+                finalMatrix.postConcat(vivid)
+            }
+        }
+
+        // 2. Saturation
+        if (saturation != 1.0f && preset != "bw") {
+            val satMatrix = ColorMatrix()
+            satMatrix.setSaturation(saturation)
+            finalMatrix.postConcat(satMatrix)
+        }
+
+        // 3. Contrast & Brightness
+        if (contrast != 1.0f || brightness != 0f) {
+            val c = contrast
+            val t = (-0.5f * c + 0.5f) * 255f + brightness
+            val cbMatrix = ColorMatrix(
+                floatArrayOf(
+                    c, 0f, 0f, 0f, t,
+                    0f, c, 0f, 0f, t,
+                    0f, 0f, c, 0f, t,
+                    0f, 0f, 0f, 1f, 0f
+                )
+            )
+            finalMatrix.postConcat(cbMatrix)
+        }
+
+        // 4. Warmth (Color Temperature)
+        if (warmth != 0f) {
+            val warmMatrix = ColorMatrix(
+                floatArrayOf(
+                    1f, 0f, 0f, 0f, warmth,
+                    0f, 1f, 0f, 0f, warmth * 0.2f,
+                    0f, 0f, 1f, 0f, -warmth,
+                    0f, 0f, 0f, 1f, 0f
+                )
+            )
+            finalMatrix.postConcat(warmMatrix)
+        }
+
+        return finalMatrix
     }
 
     /**

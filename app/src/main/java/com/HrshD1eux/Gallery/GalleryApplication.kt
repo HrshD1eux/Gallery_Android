@@ -14,6 +14,27 @@ import dagger.hilt.android.HiltAndroidApp
 @HiltAndroidApp
 class GalleryApplication : Application(), ImageLoaderFactory {
 
+    override fun onCreate() {
+        super.onCreate()
+        scheduleTrashAutoPurge()
+    }
+
+    private fun scheduleTrashAutoPurge() {
+        try {
+            val purgeRequest = androidx.work.PeriodicWorkRequestBuilder<com.HrshD1eux.Gallery.core.worker.TrashAutoPurgeWorker>(
+                1, java.util.concurrent.TimeUnit.DAYS
+            ).build()
+
+            androidx.work.WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+                "TrashAutoPurgeWork",
+                androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+                purgeRequest
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     override fun newImageLoader(): ImageLoader {
         return ImageLoader.Builder(this)
             .components {

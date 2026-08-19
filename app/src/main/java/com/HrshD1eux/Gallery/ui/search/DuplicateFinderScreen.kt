@@ -39,6 +39,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,6 +67,8 @@ fun DuplicateFinderScreen(
     val visibleMedia by viewModel.visibleMediaItems.collectAsState()
 
     var isScanning by remember { mutableStateOf(true) }
+    var scanCount by remember { mutableIntStateOf(0) }
+    var scanTotal by remember { mutableIntStateOf(0) }
     var groups by remember { mutableStateOf<List<DuplicateGroup>>(emptyList()) }
     val selectedToDelete = remember { mutableStateListOf<Long>() }
 
@@ -75,7 +78,11 @@ fun DuplicateFinderScreen(
         isScanning = true
         val allPhotos = viewModel.getAllPhotosForDuplicateScan()
         val photosToScan = if (allPhotos.isNotEmpty()) allPhotos else visibleMedia.filterIsInstance<MediaItem.Photo>()
-        val result = DuplicateFinder.findDuplicates(context, photosToScan)
+        scanTotal = photosToScan.size
+        val result = DuplicateFinder.findDuplicates(context, photosToScan) { current, total ->
+            scanCount = current
+            scanTotal = total
+        }
         groups = result
         // Auto-select all duplicates except the best item in each group
         selectedToDelete.clear()
@@ -128,12 +135,24 @@ fun DuplicateFinderScreen(
         ) {
             if (isScanning) {
                 Column(
-                    modifier = Modifier.align(Alignment.Center),
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(32.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    CircularProgressIndicator()
+                    if (scanTotal > 0) {
+                        androidx.compose.material3.LinearProgressIndicator(
+                            progress = { (scanCount.toFloat() / scanTotal.toFloat()).coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth().height(6.dp)
+                        )
+                    } else {
+                        CircularProgressIndicator()
+                    }
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("Scanning photos for duplicates...")
+                    Text(
+                        text = if (scanTotal > 0) "Scanning $scanCount / $scanTotal items..." else "Analyzing library for duplicates...",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
                 }
             } else if (groups.isEmpty()) {
                 Column(

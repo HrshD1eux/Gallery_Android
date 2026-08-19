@@ -5,13 +5,12 @@ import android.graphics.RectF
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,14 +18,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.RotateRight
-import androidx.compose.material.icons.filled.Brightness6
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.Flip
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Rotate90DegreesCcw
 import androidx.compose.material.icons.filled.Rotate90DegreesCw
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -44,12 +49,12 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.HrshD1eux.Gallery.core.util.PhotoEditorUtils
@@ -64,7 +69,7 @@ enum class EditorTab {
     ROTATE,
     FLIP,
     CROP,
-    BRIGHTNESS
+    TUNING
 }
 
 @Composable
@@ -85,7 +90,14 @@ fun PhotoEditorScreen(
     var rotationDegrees by remember { mutableFloatStateOf(0f) }
     var flipHorizontal by remember { mutableStateOf(false) }
     var flipVertical by remember { mutableStateOf(false) }
+    
+    // Tuning & Filters
     var brightnessOffset by remember { mutableFloatStateOf(0f) }
+    var contrast by remember { mutableFloatStateOf(1.0f) }
+    var saturation by remember { mutableFloatStateOf(1.0f) }
+    var warmth by remember { mutableFloatStateOf(0f) }
+    var selectedPreset by remember { mutableStateOf("none") }
+    var activeTuneSubTab by remember { mutableStateOf("presets") } // "presets", "brightness", "contrast", "saturation", "warmth"
     
     // Crop ratio preset: null = Freeform, 1.0f = 1:1, 1.333f = 4:3, 1.777f = 16:9
     var cropAspectRatio by remember { mutableStateOf<Float?>(null) }
@@ -95,6 +107,7 @@ fun PhotoEditorScreen(
     var freeCropTop by remember { mutableFloatStateOf(0f) }
     var freeCropRight by remember { mutableFloatStateOf(0f) }
     var freeCropBottom by remember { mutableFloatStateOf(0f) }
+    var isCropApplied by remember { mutableStateOf(false) }
 
     val displayMetrics = context.resources.displayMetrics
     val reqWidth = displayMetrics.widthPixels.coerceAtLeast(1080)
@@ -113,7 +126,11 @@ fun PhotoEditorScreen(
     }
 
     // Recompute transformed preview bitmap whenever adjustments change
-    LaunchedEffect(sourceBitmap, rotationDegrees, flipHorizontal, flipVertical, cropAspectRatio, freeCropLeft, freeCropTop, freeCropRight, freeCropBottom, brightnessOffset) {
+    LaunchedEffect(
+        sourceBitmap, rotationDegrees, flipHorizontal, flipVertical,
+        cropAspectRatio, freeCropLeft, freeCropTop, freeCropRight, freeCropBottom,
+        brightnessOffset, contrast, saturation, warmth, selectedPreset
+    ) {
         val src = sourceBitmap ?: return@LaunchedEffect
         withContext(Dispatchers.Default) {
             // Uncropped base transformed bitmap (for live crop overlay editing)
@@ -123,7 +140,11 @@ fun PhotoEditorScreen(
                 flipHorizontal = flipHorizontal,
                 flipVertical = flipVertical,
                 cropRect = null,
-                brightnessOffset = brightnessOffset
+                brightnessOffset = brightnessOffset,
+                contrast = contrast,
+                saturation = saturation,
+                warmth = warmth,
+                preset = selectedPreset
             )
             uncroppedPreviewBitmap = baseBmp
 
@@ -159,7 +180,11 @@ fun PhotoEditorScreen(
                     flipHorizontal = flipHorizontal,
                     flipVertical = flipVertical,
                     cropRect = cropRect,
-                    brightnessOffset = brightnessOffset
+                    brightnessOffset = brightnessOffset,
+                    contrast = contrast,
+                    saturation = saturation,
+                    warmth = warmth,
+                    preset = selectedPreset
                 )
             } else {
                 baseBmp
@@ -238,7 +263,11 @@ fun PhotoEditorScreen(
                                         flipHorizontal = flipHorizontal,
                                         flipVertical = flipVertical,
                                         cropRect = fullResCropRect,
-                                        brightnessOffset = brightnessOffset
+                                        brightnessOffset = brightnessOffset,
+                                        contrast = contrast,
+                                        saturation = saturation,
+                                        warmth = warmth,
+                                        preset = selectedPreset
                                     )
 
                                     viewModel.saveEditedPhoto(context, mediaItem, finalFullResBitmap)
@@ -264,11 +293,11 @@ fun PhotoEditorScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = 64.dp, bottom = 180.dp),
+                .padding(top = 64.dp, bottom = 200.dp),
             contentAlignment = Alignment.Center
         ) {
-            // When in Crop tab, display uncropped preview so adjusting pointers doesn't shrink the canvas
-            val previewBitmap = if (selectedTab == EditorTab.CROP) {
+            // When in Crop tab and not applied, display uncropped preview for pointer manipulation
+            val previewBitmap = if (selectedTab == EditorTab.CROP && !isCropApplied) {
                 uncroppedPreviewBitmap ?: sourceBitmap
             } else {
                 transformedBitmap ?: uncroppedPreviewBitmap ?: sourceBitmap
@@ -291,7 +320,7 @@ fun PhotoEditorScreen(
                             modifier = Modifier.fillMaxSize()
                         )
 
-                        if (selectedTab == EditorTab.CROP) {
+                        if (selectedTab == EditorTab.CROP && !isCropApplied) {
                             CropGridOverlay(
                                 left = freeCropLeft,
                                 top = freeCropTop,
@@ -318,7 +347,7 @@ fun PhotoEditorScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.BottomCenter)
-                .background(Color.Black.copy(alpha = 0.9f))
+                .background(Color.Black.copy(alpha = 0.95f))
         ) {
             // Contextual Control Panel for active tab
             Box(
@@ -364,48 +393,207 @@ fun PhotoEditorScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
+                            // Apply / Reset Action Row
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                TextButton(
+                                    onClick = {
+                                        freeCropLeft = 0f
+                                        freeCropTop = 0f
+                                        freeCropRight = 0f
+                                        freeCropBottom = 0f
+                                        cropAspectRatio = null
+                                        isCropApplied = false
+                                    }
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Reset", color = Color.White)
+                                }
+
+                                Button(
+                                    onClick = {
+                                        isCropApplied = true
+                                        com.HrshD1eux.Gallery.core.util.HapticUtil.performSuccess(context)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                                ) {
+                                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Apply Crop")
+                                }
+                            }
+
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 FilterChip(
                                     selected = cropAspectRatio == null,
-                                    onClick = { cropAspectRatio = null },
-                                    label = { Text("Free Crop") }
+                                    onClick = {
+                                        cropAspectRatio = null
+                                        isCropApplied = false
+                                    },
+                                    label = { Text("Freeform") }
                                 )
                                 FilterChip(
                                     selected = cropAspectRatio == 1.0f,
-                                    onClick = { cropAspectRatio = 1.0f },
+                                    onClick = {
+                                        cropAspectRatio = 1.0f
+                                        isCropApplied = true
+                                    },
                                     label = { Text("1:1") }
                                 )
                                 FilterChip(
                                     selected = cropAspectRatio == 1.3333f,
-                                    onClick = { cropAspectRatio = 1.3333f },
+                                    onClick = {
+                                        cropAspectRatio = 1.3333f
+                                        isCropApplied = true
+                                    },
                                     label = { Text("4:3") }
                                 )
                                 FilterChip(
                                     selected = cropAspectRatio == 1.7777f,
-                                    onClick = { cropAspectRatio = 1.7777f },
+                                    onClick = {
+                                        cropAspectRatio = 1.7777f
+                                        isCropApplied = true
+                                    },
                                     label = { Text("16:9") }
                                 )
                             }
-
                         }
                     }
-                    EditorTab.BRIGHTNESS -> {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Text(text = "Brightness", color = Color.White, style = MaterialTheme.typography.bodySmall)
-                            Slider(
-                                value = brightnessOffset,
-                                onValueChange = { brightnessOffset = it },
-                                valueRange = -100f..100f,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Text(text = "${brightnessOffset.toInt()}", color = Color.White, style = MaterialTheme.typography.bodySmall)
+                    EditorTab.TUNING -> {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            // Sub-tabs / Filters switcher
+                            LazyRow(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                item {
+                                    FilterChip(
+                                        selected = activeTuneSubTab == "presets",
+                                        onClick = { activeTuneSubTab = "presets" },
+                                        label = { Text("🎨 Presets") }
+                                    )
+                                }
+                                item {
+                                    FilterChip(
+                                        selected = activeTuneSubTab == "brightness",
+                                        onClick = { activeTuneSubTab = "brightness" },
+                                        label = { Text("☀️ Brightness") }
+                                    )
+                                }
+                                item {
+                                    FilterChip(
+                                        selected = activeTuneSubTab == "contrast",
+                                        onClick = { activeTuneSubTab = "contrast" },
+                                        label = { Text("🌓 Contrast") }
+                                    )
+                                }
+                                item {
+                                    FilterChip(
+                                        selected = activeTuneSubTab == "saturation",
+                                        onClick = { activeTuneSubTab = "saturation" },
+                                        label = { Text("🌈 Saturation") }
+                                    )
+                                }
+                                item {
+                                    FilterChip(
+                                        selected = activeTuneSubTab == "warmth",
+                                        onClick = { activeTuneSubTab = "warmth" },
+                                        label = { Text("🔥 Warmth") }
+                                    )
+                                }
+                            }
+
+                            when (activeTuneSubTab) {
+                                "presets" -> {
+                                    LazyRow(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        val presets = listOf(
+                                            "none" to "Original",
+                                            "bw" to "B&W",
+                                            "sunset" to "Sunset",
+                                            "cool" to "Cool",
+                                            "sepia" to "Sepia",
+                                            "vivid" to "Vivid"
+                                        )
+                                        items(presets) { (key, label) ->
+                                            FilterChip(
+                                                selected = selectedPreset == key,
+                                                onClick = { selectedPreset = key },
+                                                label = { Text(label) }
+                                            )
+                                        }
+                                    }
+                                }
+                                "brightness" -> {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Slider(
+                                            value = brightnessOffset,
+                                            onValueChange = { brightnessOffset = it },
+                                            valueRange = -100f..100f,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(text = "${brightnessOffset.toInt()}", color = Color.White, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                                "contrast" -> {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Slider(
+                                            value = contrast,
+                                            onValueChange = { contrast = it },
+                                            valueRange = 0.5f..2.0f,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(text = String.format("%.1fx", contrast), color = Color.White, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                                "saturation" -> {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Slider(
+                                            value = saturation,
+                                            onValueChange = { saturation = it },
+                                            valueRange = 0.0f..2.0f,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(text = String.format("%.1fx", saturation), color = Color.White, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                                "warmth" -> {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Slider(
+                                            value = warmth,
+                                            onValueChange = { warmth = it },
+                                            valueRange = -50f..50f,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(text = "${warmth.toInt()}", color = Color.White, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -430,15 +618,18 @@ fun PhotoEditorScreen(
                 )
                 NavigationBarItem(
                     selected = selectedTab == EditorTab.CROP,
-                    onClick = { selectedTab = EditorTab.CROP },
+                    onClick = {
+                        selectedTab = EditorTab.CROP
+                        isCropApplied = false
+                    },
                     icon = { Icon(Icons.Default.Crop, contentDescription = "Crop") },
                     label = { Text("Crop") }
                 )
                 NavigationBarItem(
-                    selected = selectedTab == EditorTab.BRIGHTNESS,
-                    onClick = { selectedTab = EditorTab.BRIGHTNESS },
-                    icon = { Icon(Icons.Default.Brightness6, contentDescription = "Brightness") },
-                    label = { Text("Brightness") }
+                    selected = selectedTab == EditorTab.TUNING,
+                    onClick = { selectedTab = EditorTab.TUNING },
+                    icon = { Icon(Icons.Default.Tune, contentDescription = "Tune") },
+                    label = { Text("Tuning") }
                 )
             }
         }
@@ -451,171 +642,109 @@ fun CropGridOverlay(
     top: Float,
     right: Float,
     bottom: Float,
-    onCropChange: (left: Float, top: Float, right: Float, bottom: Float) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onCropChange: (left: Float, top: Float, right: Float, bottom: Float) -> Unit
 ) {
-    val currentLeft by rememberUpdatedState(left)
-    val currentTop by rememberUpdatedState(top)
-    val currentRight by rememberUpdatedState(right)
-    val currentBottom by rememberUpdatedState(bottom)
-    val currentOnCropChange by rememberUpdatedState(onCropChange)
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .pointerInput(left, top, right, bottom) {
+                detectDragGestures { change, dragAmount ->
+                    change.consume()
+                    val width = size.width.toFloat()
+                    val height = size.height.toFloat()
+                    if (width <= 0f || height <= 0f) return@detectDragGestures
 
-    var activeHandle by remember { mutableStateOf<Int?>(null) } // 0: TL, 1: TR, 2: BL, 3: BR, 4: Left, 5: Top, 6: Right, 7: Bottom, 8: Body
+                    val touchX = change.position.x / width
+                    val touchY = change.position.y / height
 
-    val dragModifier = modifier.pointerInput(Unit) {
-        detectDragGestures(
-            onDragStart = { offset ->
-                val w = size.width.toFloat()
-                val h = size.height.toFloat()
-                val cropL = currentLeft * w
-                val cropT = currentTop * h
-                val cropR = (1f - currentRight) * w
-                val cropB = (1f - currentBottom) * h
+                    val currentLeft = left
+                    val currentTop = top
+                    val currentRight = 1f - right
+                    val currentBottom = 1f - bottom
 
-                val touchRadius = 100f
-                val distTL = kotlin.math.hypot(offset.x - cropL, offset.y - cropT)
-                val distTR = kotlin.math.hypot(offset.x - cropR, offset.y - cropT)
-                val distBL = kotlin.math.hypot(offset.x - cropL, offset.y - cropB)
-                val distBR = kotlin.math.hypot(offset.x - cropR, offset.y - cropB)
+                    val distLeft = abs(touchX - currentLeft)
+                    val distRight = abs(touchX - currentRight)
+                    val distTop = abs(touchY - currentTop)
+                    val distBottom = abs(touchY - currentBottom)
 
-                activeHandle = when {
-                    distTL <= touchRadius -> 0
-                    distTR <= touchRadius -> 1
-                    distBL <= touchRadius -> 2
-                    distBR <= touchRadius -> 3
-                    abs(offset.x - cropL) <= touchRadius && offset.y in cropT..cropB -> 4
-                    abs(offset.y - cropT) <= touchRadius && offset.x in cropL..cropR -> 5
-                    abs(offset.x - cropR) <= touchRadius && offset.y in cropT..cropB -> 6
-                    abs(offset.y - cropB) <= touchRadius && offset.x in cropL..cropR -> 7
-                    offset.x in cropL..cropR && offset.y in cropT..cropB -> 8
-                    else -> null
-                }
-            },
-            onDragEnd = { activeHandle = null },
-            onDragCancel = { activeHandle = null },
-            onDrag = { change, dragAmount ->
-                change.consume()
-                val w = size.width.toFloat()
-                val h = size.height.toFloat()
-                if (w <= 0 || h <= 0 || activeHandle == null) return@detectDragGestures
+                    val isHorizontalHandle = distLeft < distTop && distLeft < distBottom || distRight < distTop && distRight < distBottom
 
-                var nLeft = currentLeft
-                var nTop = currentTop
-                var nRight = currentRight
-                var nBottom = currentBottom
-
-                val deltaX = dragAmount.x / w
-                val deltaY = dragAmount.y / h
-                val minSize = 0.08f
-
-                when (activeHandle) {
-                    0 -> { // TopLeft
-                        nLeft = (currentLeft + deltaX).coerceIn(0f, 1f - currentRight - minSize)
-                        nTop = (currentTop + deltaY).coerceIn(0f, 1f - currentBottom - minSize)
-                    }
-                    1 -> { // TopRight
-                        nRight = (currentRight - deltaX).coerceIn(0f, 1f - currentLeft - minSize)
-                        nTop = (currentTop + deltaY).coerceIn(0f, 1f - currentBottom - minSize)
-                    }
-                    2 -> { // BottomLeft
-                        nLeft = (currentLeft + deltaX).coerceIn(0f, 1f - currentRight - minSize)
-                        nBottom = (currentBottom - deltaY).coerceIn(0f, 1f - currentTop - minSize)
-                    }
-                    3 -> { // BottomRight
-                        nRight = (currentRight - deltaX).coerceIn(0f, 1f - currentLeft - minSize)
-                        nBottom = (currentBottom - deltaY).coerceIn(0f, 1f - currentTop - minSize)
-                    }
-                    4 -> { // Left
-                        nLeft = (currentLeft + deltaX).coerceIn(0f, 1f - currentRight - minSize)
-                    }
-                    5 -> { // Top
-                        nTop = (currentTop + deltaY).coerceIn(0f, 1f - currentBottom - minSize)
-                    }
-                    6 -> { // Right
-                        nRight = (currentRight - deltaX).coerceIn(0f, 1f - currentLeft - minSize)
-                    }
-                    7 -> { // Bottom
-                        nBottom = (currentBottom - deltaY).coerceIn(0f, 1f - currentTop - minSize)
-                    }
-                    8 -> { // Move whole box
-                        val boxW = 1f - currentLeft - currentRight
-                        val boxH = 1f - currentTop - currentBottom
-                        val newL = (currentLeft + deltaX).coerceIn(0f, 1f - boxW)
-                        val newT = (currentTop + deltaY).coerceIn(0f, 1f - boxH)
-                        nLeft = newL
-                        nRight = (1f - newL - boxW).coerceAtLeast(0f)
-                        nTop = newT
-                        nBottom = (1f - newT - boxH).coerceAtLeast(0f)
+                    if (isHorizontalHandle) {
+                        if (distLeft < distRight) {
+                            val newLeft = (currentLeft + dragAmount.x / width).coerceIn(0f, currentRight - 0.1f)
+                            onCropChange(newLeft, top, right, bottom)
+                        } else {
+                            val newRight = (1f - (currentRight + dragAmount.x / width)).coerceIn(0f, 1f - currentLeft - 0.1f)
+                            onCropChange(left, top, newRight, bottom)
+                        }
+                    } else {
+                        if (distTop < distBottom) {
+                            val newTop = (currentTop + dragAmount.y / height).coerceIn(0f, currentBottom - 0.1f)
+                            onCropChange(left, newTop, right, bottom)
+                        } else {
+                            val newBottom = (1f - (currentBottom + dragAmount.y / height)).coerceIn(0f, 1f - currentTop - 0.1f)
+                            onCropChange(left, top, right, newBottom)
+                        }
                     }
                 }
-                currentOnCropChange(nLeft, nTop, nRight, nBottom)
             }
-        )
-    }
-
-    androidx.compose.foundation.Canvas(modifier = dragModifier) {
-        val w = size.width
-        val h = size.height
-
-        val cropL = left * w
-        val cropT = top * h
-        val cropR = (1f - right) * w
-        val cropB = (1f - bottom) * h
-
-        val cropW = (cropR - cropL).coerceAtLeast(10f)
-        val cropH = (cropB - cropT).coerceAtLeast(10f)
-
-        // Semi-transparent dim background outside crop box
-        drawRect(color = Color.Black.copy(alpha = 0.55f), size = androidx.compose.ui.geometry.Size(w, cropT))
-        drawRect(color = Color.Black.copy(alpha = 0.55f), topLeft = androidx.compose.ui.geometry.Offset(0f, cropT), size = androidx.compose.ui.geometry.Size(cropL, cropH))
-        drawRect(color = Color.Black.copy(alpha = 0.55f), topLeft = androidx.compose.ui.geometry.Offset(cropR, cropT), size = androidx.compose.ui.geometry.Size(w - cropR, cropH))
-        drawRect(color = Color.Black.copy(alpha = 0.55f), topLeft = androidx.compose.ui.geometry.Offset(0f, cropB), size = androidx.compose.ui.geometry.Size(w, h - cropB))
-
-        // White border around crop box
-        drawRect(
-            color = Color.White,
-            topLeft = androidx.compose.ui.geometry.Offset(cropL, cropT),
-            size = androidx.compose.ui.geometry.Size(cropW, cropH),
-            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx())
-        )
-
-        // 3x3 Rule of thirds grid lines
-        val x1 = cropL + cropW / 3f
-        val x2 = cropL + 2f * cropW / 3f
-        val y1 = cropT + cropH / 3f
-        val y2 = cropT + 2f * cropH / 3f
-
-        drawLine(color = Color.White.copy(alpha = 0.5f), start = androidx.compose.ui.geometry.Offset(x1, cropT), end = androidx.compose.ui.geometry.Offset(x1, cropB), strokeWidth = 1.dp.toPx())
-        drawLine(color = Color.White.copy(alpha = 0.5f), start = androidx.compose.ui.geometry.Offset(x2, cropT), end = androidx.compose.ui.geometry.Offset(x2, cropB), strokeWidth = 1.dp.toPx())
-        drawLine(color = Color.White.copy(alpha = 0.5f), start = androidx.compose.ui.geometry.Offset(cropL, y1), end = androidx.compose.ui.geometry.Offset(cropR, y1), strokeWidth = 1.dp.toPx())
-        drawLine(color = Color.White.copy(alpha = 0.5f), start = androidx.compose.ui.geometry.Offset(cropL, y2), end = androidx.compose.ui.geometry.Offset(cropR, y2), strokeWidth = 1.dp.toPx())
-
-        // 4 Corner Pointer Brackets (Bold L-shapes)
-        val bracketLen = 22.dp.toPx()
-        val bracketStroke = 4.dp.toPx()
-        val bracketColor = Color.White
-
-        // Top-Left corner
-        drawLine(color = bracketColor, start = androidx.compose.ui.geometry.Offset(cropL - 2, cropT), end = androidx.compose.ui.geometry.Offset(cropL + bracketLen, cropT), strokeWidth = bracketStroke)
-        drawLine(color = bracketColor, start = androidx.compose.ui.geometry.Offset(cropL, cropT - 2), end = androidx.compose.ui.geometry.Offset(cropL, cropT + bracketLen), strokeWidth = bracketStroke)
-
-        // Top-Right corner
-        drawLine(color = bracketColor, start = androidx.compose.ui.geometry.Offset(cropR + 2, cropT), end = androidx.compose.ui.geometry.Offset(cropR - bracketLen, cropT), strokeWidth = bracketStroke)
-        drawLine(color = bracketColor, start = androidx.compose.ui.geometry.Offset(cropR, cropT - 2), end = androidx.compose.ui.geometry.Offset(cropR, cropT + bracketLen), strokeWidth = bracketStroke)
-
-        // Bottom-Left corner
-        drawLine(color = bracketColor, start = androidx.compose.ui.geometry.Offset(cropL - 2, cropB), end = androidx.compose.ui.geometry.Offset(cropL + bracketLen, cropB), strokeWidth = bracketStroke)
-        drawLine(color = bracketColor, start = androidx.compose.ui.geometry.Offset(cropL, cropB + 2), end = androidx.compose.ui.geometry.Offset(cropL, cropB - bracketLen), strokeWidth = bracketStroke)
-
-        // Bottom-Right corner
-        drawLine(color = bracketColor, start = androidx.compose.ui.geometry.Offset(cropR + 2, cropB), end = androidx.compose.ui.geometry.Offset(cropR - bracketLen, cropB), strokeWidth = bracketStroke)
-        drawLine(color = bracketColor, start = androidx.compose.ui.geometry.Offset(cropR, cropB + 2), end = androidx.compose.ui.geometry.Offset(cropR, cropB - bracketLen), strokeWidth = bracketStroke)
-
-        // Corner circular pointer indicators
-        val handleRadius = 7.dp.toPx()
-        drawCircle(color = Color.White, radius = handleRadius, center = androidx.compose.ui.geometry.Offset(cropL, cropT))
-        drawCircle(color = Color.White, radius = handleRadius, center = androidx.compose.ui.geometry.Offset(cropR, cropT))
-        drawCircle(color = Color.White, radius = handleRadius, center = androidx.compose.ui.geometry.Offset(cropL, cropB))
-        drawCircle(color = Color.White, radius = handleRadius, center = androidx.compose.ui.geometry.Offset(cropR, cropB))
+    ) {
+        // Semi-transparent dark overlay around the cropped window
+        Column(modifier = Modifier.fillMaxSize()) {
+            if (top > 0f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(top.coerceAtLeast(0.001f))
+                        .background(Color.Black.copy(alpha = 0.6f))
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight((1f - top - bottom).coerceAtLeast(0.001f))
+            ) {
+                if (left > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .weight(left.coerceAtLeast(0.001f))
+                            .background(Color.Black.copy(alpha = 0.6f))
+                    )
+                }
+                // Center clear cropped area with 3x3 grid lines
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .weight((1f - left - right).coerceAtLeast(0.001f))
+                        .background(Color.Transparent)
+                ) {
+                    // Outer border
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Transparent)
+                            .padding(1.dp)
+                    )
+                }
+                if (right > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .weight(right.coerceAtLeast(0.001f))
+                            .background(Color.Black.copy(alpha = 0.6f))
+                    )
+                }
+            }
+            if (bottom > 0f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(bottom.coerceAtLeast(0.001f))
+                        .background(Color.Black.copy(alpha = 0.6f))
+                )
+            }
+        }
     }
 }

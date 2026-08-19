@@ -18,6 +18,7 @@ interface MediaRepository {
     fun getBucketsFlow(): Flow<List<BucketInfo>>
     
     suspend fun toggleFavorite(mediaItem: MediaItem)
+    suspend fun toggleFavoriteBatch(mediaIds: Set<Long>)
     suspend fun toggleHidden(context: android.content.Context, mediaItem: MediaItem)
     suspend fun toggleTrashed(mediaItem: MediaItem)
     
@@ -32,6 +33,7 @@ interface MediaRepository {
     suspend fun scanSecondaryMediaDirectories(): Int
     suspend fun getDatePositionIndex(bucketId: Long? = null, sortOrder: com.HrshD1eux.Gallery.ui.SortOrder = com.HrshD1eux.Gallery.ui.SortOrder.NEWEST_FIRST, mediaType: MediaTypeFilter = MediaTypeFilter.ALL): List<DatePositionHeader>
     suspend fun renameMedia(context: android.content.Context, mediaItem: MediaItem, newDisplayName: String): Boolean
+    suspend fun batchRenameMedia(context: android.content.Context, itemsWithNewNames: List<Pair<MediaItem, String>>): Int
     suspend fun updateMediaDateTaken(context: android.content.Context, mediaItem: MediaItem, newDateMs: Long): Boolean
     suspend fun purgeExpiredTrashMedia(): Int
     suspend fun clearVaultCache(context: android.content.Context)

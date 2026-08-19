@@ -73,7 +73,7 @@ fun InfoBottomSheet(
 
     LaunchedEffect(item) {
         withContext(Dispatchers.IO) {
-            details = readExifDetails(item)
+            details = readExifDetails(context, item)
         }
     }
 
@@ -286,12 +286,27 @@ private fun formatDateTaken(rawExifDate: String?, timestampMs: Long): String {
     return outputFormatter.format(Date(safeMs))
 }
 
-private fun readExifDetails(item: MediaItem): ExifDetails {
+private fun readExifDetails(context: Context, item: MediaItem): ExifDetails {
     val file = File(item.path)
     val fileName = file.name.ifEmpty { item.uri.lastPathSegment ?: "Unknown" }
     val filePath = if (file.exists()) file.absolutePath else item.path
 
-    if (!file.exists()) {
+    var exif: ExifInterface? = null
+    if (file.exists() && file.canRead()) {
+        try {
+            exif = ExifInterface(file.absolutePath)
+        } catch (_: Exception) {}
+    }
+
+    if (exif == null) {
+        try {
+            context.contentResolver.openInputStream(item.uri)?.use { stream ->
+                exif = ExifInterface(stream)
+            }
+        } catch (_: Exception) {}
+    }
+
+    if (exif == null) {
         return ExifDetails(
             fileName = fileName,
             filePath = filePath,
@@ -305,17 +320,17 @@ private fun readExifDetails(item: MediaItem): ExifDetails {
     }
 
     return try {
-        val exif = ExifInterface(file.absolutePath)
-        val latLong = exif.latLong
+        val nonNullExif = exif!!
+        val latLong = nonNullExif.latLong
         val hasGps = latLong != null && latLong.size >= 2
         
-        val cameraModel = exif.getAttribute(ExifInterface.TAG_MODEL)
-        val cameraMake = exif.getAttribute(ExifInterface.TAG_MAKE)
+        val cameraModel = nonNullExif.getAttribute(ExifInterface.TAG_MODEL)
+        val cameraMake = nonNullExif.getAttribute(ExifInterface.TAG_MAKE)
         val modelText = if (cameraModel != null) "${cameraMake ?: ""} $cameraModel".trim() else null
 
         val resolutionText = "${item.width} × ${item.height}"
         val sizeText = com.HrshD1eux.Gallery.core.util.FormatUtils.formatFileSize(item.size)
-        val rawDate = exif.getAttribute(ExifInterface.TAG_DATETIME) ?: exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL)
+        val rawDate = nonNullExif.getAttribute(ExifInterface.TAG_DATETIME) ?: nonNullExif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL)
         val formattedDate = formatDateTaken(rawDate, item.dateTaken)
 
         ExifDetails(

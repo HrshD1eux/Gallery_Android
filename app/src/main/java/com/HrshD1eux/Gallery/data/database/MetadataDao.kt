@@ -50,4 +50,10 @@ interface MetadataDao {
 
     @Query("SELECT mediaId FROM media_metadata WHERE isTrashed = 1")
     fun getTrashedIdsFlow(): Flow<List<Long>>
+
+    @Query("SELECT * FROM media_metadata WHERE isTrashed = 1 AND trashTime > 0 AND trashTime < :cutoffTimestamp")
+    suspend fun getExpiredTrashItems(cutoffTimestamp: Long): List<MediaMetadataEntity>
+
+    @Query("DELETE FROM media_metadata WHERE mediaId = :mediaId")
+    suspend fun deleteByMediaId(mediaId: Long)
 }

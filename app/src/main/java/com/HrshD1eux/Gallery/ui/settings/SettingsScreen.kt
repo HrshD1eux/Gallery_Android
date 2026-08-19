@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Palette
@@ -34,6 +35,8 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -92,10 +95,92 @@ fun SettingsScreen(
                         onClick = { viewModel.appTheme = "dark" }
                     )
                     ThemeOptionRow(
+                        title = "AMOLED Dark (Pure Black)",
+                        selected = appTheme == "amoled",
+                        onClick = { viewModel.appTheme = "amoled" }
+                    )
+                    ThemeOptionRow(
                         title = "Light Theme",
                         selected = appTheme == "light",
                         onClick = { viewModel.appTheme = "light" }
                     )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+
+        // --- Grid & Display Size Section ---
+        item {
+            SettingsCategoryHeader(title = "Grid & Display Size", icon = Icons.Default.GridView)
+
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    val currentCols = viewModel.gridColumnCount
+                    val label = when (currentCols) {
+                        1 -> "1 Column (Extra Large)"
+                        2 -> "2 Columns (Large)"
+                        3 -> "3 Columns (Standard)"
+                        4 -> "4 Columns (Compact)"
+                        5 -> "5 Columns (Dense)"
+                        6 -> "6 Columns (Overview)"
+                        else -> "$currentCols Columns"
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Timeline Columns",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Surface(
+                            shape = MaterialTheme.shapes.small,
+                            color = MaterialTheme.colorScheme.primaryContainer
+                        ) {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Adjust the default size of photos in the timeline grid. You can also pinch-to-zoom on the timeline to resize at any time.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Slider(
+                        value = currentCols.toFloat(),
+                        onValueChange = { newValue ->
+                            val cols = newValue.toInt().coerceIn(1, 6)
+                            if (cols != currentCols) {
+                                viewModel.setGridColumns(cols)
+                                com.HrshD1eux.Gallery.core.util.HapticUtil.performSelection(context)
+                            }
+                        },
+                        valueRange = 1f..6f,
+                        steps = 4,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(text = "1 (Big)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(text = "3 (Normal)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(text = "6 (Dense)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
 

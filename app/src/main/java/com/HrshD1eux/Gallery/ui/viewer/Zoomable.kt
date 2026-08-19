@@ -33,6 +33,7 @@ class ZoomState(
     var scale by mutableStateOf(1f)
     var offsetX by mutableStateOf(0f)
     var offsetY by mutableStateOf(0f)
+    var dismissOffsetY by mutableStateOf(0f)
     var layoutSize by mutableStateOf(IntSize.Zero)
 
     fun updateGesture(zoom: Float, pan: Offset) {
@@ -51,6 +52,7 @@ class ZoomState(
             }
             offsetX = (offsetX + pan.x).coerceIn(-boundX, boundX)
             offsetY = (offsetY + pan.y).coerceIn(-boundY, boundY)
+            dismissOffsetY = 0f
         } else {
             offsetX = 0f
             offsetY = 0f
@@ -63,6 +65,7 @@ class ZoomState(
         } else {
             val targetScale = doubleTapScale.coerceIn(minScale, maxScale)
             scale = targetScale
+            dismissOffsetY = 0f
             if (layoutSize.width > 0 && layoutSize.height > 0) {
                 val centerX = layoutSize.width / 2f
                 val centerY = layoutSize.height / 2f
@@ -83,6 +86,7 @@ class ZoomState(
         scale = 1f
         offsetX = 0f
         offsetY = 0f
+        dismissOffsetY = 0f
     }
 
     fun canConsumePan(panX: Float): Boolean {
@@ -102,6 +106,7 @@ class ZoomState(
 fun Modifier.zoomable(
     state: ZoomState,
     onTap: () -> Unit = {},
+    onDismiss: (() -> Unit)? = null,
     onDoubleTap: (Offset) -> Unit = { state.handleDoubleTap(it) }
 ): Modifier = this
     .onSizeChanged { state.layoutSize = it }
@@ -116,16 +121,23 @@ fun Modifier.zoomable(
             while (true) {
                 val event = awaitPointerEvent()
                 val count = event.changes.size
-                
-                // If zoomed in (scale > 1.01f) or user is actively pinching (2+ fingers)
-                if (state.scale > 1.01f || count > 1) {
+                val pressedPointers = event.changes.filter { it.pressed }
+
+                if (pressedPointers.isEmpty()) {
+                    // All fingers lifted
+                    if (state.scale <= 1.05f && state.dismissOffsetY > 160f) {
+                        onDismiss?.invoke()
+                    }
+                    state.dismissOffsetY = 0f
+                } else if (state.scale > 1.01f || count > 1) {
+                    state.dismissOffsetY = 0f
                     val zoom = event.calculateZoom()
                     val pan = event.calculatePan()
-                    
+
                     val isPinching = count > 1 && kotlin.math.abs(zoom - 1f) > 0.001f
                     val isVerticalDominant = kotlin.math.abs(pan.y) > kotlin.math.abs(pan.x) * 1.2f
                     val canConsumeHorizontal = state.canConsumePan(pan.x)
-                    
+
                     val shouldConsume = isPinching || (state.scale > 1.01f && (canConsumeHorizontal || isVerticalDominant))
 
                     if (shouldConsume) {
@@ -135,15 +147,32 @@ fun Modifier.zoomable(
                             }
                         }
                     }
-                    
+
                     state.updateGesture(zoom, pan)
+                } else if (count == 1 && state.scale <= 1.05f) {
+                    // Single finger at 1.0x scale: check for swipe-down to dismiss
+                    val pan = event.calculatePan()
+                    if (pan.y > 0 || state.dismissOffsetY > 0) {
+                        val isVerticalDown = pan.y > 0 && kotlin.math.abs(pan.y) > kotlin.math.abs(pan.x) * 1.2f
+                        if (isVerticalDown || state.dismissOffsetY > 0) {
+                            state.dismissOffsetY = (state.dismissOffsetY + pan.y).coerceAtLeast(0f)
+                            event.changes.forEach { change ->
+                                if (change.positionChanged()) {
+                                    change.consume()
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
     }
-    .graphicsLayer(
-        scaleX = state.scale,
-        scaleY = state.scale,
-        translationX = state.offsetX,
-        translationY = state.offsetY
-    )
+    .graphicsLayer {
+        val dismissFraction = (state.dismissOffsetY / 1200f).coerceIn(0f, 0.4f)
+        val currentScale = state.scale * (1f - dismissFraction)
+        scaleX = currentScale
+        scaleY = currentScale
+        translationX = state.offsetX
+        translationY = state.offsetY + state.dismissOffsetY
+        alpha = (1f - (state.dismissOffsetY / 600f)).coerceIn(0.2f, 1f)
+    }
