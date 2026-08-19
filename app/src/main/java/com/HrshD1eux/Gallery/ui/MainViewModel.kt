@@ -594,7 +594,7 @@ class MainViewModel @Inject constructor(
             try {
                 val resolver = context.contentResolver
                 val contentValues = android.content.ContentValues().apply {
-                    put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, ".placeholder.jpg")
+                    put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, "album_cover.jpg")
                     put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
                     put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/$albumName")
                 }
@@ -614,6 +614,8 @@ class MainViewModel @Inject constructor(
                         output.write(dummyJpegBytes)
                     }
                 }
+                refreshTrigger.value++
+                loadNextPage()
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -720,6 +722,27 @@ class MainViewModel @Inject constructor(
                 } else {
                     e.printStackTrace()
                 }
+            }
+        }
+    }
+
+    fun emptyTrash(context: Context) {
+        viewModelScope.launch {
+            val trashedItems = trashed.value
+            if (trashedItems.isNotEmpty()) {
+                trashedItems.forEach { item ->
+                    repository.deleteMetadataPermanently(item.id)
+                }
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    val pendingIntent = android.provider.MediaStore.createDeleteRequest(
+                        context.contentResolver,
+                        trashedItems.map { it.uri }
+                    )
+                    val activity = context as? android.app.Activity
+                    activity?.startIntentSenderForResult(pendingIntent.intentSender, 1003, null, 0, 0, 0)
+                }
+                refreshTrigger.value++
+                loadNextPage()
             }
         }
     }
@@ -1010,7 +1033,7 @@ class MainViewModel @Inject constructor(
 }
 
 enum class Screen {
-    Photos, Albums, Search, Settings
+    Photos, Albums, Search, Settings, DuplicateFinder
 }
 
 enum class SortOrder {

@@ -4,6 +4,7 @@ import android.content.Context
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
@@ -26,6 +28,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.FloatingActionButton
@@ -68,6 +71,22 @@ fun AlbumsScreen(
 
     var showCreateAlbumDialog by remember { mutableStateOf(false) }
     var newAlbumName by remember { mutableStateOf("") }
+
+    val systemFolderNames = remember { setOf("Camera", "Screenshots", "Download", "WhatsApp Images", "WhatsApp Video", "Pictures", "Movies", "DCIM", "Instagram", "Snapchat", "Telegram") }
+    var activeOptionsBucket by remember { mutableStateOf<com.HrshD1eux.Gallery.data.media.BucketInfo?>(null) }
+    var showDeleteAlbumConfirm by remember { mutableStateOf(false) }
+
+    val albumPrefs = remember(context) { context.getSharedPreferences("album_prefs", Context.MODE_PRIVATE) }
+    var pinnedBucketIds by remember {
+        mutableStateOf(albumPrefs.getStringSet("pinned_buckets", emptySet()) ?: emptySet())
+    }
+
+    val pinnedBuckets = remember(buckets, pinnedBucketIds) {
+        buckets.filter { pinnedBucketIds.contains(it.id.toString()) }
+    }
+    val unpinnedBuckets = remember(buckets, pinnedBucketIds) {
+        buckets.filter { !pinnedBucketIds.contains(it.id.toString()) }
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
         LazyColumn(
@@ -196,10 +215,56 @@ fun AlbumsScreen(
             )
         }
 
+        // Smart Album: Find Duplicates
+        item {
+            AlbumRowItem(
+                icon = Icons.Default.CleaningServices,
+                title = "Find Duplicates 🧹",
+                count = 0,
+                subtitle = "Scan & clean duplicate photos",
+                onClick = {
+                    viewModel.currentScreen = com.HrshD1eux.Gallery.ui.Screen.DuplicateFinder
+                }
+            )
+        }
+
         item {
             Spacer(modifier = Modifier.height(24.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
             Spacer(modifier = Modifier.height(16.dp))
+        }
+
+
+
+        // Pinned Albums section
+        if (pinnedBuckets.isNotEmpty()) {
+            item {
+                Text(
+                    text = "Pinned Albums 📌",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+            }
+            items(pinnedBuckets) { bucket ->
+                AlbumRowItem(
+                    icon = Icons.Default.Folder,
+                    title = "${bucket.name} 📌",
+                    count = bucket.count,
+                    onClick = { viewModel.selectBucket(bucket.id, bucket.name) },
+                    onLongClick = {
+                        val newSet = pinnedBucketIds.toMutableSet().apply { remove(bucket.id.toString()) }
+                        albumPrefs.edit().putStringSet("pinned_buckets", newSet).apply()
+                        pinnedBucketIds = newSet
+                    }
+                )
+            }
+            item {
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+
+        item {
             Text(
                 text = "Device Folders",
                 style = MaterialTheme.typography.titleMedium,
@@ -207,6 +272,8 @@ fun AlbumsScreen(
                 modifier = Modifier.padding(bottom = 12.dp)
             )
         }
+
+
 
         if (buckets.isEmpty()) {
             item {
@@ -217,13 +284,106 @@ fun AlbumsScreen(
                 )
             }
         } else {
-            items(buckets) { bucket ->
+            items(unpinnedBuckets) { bucket ->
                 AlbumRowItem(
                     icon = Icons.Default.Folder,
                     title = bucket.name,
                     count = bucket.count,
                     onClick = {
                         viewModel.selectBucket(bucket.id, bucket.name)
+                    },
+                    onLongClick = {
+                        activeOptionsBucket = bucket
+                    }
+                )
+            }
+        }
+
+        if (activeOptionsBucket != null) {
+            val bucket = activeOptionsBucket!!
+            val isCustomAlbum = !systemFolderNames.contains(bucket.name)
+            val isPinned = pinnedBucketIds.contains(bucket.id.toString())
+
+            AlertDialog(
+                onDismissRequest = { activeOptionsBucket = null },
+                title = { Text(bucket.name) },
+                text = {
+                    Column {
+                        TextButton(
+                            onClick = {
+                                val newSet = pinnedBucketIds.toMutableSet().apply {
+                                    if (isPinned) remove(bucket.id.toString()) else add(bucket.id.toString())
+                                }
+                                albumPrefs.edit().putStringSet("pinned_buckets", newSet).apply()
+                                pinnedBucketIds = newSet
+                                activeOptionsBucket = null
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                Icon(Icons.Default.Folder, contentDescription = null)
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(if (isPinned) "Unpin Album 📌" else "Pin Album to Top 📌")
+                            }
+                        }
+
+                        if (isCustomAlbum) {
+                            TextButton(
+                                onClick = {
+                                    activeOptionsBucket = null
+                                    viewModel.selectBucket(bucket.id, bucket.name)
+                                    viewModel.shareSelectedMedia(context, stripMetadata = true)
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                    Icon(Icons.Default.Share, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text("Share Album 📤")
+                                }
+                            }
+
+                            TextButton(
+                                onClick = {
+                                    showDeleteAlbumConfirm = true
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                    Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text("Delete Custom Album 🗑️", color = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { activeOptionsBucket = null }) { Text("Close") }
+                }
+            )
+
+            if (showDeleteAlbumConfirm) {
+                AlertDialog(
+                    onDismissRequest = { showDeleteAlbumConfirm = false },
+                    icon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                    title = { Text("Delete Album '${bucket.name}'?") },
+                    text = { Text("All photos and videos inside '${bucket.name}' will be moved to Trash.") },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                showDeleteAlbumConfirm = false
+                                activeOptionsBucket = null
+                                viewModel.selectBucket(bucket.id, bucket.name)
+                                viewModel.deleteSelectedMedia(context)
+                            },
+                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Text("Delete Folder")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showDeleteAlbumConfirm = false }) { Text("Cancel") }
                     }
                 )
             }
@@ -300,17 +460,26 @@ fun AlbumsScreen(
 }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun AlbumRowItem(
     icon: ImageVector,
     title: String,
     count: Int,
-    onClick: () -> Unit
+    subtitle: String? = null,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .then(
+                if (onLongClick != null) {
+                    Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                } else {
+                    Modifier.clickable(onClick = onClick)
+                }
+            )
             .padding(vertical = 12.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -333,11 +502,20 @@ fun AlbumRowItem(
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurface
             )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
-        Text(
-            text = count.toString(),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        if (count > 0 || subtitle == null) {
+            Text(
+                text = if (subtitle != null && count == 0) "Scan" else count.toString(),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }

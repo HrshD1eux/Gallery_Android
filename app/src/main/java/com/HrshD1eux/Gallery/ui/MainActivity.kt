@@ -42,7 +42,9 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
@@ -300,7 +302,8 @@ fun MainScreenLayout(viewModel: MainViewModel) {
 
     Scaffold(
         topBar = {
-            TopAppBar(
+            if (currentScreen != Screen.DuplicateFinder && currentScreen != Screen.Search) {
+                TopAppBar(
                 title = {
                     Text(
                         text = if (viewModel.currentCategoryName != null && currentScreen == Screen.Photos) {
@@ -367,6 +370,43 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                         }
 
                         val categoryName by viewModel.currentCategoryNameFlow.collectAsState()
+                        if (categoryName == "Trash") {
+                            var showEmptyTrashConfirm by remember { mutableStateOf(false) }
+
+                            IconButton(onClick = { showEmptyTrashConfirm = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.DeleteForever,
+                                    contentDescription = "Empty Trash",
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                            }
+
+                            if (showEmptyTrashConfirm) {
+                                AlertDialog(
+                                    onDismissRequest = { showEmptyTrashConfirm = false },
+                                    icon = { Icon(Icons.Default.DeleteForever, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                                    title = { Text("Empty Trash?") },
+                                    text = { Text("All items in Trash will be permanently deleted from your device storage. This action cannot be undone.") },
+                                    confirmButton = {
+                                        Button(
+                                            onClick = {
+                                                showEmptyTrashConfirm = false
+                                                viewModel.emptyTrash(context)
+                                            },
+                                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                                        ) {
+                                            Text("Empty Trash")
+                                        }
+                                    },
+                                    dismissButton = {
+                                        TextButton(onClick = { showEmptyTrashConfirm = false }) {
+                                            Text("Cancel")
+                                        }
+                                    }
+                                )
+                            }
+                        }
+
                         if (categoryName == "Hidden Vault") {
                             var showVaultMenu by remember { mutableStateOf(false) }
                             var showVaultSecurityDialog by remember { mutableStateOf(false) }
@@ -404,7 +444,8 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                     containerColor = MaterialTheme.colorScheme.background
                 )
             )
-        },
+        }
+    },
         bottomBar = {
             AnimatedContent(
                 targetState = selectionState.inSelectionMode,
@@ -433,6 +474,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                             val trashedList by viewModel.trashed.collectAsState()
                             val selectedIds = selectionState.selectedIds
                             val isViewingTrash = categoryName == "Trash" || (selectedIds.isNotEmpty() && trashedList.any { selectedIds.contains(it.id) })
+                            val isViewingVault = categoryName == "Hidden Vault"
 
                             Row {
                                 if (isViewingTrash) {
@@ -443,13 +485,25 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                                         Icon(imageVector = Icons.Default.DeleteForever, contentDescription = "Delete Permanently", tint = MaterialTheme.colorScheme.error)
                                     }
                                 } else {
+                                    IconButton(onClick = {
+                                        val selectedIds = selectionState.selectedIds.toSet()
+                                        val itemsToPlay = viewModel.visibleMediaItems.value.filter { selectedIds.contains(it.id) }
+                                        if (itemsToPlay.isNotEmpty()) {
+                                            viewModel.activeMediaItem = itemsToPlay.first()
+                                        }
+                                    }) {
+                                        Icon(imageVector = Icons.Default.PlayArrow, contentDescription = "Slideshow")
+                                    }
                                     IconButton(onClick = { showSelectionShareDialog = true }) {
                                         Icon(imageVector = Icons.Default.Share, contentDescription = "Share")
                                     }
                                     IconButton(onClick = {
                                         viewModel.hideSelectedMedia(context)
                                     }) {
-                                        Icon(imageVector = Icons.Default.VisibilityOff, contentDescription = "Hide")
+                                        Icon(
+                                            imageVector = if (isViewingVault) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                            contentDescription = if (isViewingVault) "Restore to Gallery" else "Move to Vault"
+                                        )
                                     }
                                     IconButton(onClick = { showMoveToAlbumDialog = true }) {
                                         Icon(imageVector = Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = "Move to Album")
@@ -522,6 +576,17 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                 exit = fadeOut() + scaleOut(targetScale = 0.95f)
             ) {
                 SearchScreen(viewModel = viewModel)
+            }
+
+            AnimatedVisibility(
+                visible = currentScreen == Screen.DuplicateFinder,
+                enter = fadeIn() + scaleIn(initialScale = 0.95f),
+                exit = fadeOut() + scaleOut(targetScale = 0.95f)
+            ) {
+                com.HrshD1eux.Gallery.ui.search.DuplicateFinderScreen(
+                    viewModel = viewModel,
+                    onBackClick = { viewModel.currentScreen = Screen.Albums }
+                )
             }
 
             AnimatedVisibility(

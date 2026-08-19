@@ -8,7 +8,9 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.Orientation
@@ -34,6 +36,8 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.RestoreFromTrash
@@ -140,6 +144,29 @@ fun PhotoViewerScreen(
     var showRenameDialog by remember { mutableStateOf(false) }
     var renameInputText by remember { mutableStateOf("") }
     var showVaultConfirmDialog by remember { mutableStateOf(false) }
+
+    var isSlideshowActive by remember { mutableStateOf(false) }
+    var showCompressDialog by remember { mutableStateOf(false) }
+    var targetKbInput by remember { mutableStateOf("15") }
+
+    LaunchedEffect(isSlideshowActive) {
+        if (isSlideshowActive) {
+            showChrome = false
+        }
+    }
+
+    LaunchedEffect(isSlideshowActive, pagerState.currentPage) {
+        if (isSlideshowActive && mediaItems.isNotEmpty() && !pagerState.isScrollInProgress) {
+            kotlinx.coroutines.delay(3500L)
+            if (isSlideshowActive) {
+                val nextPage = (pagerState.currentPage + 1) % mediaItems.size
+                pagerState.animateScrollToPage(
+                    page = nextPage,
+                    animationSpec = androidx.compose.animation.core.tween(durationMillis = 800)
+                )
+            }
+        }
+    }
 
     val infoSheetState = rememberModalBottomSheetState()
     val zoomState = rememberZoomState()
@@ -310,6 +337,24 @@ fun PhotoViewerScreen(
                                     }
                                 }
                             )
+
+                            DropdownMenuItem(
+                                text = { Text("Start Slideshow 🎞️") },
+                                leadingIcon = { Icon(Icons.Default.PlayArrow, contentDescription = null) },
+                                onClick = {
+                                    showMoreMenu = false
+                                    isSlideshowActive = true
+                                }
+                            )
+
+                            DropdownMenuItem(
+                                text = { Text("Compress Image 📉") },
+                                leadingIcon = { Icon(Icons.Default.Compress, contentDescription = null) },
+                                onClick = {
+                                    showMoreMenu = false
+                                    showCompressDialog = true
+                                }
+                            )
                         }
                     }
                 }
@@ -396,10 +441,10 @@ fun PhotoViewerScreen(
             val item = mediaItems.getOrNull(pagerState.currentPage) ?: activeItem
             AlertDialog(
                 onDismissRequest = { showShareDialog = false },
-                title = { Text("Share Privacy Protection") },
+                title = { Text("Share Privately") },
                 text = {
                     Column {
-                        Text("Strips device manufacturer details, location markers, and metadata tags from files before sharing.")
+                        Text("Removes location markers, camera details, and personal info before sharing.")
                         Spacer(modifier = Modifier.height(16.dp))
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -410,7 +455,7 @@ fun PhotoViewerScreen(
                                 onCheckedChange = { stripMetadataOnShare = it }
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Remove GPS & metadata tags")
+                            Text("Remove location & camera info")
                         }
                     }
                 },
@@ -613,16 +658,16 @@ fun PhotoViewerScreen(
                         tint = MaterialTheme.colorScheme.primary
                     )
                 },
-                title = { Text("Move to Encrypted Vault?") },
+                title = { Text("Move to Hidden Vault?") },
                 text = {
                     Column {
                         Text(
-                            text = "This photo/video will be encrypted with hardware AES-256-GCM and stored safely in your private Vault.",
+                            text = "This item will be safely locked inside your private Vault.",
                             style = MaterialTheme.typography.bodyMedium
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = "⚠️ Notice: The original unencrypted file will be removed from public device storage so other apps cannot see it.",
+                            text = "Note: The original item will be removed from your main gallery so other apps can't access it.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -640,6 +685,74 @@ fun PhotoViewerScreen(
                 },
                 dismissButton = {
                     TextButton(onClick = { showVaultConfirmDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        if (isSlideshowActive) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 16.dp)
+                    .background(Color.Black.copy(alpha = 0.7f), CircleShape)
+                    .clickable { isSlideshowActive = false }
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                Text("Pause Slideshow ⏸️", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+
+        if (showCompressDialog) {
+            val item = mediaItems.getOrNull(pagerState.currentPage) ?: activeItem
+            val scope = androidx.compose.runtime.rememberCoroutineScope()
+
+            AlertDialog(
+                onDismissRequest = { showCompressDialog = false },
+                icon = { Icon(Icons.Default.Compress, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                title = { Text("Compress Image 📉") },
+                text = {
+                    Column {
+                        Text("Target Size (in KB):", style = MaterialTheme.typography.bodyMedium)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = targetKbInput,
+                            onValueChange = { targetKbInput = it.filter { c -> c.isDigit() } },
+                            label = { Text("Target KB (e.g. 15)") },
+                            singleLine = true,
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = { targetKbInput = "15" }) { Text("15 KB") }
+                            Button(onClick = { targetKbInput = "100" }) { Text("100 KB") }
+                            Button(onClick = { targetKbInput = "500" }) { Text("500 KB") }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val kb = targetKbInput.toIntOrNull() ?: 15
+                            showCompressDialog = false
+                            scope.launch {
+                                val resultUri = com.HrshD1eux.Gallery.core.util.ImageCompressor.compressToTargetKb(context, item, kb)
+                                if (resultUri != null) {
+                                    android.widget.Toast.makeText(context, "Saved compressed image (${kb} KB target)!", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    ) {
+                        Text("Compress & Save")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showCompressDialog = false }) {
                         Text("Cancel")
                     }
                 }

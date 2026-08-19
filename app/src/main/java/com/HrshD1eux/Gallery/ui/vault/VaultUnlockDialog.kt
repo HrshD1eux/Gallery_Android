@@ -13,10 +13,12 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -42,7 +44,19 @@ fun VaultUnlockDialog(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isPatternError by remember { mutableStateOf(false) }
 
+    var failedAttempts by remember { mutableStateOf(0) }
+    var lockoutRemainingSeconds by remember { mutableStateOf(0) }
+
+    LaunchedEffect(lockoutRemainingSeconds) {
+        if (lockoutRemainingSeconds > 0) {
+            kotlinx.coroutines.delay(1000L)
+            lockoutRemainingSeconds -= 1
+        }
+    }
+
     fun verifyInput(input: String) {
+        if (lockoutRemainingSeconds > 0) return
+
         var isValid = false
         if (storedPinHash != null && storedSaltBase64 != null) {
             val salt = android.util.Base64.decode(storedSaltBase64, android.util.Base64.NO_WRAP)
@@ -58,9 +72,17 @@ fun VaultUnlockDialog(
         }
 
         if (isValid) {
+            failedAttempts = 0
             onUnlockSuccess()
         } else {
-            errorMessage = "Incorrect code. Try again."
+            failedAttempts += 1
+            if (failedAttempts >= 3) {
+                lockoutRemainingSeconds = 30
+                failedAttempts = 0
+                errorMessage = "Too many failed attempts. Try again in 30s."
+            } else {
+                errorMessage = "Incorrect code. Attempt $failedAttempts of 3."
+            }
             isPatternError = true
             pinInput = ""
         }
@@ -79,7 +101,14 @@ fun VaultUnlockDialog(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                if (errorMessage != null) {
+                if (lockoutRemainingSeconds > 0) {
+                    Text(
+                        text = "Too many incorrect attempts.\nTry again in ${lockoutRemainingSeconds}s",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                } else if (errorMessage != null) {
                     Text(
                         text = errorMessage!!,
                         color = MaterialTheme.colorScheme.error,
@@ -90,22 +119,25 @@ fun VaultUnlockDialog(
 
                 if (lockType == "PATTERN") {
                     Text(
-                        text = "Draw your secret pattern to unlock",
+                        text = if (lockoutRemainingSeconds > 0) "Locked out temporarily" else "Draw your secret pattern to unlock",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(modifier = Modifier.height(12.dp))
-                    PatternLockView(
-                        onPatternComplete = { patternStr ->
-                            isPatternError = false
-                            verifyInput(patternStr)
-                        },
-                        isError = isPatternError,
-                        modifier = Modifier.height(260.dp)
-                    )
+                    if (lockoutRemainingSeconds == 0) {
+                        PatternLockView(
+                            onPatternComplete = { patternStr ->
+                                isPatternError = false
+                                verifyInput(patternStr)
+                            },
+                            isError = isPatternError,
+                            modifier = Modifier.height(260.dp)
+                        )
+                    }
                 } else {
                     OutlinedTextField(
                         value = pinInput,
+                        enabled = lockoutRemainingSeconds == 0,
                         onValueChange = {
                             pinInput = it
                             errorMessage = null
