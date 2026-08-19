@@ -75,9 +75,12 @@ enum class GridStyle {
 
 @HiltViewModel
 class MainViewModel @Inject constructor(
+    private val application: android.app.Application,
     private val repository: MediaRepository,
     private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
+
+    private val prefs = application.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
 
     val selectionState = SelectionState()
     var pendingActionItem: MediaItem? = null
@@ -128,11 +131,12 @@ class MainViewModel @Inject constructor(
         clearVaultCache(context)
     }
 
-    private var _appThemeState = mutableStateOf(savedStateHandle.get<String>("app_theme") ?: "system")
+    private var _appThemeState = mutableStateOf(prefs.getString("app_theme", "system") ?: "system")
     var appTheme: String
         get() = _appThemeState.value
         set(value) {
             _appThemeState.value = value
+            prefs.edit().putString("app_theme", value).apply()
             savedStateHandle["app_theme"] = value
         }
 
@@ -247,11 +251,16 @@ class MainViewModel @Inject constructor(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    private var _sortModeState = mutableStateOf(TimelineSortMode.DATE_GROUPED)
+    private var _sortModeState = mutableStateOf(
+        try {
+            TimelineSortMode.valueOf(prefs.getString("sort_mode", TimelineSortMode.DATE_GROUPED.name) ?: TimelineSortMode.DATE_GROUPED.name)
+        } catch (_: Exception) { TimelineSortMode.DATE_GROUPED }
+    )
     var sortMode: TimelineSortMode
         get() = _sortModeState.value
         set(value) {
             _sortModeState.value = value
+            prefs.edit().putString("sort_mode", value.name).apply()
         }
 
     fun toggleSortMode() {
@@ -262,11 +271,16 @@ class MainViewModel @Inject constructor(
         }
     }
 
-    private var _sortOrderState = mutableStateOf(SortOrder.NEWEST_FIRST)
+    private var _sortOrderState = mutableStateOf(
+        try {
+            SortOrder.valueOf(prefs.getString("sort_order", SortOrder.NEWEST_FIRST.name) ?: SortOrder.NEWEST_FIRST.name)
+        } catch (_: Exception) { SortOrder.NEWEST_FIRST }
+    )
     var sortOrder: SortOrder
         get() = _sortOrderState.value
         set(value) {
             _sortOrderState.value = value
+            prefs.edit().putString("sort_order", value.name).apply()
             refreshTrigger.value++
         }
 
@@ -274,11 +288,16 @@ class MainViewModel @Inject constructor(
         sortOrder = if (sortOrder == SortOrder.NEWEST_FIRST) SortOrder.OLDEST_FIRST else SortOrder.NEWEST_FIRST
     }
 
-    private var _gridStyleState = mutableStateOf(GridStyle.NATURAL)
+    private var _gridStyleState = mutableStateOf(
+        try {
+            GridStyle.valueOf(prefs.getString("grid_style", GridStyle.NATURAL.name) ?: GridStyle.NATURAL.name)
+        } catch (_: Exception) { GridStyle.NATURAL }
+    )
     var gridStyle: GridStyle
         get() = _gridStyleState.value
         set(value) {
             _gridStyleState.value = value
+            prefs.edit().putString("grid_style", value.name).apply()
         }
 
     fun toggleGridStyle() {
@@ -378,7 +397,7 @@ class MainViewModel @Inject constructor(
     private val PAGE_SIZE = 200
 
     init {
-        loadNextPage(reset = true)
+        loadNextPage()
         
         viewModelScope.launch {
             repository.getFavoriteMediaFlow().collect {
@@ -451,7 +470,7 @@ class MainViewModel @Inject constructor(
         }
     }
 
-    fun loadNextPage(reset: Boolean = false) {
+    fun loadNextPage() {
         viewModelScope.launch {
             val items = repository.loadMediaPaged(
                 limit = PAGE_SIZE,
@@ -467,7 +486,7 @@ class MainViewModel @Inject constructor(
         currentBucketId = bucketId
         currentBucketName = bucketName
         currentScreen = Screen.Photos
-        loadNextPage(reset = true)
+        loadNextPage()
     }
 
     fun clearVaultCache(context: Context) {
@@ -477,7 +496,7 @@ class MainViewModel @Inject constructor(
     }
 
     fun loadMediaStream() {
-        loadNextPage(reset = true)
+        loadNextPage()
     }
 
     fun loadBuckets() {
@@ -853,7 +872,7 @@ class MainViewModel @Inject constructor(
         }
     }
 
-    fun restoreSelectedMedia(context: Context) {
+    fun restoreSelectedMedia() {
         val selectedIds = selectionState.selectedIds.toSet()
         if (selectedIds.isEmpty()) return
         viewModelScope.launch {

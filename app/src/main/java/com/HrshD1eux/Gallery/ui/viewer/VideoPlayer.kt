@@ -110,12 +110,27 @@ fun VideoPlayerContainer(
     // Double-tap gesture feedback overlay state
     var doubleTapOverlayText by remember { mutableStateOf<String?>(null) }
 
-    DisposableEffect(uri) {
+    if (!isSelectedPage) {
+        coil.compose.AsyncImage(
+            model = coil.request.ImageRequest.Builder(context)
+                .data(uri)
+                .crossfade(true)
+                .error(android.R.drawable.ic_menu_report_image)
+                .fallback(android.R.drawable.ic_menu_report_image)
+                .build(),
+            contentDescription = null,
+            contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+            modifier = modifier
+        )
+        return
+    }
+
+    DisposableEffect(uri, isSelectedPage) {
         val player = ExoPlayer.Builder(context).build().apply {
             setMediaItem(Media3Item.fromUri(uri))
             repeatMode = Player.REPEAT_MODE_OFF
             prepare()
-            playWhenReady = isSelectedPage
+            playWhenReady = true
         }
 
         val listener = object : Player.Listener {
@@ -146,17 +161,6 @@ fun VideoPlayerContainer(
             player.clearMediaItems()
             player.release()
             exoPlayer = null
-        }
-    }
-
-    LaunchedEffect(isSelectedPage) {
-        exoPlayer?.let { player ->
-            if (isSelectedPage) {
-                player.playWhenReady = true
-            } else {
-                player.playWhenReady = false
-                player.pause()
-            }
         }
     }
 

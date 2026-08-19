@@ -27,19 +27,21 @@ class MainViewModelTest {
 
     private val testDispatcher = StandardTestDispatcher()
     private val mockRepository = mockk<MediaRepository>(relaxed = true)
+    private val mockApplication = mockk<android.app.Application>(relaxed = true)
     private lateinit var viewModel: MainViewModel
 
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
         
+        every { mockApplication.getSharedPreferences(any(), any()) } returns mockk(relaxed = true)
         every { mockRepository.getFavoriteMediaFlow() } returns flowOf(emptyList())
         every { mockRepository.getHiddenMediaFlow() } returns flowOf(emptyList())
         every { mockRepository.getTrashedMediaFlow() } returns flowOf(emptyList())
         every { mockRepository.observeMediaChanges() } returns kotlinx.coroutines.flow.emptyFlow()
         coEvery { mockRepository.loadMediaPaged(any(), any()) } returns emptyList()
         
-        viewModel = MainViewModel(mockRepository, SavedStateHandle())
+        viewModel = MainViewModel(mockApplication, mockRepository, SavedStateHandle())
         testDispatcher.scheduler.advanceUntilIdle()
     }
 

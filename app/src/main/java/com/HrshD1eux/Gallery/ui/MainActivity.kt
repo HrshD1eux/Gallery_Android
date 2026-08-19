@@ -399,7 +399,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
 
                             Row {
                                 if (isViewingTrash) {
-                                    IconButton(onClick = { viewModel.restoreSelectedMedia(context) }) {
+                                    IconButton(onClick = { viewModel.restoreSelectedMedia() }) {
                                         Icon(imageVector = Icons.Default.RestoreFromTrash, contentDescription = "Restore")
                                     }
                                     IconButton(onClick = { viewModel.deleteSelectedMediaPermanently(context) }) {

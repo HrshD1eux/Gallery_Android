@@ -46,7 +46,6 @@ class MediaRepositoryImpl @Inject constructor(
             val remaining = limit - resultList.size
             val rawMedia = mediaStoreDataSource.fetchMedia(limit = remaining, offset = currentOffset, bucketId = bucketId, isAscending = isAscending)
             if (rawMedia.isEmpty()) {
-                reachedEnd = true
                 break
             }
             val ids = rawMedia.map { it.id }

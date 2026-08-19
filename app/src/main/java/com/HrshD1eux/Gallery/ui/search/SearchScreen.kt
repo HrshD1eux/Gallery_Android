@@ -1,5 +1,6 @@
 package com.HrshD1eux.Gallery.ui.search
 
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -117,6 +118,56 @@ fun SearchScreen(
                         unfocusedBorderColor = MaterialTheme.colorScheme.surfaceVariant
                     )
                 )
+                var showSecretVaultUnlockDialog by remember { mutableStateOf(false) }
+                val context = LocalContext.current
+                val prefs = remember(context) { context.getSharedPreferences("vault_prefs", Context.MODE_PRIVATE) }
+                val secretTrigger = remember(prefs) { prefs.getString("vault_secret_trigger", "#vault") ?: "#vault" }
+
+                LaunchedEffect(searchQuery) {
+                    val query = searchQuery.trim()
+                    if (query.isNotEmpty() && query.equals(secretTrigger.trim(), ignoreCase = true)) {
+                        val activity = context as? android.app.Activity
+                        val isBiometricEnabled = prefs.getBoolean("vault_biometric_enabled", false)
+                        if (isBiometricEnabled && activity != null) {
+                            com.HrshD1eux.Gallery.core.util.BiometricAuthHelper.authenticate(
+                                activity = activity,
+                                title = "Unlock Hidden Vault",
+                                subtitle = "Stealth Passphrase Matched",
+                                onSuccess = {
+                                    viewModel.setSearchQuery("")
+                                    viewModel.unlockVault()
+                                    viewModel.currentBucketId = null
+                                    viewModel.currentBucketName = null
+                                    viewModel.currentCategoryName = "Hidden Vault"
+                                    viewModel.currentScreen = com.HrshD1eux.Gallery.ui.Screen.Photos
+                                },
+                                onError = { _ ->
+                                    showSecretVaultUnlockDialog = true
+                                }
+                            )
+                        } else {
+                            showSecretVaultUnlockDialog = true
+                        }
+                    }
+                }
+
+                if (showSecretVaultUnlockDialog) {
+                    com.HrshD1eux.Gallery.ui.vault.VaultUnlockDialog(
+                        onDismiss = {
+                            showSecretVaultUnlockDialog = false
+                            viewModel.setSearchQuery("")
+                        },
+                        onUnlockSuccess = {
+                            showSecretVaultUnlockDialog = false
+                            viewModel.setSearchQuery("")
+                            viewModel.unlockVault()
+                            viewModel.currentBucketId = null
+                            viewModel.currentBucketName = null
+                            viewModel.currentCategoryName = "Hidden Vault"
+                            viewModel.currentScreen = com.HrshD1eux.Gallery.ui.Screen.Photos
+                        }
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
