@@ -132,8 +132,27 @@ fun VaultUnlockDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel")
+            val isBiometricEnabled = prefs.getBoolean("vault_biometric_enabled", false)
+            val activity = context as? android.app.Activity
+            androidx.compose.foundation.layout.Row {
+                if (isBiometricEnabled && activity != null) {
+                    TextButton(
+                        onClick = {
+                            com.HrshD1eux.Gallery.core.util.BiometricAuthHelper.authenticate(
+                                activity = activity,
+                                title = "Unlock Hidden Vault",
+                                subtitle = "Authenticate biometric sensor",
+                                onSuccess = { onUnlockSuccess() },
+                                onError = { _ -> }
+                            )
+                        }
+                    ) {
+                        Text("Use Biometric")
+                    }
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("Cancel")
+                }
             }
         }
     )

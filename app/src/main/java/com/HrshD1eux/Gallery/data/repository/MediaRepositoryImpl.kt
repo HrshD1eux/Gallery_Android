@@ -309,20 +309,41 @@ class MediaRepositoryImpl @Inject constructor(
         }
     }
 
+    private fun getDecryptedCacheFile(context: Context, entity: MediaMetadataEntity): java.io.File? {
+        return try {
+            val vaultFile = java.io.File(entity.vaultPath)
+            if (!vaultFile.exists()) return null
+            val cacheDir = java.io.File(context.cacheDir, "vault_cache").apply { mkdirs() }
+            val ext = entity.mimeType.substringAfter("/").ifEmpty { "jpg" }
+            val cacheFile = java.io.File(cacheDir, "decrypted_${entity.mediaId}.$ext")
+            if (!cacheFile.exists() || cacheFile.length() == 0L) {
+                java.io.FileOutputStream(cacheFile).use { out ->
+                    vaultFile.inputStream().use { input ->
+                        com.HrshD1eux.Gallery.core.util.VaultCrypto.decrypt(input, out)
+                    }
+                }
+            }
+            cacheFile
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
     override fun getHiddenMediaFlow(isVaultUnlocked: Boolean): Flow<List<MediaItem>> {
         return metadataDao.getAllMetadataFlow()
             .onStart { if (isVaultUnlocked) syncVaultMetadata() }
             .map { metadataList ->
                 if (!isVaultUnlocked) return@map emptyList<MediaItem>()
-                metadataList.filter { it.isHidden && !it.isTrashed }.map { entity ->
-                    val vaultFile = java.io.File(entity.vaultPath)
-                    val uri = android.net.Uri.fromFile(vaultFile)
+                metadataList.filter { it.isHidden && !it.isTrashed }.mapNotNull { entity ->
+                    val cacheFile = getDecryptedCacheFile(context, entity) ?: return@mapNotNull null
+                    val uri = android.net.Uri.fromFile(cacheFile)
 
                     if (entity.mimeType.contains("video", ignoreCase = true)) {
                         MediaItem.Video(
                             id = entity.mediaId,
                             uri = uri,
-                            path = entity.vaultPath,
+                            path = cacheFile.absolutePath,
                             mimeType = entity.mimeType,
                             dateTaken = entity.dateTaken,
                             size = entity.size,
@@ -339,7 +360,7 @@ class MediaRepositoryImpl @Inject constructor(
                         MediaItem.Photo(
                             id = entity.mediaId,
                             uri = uri,
-                            path = entity.vaultPath,
+                            path = cacheFile.absolutePath,
                             mimeType = entity.mimeType,
                             dateTaken = entity.dateTaken,
                             size = entity.size,
@@ -354,6 +375,7 @@ class MediaRepositoryImpl @Inject constructor(
                     }
                 }
             }
+            .flowOn(Dispatchers.IO)
     }
 
     @OptIn(coil.annotation.ExperimentalCoilApi::class)
@@ -492,19 +514,23 @@ class MediaRepositoryImpl @Inject constructor(
                 e.printStackTrace()
             }
 
-            if (file.exists()) {
+            if (file.exists() && file.parentFile != null) {
                 val targetFile = java.io.File(file.parentFile, finalName)
-                if (!targetFile.exists()) {
-                    val renamed = file.renameTo(targetFile)
-                    if (renamed) {
-                        updated = true
-                        android.media.MediaScannerConnection.scanFile(
-                            context,
-                            arrayOf(targetFile.absolutePath),
-                            null,
-                            null
-                        )
-                    }
+                if (file.renameTo(targetFile)) {
+                    updated = true
+                    android.media.MediaScannerConnection.scanFile(
+                        context,
+                        arrayOf(file.absolutePath, targetFile.absolutePath),
+                        null,
+                        null
+                    )
+                } else {
+                    android.media.MediaScannerConnection.scanFile(
+                        context,
+                        arrayOf(file.absolutePath),
+                        null,
+                        null
+                    )
                 }
             }
 

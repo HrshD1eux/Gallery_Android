@@ -466,6 +466,7 @@ class MainViewModel @Inject constructor(
                     }
                 }
                 refreshTrigger.value++
+                loadNextPage()
             }
         }
     }

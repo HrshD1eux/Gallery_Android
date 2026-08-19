@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
-    <!-- Exposes only the subfolder 'shared_images' in cache directory for secure sharing -->
+    <!-- Exposes subfolders in cache directory for secure sharing & updates -->
     <cache-path name="shared_images" path="shared_images/" />
+    <cache-path name="updates" path="updates/" />
 </paths>

@@ -38,6 +38,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -360,6 +364,39 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                                 },
                                 contentDescription = "Toggle Sort Mode"
                             )
+                        }
+
+                        val categoryName by viewModel.currentCategoryNameFlow.collectAsState()
+                        if (categoryName == "Hidden Vault") {
+                            var showVaultMenu by remember { mutableStateOf(false) }
+                            var showVaultSecurityDialog by remember { mutableStateOf(false) }
+
+                            IconButton(onClick = { showVaultMenu = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "Vault Security Options"
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = showVaultMenu,
+                                onDismissRequest = { showVaultMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Vault Security Settings 🔒") },
+                                    leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                                    onClick = {
+                                        showVaultMenu = false
+                                        showVaultSecurityDialog = true
+                                    }
+                                )
+                            }
+
+                            if (showVaultSecurityDialog) {
+                                com.HrshD1eux.Gallery.ui.vault.VaultSecurityDialog(
+                                    onDismiss = { showVaultSecurityDialog = false }
+                                )
+                            }
                         }
                     }
                 },

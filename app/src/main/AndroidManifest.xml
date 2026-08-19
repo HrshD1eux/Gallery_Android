@@ -8,6 +8,10 @@
     <!-- Required for Android 14+ selected photos visual access selection -->
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
     
+    <!-- Required to check for app updates & download releases from GitHub -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    
     <!-- Required to access coordinates from image EXIF metadata on API 29+ -->
     <!-- Biometric Security Permission -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />

@@ -2,7 +2,9 @@ package com.HrshD1eux.Gallery.ui.timeline
 
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.runtime.remember
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,6 +31,18 @@ fun TimelineScrubber(
     val coroutineScope = rememberCoroutineScope()
 
     if (headers.isEmpty()) return
+
+    val displayHeaders = remember(headers) {
+        if (headers.size <= 6) {
+            headers
+        } else {
+            val step = (headers.size - 1) / 5f
+            (0..5).map { i ->
+                val index = (i * step).toInt().coerceIn(0, headers.lastIndex)
+                headers[index]
+            }.distinctBy { it.title }
+        }
+    }
 
     BoxWithConstraints(
         modifier = modifier
@@ -85,15 +99,16 @@ fun TimelineScrubber(
                         scrollToY(change.position.y)
                     }
                 },
-            horizontalAlignment = Alignment.CenterHorizontally
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
-            headers.forEach { header ->
+            displayHeaders.forEach { header ->
                 val title = header.title
                 val displayLabel = if (title == "Today") "TD" else if (title == "Yesterday") "YS" else title.take(3).uppercase()
                 Text(
                     text = displayLabel,
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                 )
             }
         }

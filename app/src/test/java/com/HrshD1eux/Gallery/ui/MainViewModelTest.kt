@@ -149,7 +149,7 @@ class MainViewModelTest {
         coEvery { mockRepository.loadMediaPaged(limit = 200, offset = 0, bucketId = null) } returns firstPageList
 
         // Init loads first page (returns 200 items)
-        viewModel.loadNextPage(reset = true)
+        viewModel.loadNextPage()
         testDispatcher.scheduler.advanceUntilIdle()
         assertEquals(200, viewModel.mediaItems.value.size)
         assertEquals(1L, viewModel.mediaItems.value[0].id)
