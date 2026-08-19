@@ -298,95 +298,95 @@ fun AlbumsScreen(
                 )
             }
         }
+    }
 
-        if (activeOptionsBucket != null) {
-            val bucket = activeOptionsBucket!!
-            val isCustomAlbum = !systemFolderNames.contains(bucket.name)
-            val isPinned = pinnedBucketIds.contains(bucket.id.toString())
+    if (activeOptionsBucket != null) {
+        val bucket = activeOptionsBucket!!
+        val isCustomAlbum = !systemFolderNames.contains(bucket.name)
+        val isPinned = pinnedBucketIds.contains(bucket.id.toString())
 
-            AlertDialog(
-                onDismissRequest = { activeOptionsBucket = null },
-                title = { Text(bucket.name) },
-                text = {
-                    Column {
+        AlertDialog(
+            onDismissRequest = { activeOptionsBucket = null },
+            title = { Text(bucket.name) },
+            text = {
+                Column {
+                    TextButton(
+                        onClick = {
+                            val newSet = pinnedBucketIds.toMutableSet().apply {
+                                if (isPinned) remove(bucket.id.toString()) else add(bucket.id.toString())
+                            }
+                            albumPrefs.edit().putStringSet("pinned_buckets", newSet).apply()
+                            pinnedBucketIds = newSet
+                            activeOptionsBucket = null
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Default.Folder, contentDescription = null)
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(if (isPinned) "Unpin Album 📌" else "Pin Album to Top 📌")
+                        }
+                    }
+
+                    if (isCustomAlbum) {
                         TextButton(
                             onClick = {
-                                val newSet = pinnedBucketIds.toMutableSet().apply {
-                                    if (isPinned) remove(bucket.id.toString()) else add(bucket.id.toString())
-                                }
-                                albumPrefs.edit().putStringSet("pinned_buckets", newSet).apply()
-                                pinnedBucketIds = newSet
                                 activeOptionsBucket = null
+                                viewModel.selectBucket(bucket.id, bucket.name)
+                                viewModel.shareSelectedMedia(context, stripMetadata = true)
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                                Icon(Icons.Default.Folder, contentDescription = null)
+                                Icon(Icons.Default.Share, contentDescription = null)
                                 Spacer(modifier = Modifier.width(12.dp))
-                                Text(if (isPinned) "Unpin Album 📌" else "Pin Album to Top 📌")
+                                Text("Share Album 📤")
                             }
                         }
 
-                        if (isCustomAlbum) {
-                            TextButton(
-                                onClick = {
-                                    activeOptionsBucket = null
-                                    viewModel.selectBucket(bucket.id, bucket.name)
-                                    viewModel.shareSelectedMedia(context, stripMetadata = true)
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                                    Icon(Icons.Default.Share, contentDescription = null)
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Text("Share Album 📤")
-                                }
-                            }
-
-                            TextButton(
-                                onClick = {
-                                    showDeleteAlbumConfirm = true
-                                },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                                    Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Text("Delete Custom Album 🗑️", color = MaterialTheme.colorScheme.error)
-                                }
+                        TextButton(
+                            onClick = {
+                                showDeleteAlbumConfirm = true
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text("Delete Custom Album 🗑️", color = MaterialTheme.colorScheme.error)
                             }
                         }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { activeOptionsBucket = null }) { Text("Close") }
+            }
+        )
+
+        if (showDeleteAlbumConfirm) {
+            AlertDialog(
+                onDismissRequest = { showDeleteAlbumConfirm = false },
+                icon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                title = { Text("Delete Album '${bucket.name}'?") },
+                text = { Text("All photos and videos inside '${bucket.name}' will be moved to Trash.") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showDeleteAlbumConfirm = false
+                            activeOptionsBucket = null
+                            viewModel.selectBucket(bucket.id, bucket.name)
+                            viewModel.deleteSelectedMedia(context)
+                        },
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Delete Folder")
                     }
                 },
-                confirmButton = {
-                    TextButton(onClick = { activeOptionsBucket = null }) { Text("Close") }
+                dismissButton = {
+                    TextButton(onClick = { showDeleteAlbumConfirm = false }) { Text("Cancel") }
                 }
             )
-
-            if (showDeleteAlbumConfirm) {
-                AlertDialog(
-                    onDismissRequest = { showDeleteAlbumConfirm = false },
-                    icon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
-                    title = { Text("Delete Album '${bucket.name}'?") },
-                    text = { Text("All photos and videos inside '${bucket.name}' will be moved to Trash.") },
-                    confirmButton = {
-                        Button(
-                            onClick = {
-                                showDeleteAlbumConfirm = false
-                                activeOptionsBucket = null
-                                viewModel.selectBucket(bucket.id, bucket.name)
-                                viewModel.deleteSelectedMedia(context)
-                            },
-                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                        ) {
-                            Text("Delete Folder")
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showDeleteAlbumConfirm = false }) { Text("Cancel") }
-                    }
-                )
-            }
         }
     }
 
@@ -445,19 +445,19 @@ fun AlbumsScreen(
         }
 
         if (showHiddenLockedDialog) {
-        com.HrshD1eux.Gallery.ui.vault.VaultUnlockDialog(
-            onDismiss = { showHiddenLockedDialog = false },
-            onUnlockSuccess = {
-                viewModel.unlockVault()
-                showHiddenLockedDialog = false
-                viewModel.currentBucketId = null
-                viewModel.currentBucketName = null
-                viewModel.currentCategoryName = "Hidden Vault"
-                viewModel.currentScreen = com.HrshD1eux.Gallery.ui.Screen.Photos
-            }
-        )
+            com.HrshD1eux.Gallery.ui.vault.VaultUnlockDialog(
+                onDismiss = { showHiddenLockedDialog = false },
+                onUnlockSuccess = {
+                    viewModel.unlockVault()
+                    showHiddenLockedDialog = false
+                    viewModel.currentBucketId = null
+                    viewModel.currentBucketName = null
+                    viewModel.currentCategoryName = "Hidden Vault"
+                    viewModel.currentScreen = com.HrshD1eux.Gallery.ui.Screen.Photos
+                }
+            )
+        }
     }
-}
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)

@@ -505,9 +505,11 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                                             contentDescription = if (isViewingVault) "Restore to Gallery" else "Move to Vault"
                                         )
                                     }
-                                    IconButton(onClick = { showMoveToAlbumDialog = true }) {
-                                        Icon(imageVector = Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = "Move to Album")
-                                    }
+                                     if (!isViewingVault) {
+                                         IconButton(onClick = { showMoveToAlbumDialog = true }) {
+                                             Icon(imageVector = Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = "Move to Album")
+                                         }
+                                     }
                                     IconButton(onClick = {
                                         viewModel.deleteSelectedMedia(context)
                                     }) {

@@ -751,9 +751,25 @@ class MainViewModel @Inject constructor(
         val selectedIds = selectionState.selectedIds.toSet()
         if (selectedIds.isNotEmpty()) {
             viewModelScope.launch {
-                val selectedList = repository.getMediaByIds(selectedIds)
+                val selectedList = visibleMediaItems.value.filter { selectedIds.contains(it.id) }
                 if (selectedList.isNotEmpty()) {
-                    SharingUtils.shareMedia(context, selectedList, stripMetadata)
+                    val itemsToShare = selectedList.map { item ->
+                        if (item.isHidden) {
+                            val cacheFile = repository.getDecryptedVaultFile(context, item)
+                            if (cacheFile != null) {
+                                val contentUri = androidx.core.content.FileProvider.getUriForFile(
+                                    context,
+                                    "${context.packageName}.fileprovider",
+                                    cacheFile
+                                )
+                                when (item) {
+                                    is MediaItem.Photo -> item.copy(uri = contentUri)
+                                    is MediaItem.Video -> item.copy(uri = contentUri)
+                                }
+                            } else item
+                        } else item
+                    }
+                    SharingUtils.shareMedia(context, itemsToShare, stripMetadata)
                     selectionState.clear()
                 }
             }
@@ -764,7 +780,7 @@ class MainViewModel @Inject constructor(
         val selectedIds = selectionState.selectedIds.toSet()
         if (selectedIds.isEmpty()) return
         viewModelScope.launch {
-            val selectedItems = repository.getMediaByIds(selectedIds)
+            val selectedItems = visibleMediaItems.value.filter { selectedIds.contains(it.id) }
             selectedItems.forEach { item ->
                 toggleHidden(context, item)
             }

@@ -32,5 +32,6 @@ interface MediaRepository {
     suspend fun renameMedia(context: android.content.Context, mediaItem: MediaItem, newDisplayName: String): Boolean
     suspend fun purgeExpiredTrashMedia(): Int
     suspend fun clearVaultCache(context: android.content.Context)
+    suspend fun getDecryptedVaultFile(context: android.content.Context, mediaItem: MediaItem): java.io.File?
     fun observeMediaChanges(): Flow<Unit>
 }
