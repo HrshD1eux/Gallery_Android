@@ -255,9 +255,9 @@ fun SettingsScreen(
                             } else {
                                 @Suppress("DEPRECATION")
                                 context.packageManager.getPackageInfo(context.packageName, 0).versionName
-                            } ?: "1.1.1"
+                            } ?: "1.1.2"
                         } catch (_: Exception) {
-                            "1.1.1"
+                            "1.1.2"
                         }
                     }
                     Text(
