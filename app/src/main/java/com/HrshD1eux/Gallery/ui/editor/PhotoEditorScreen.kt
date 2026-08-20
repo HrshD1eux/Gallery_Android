@@ -231,6 +231,7 @@ fun PhotoEditorScreen(
                                     }
                                 }
                             }
+                            com.HrshD1eux.Gallery.core.util.HapticUtil.performSuccess(context)
                             isSaving = false
                             onDismiss()
                         }

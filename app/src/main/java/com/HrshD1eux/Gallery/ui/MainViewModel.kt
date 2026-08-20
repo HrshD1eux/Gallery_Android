@@ -115,11 +115,19 @@ class MainViewModel @Inject constructor(
 
     private val refreshTrigger = MutableStateFlow(0L)
 
+    private val _vaultConfigVersion = MutableStateFlow(0)
+    val vaultConfigVersion: StateFlow<Int> = _vaultConfigVersion.asStateFlow()
+
+    fun notifyVaultConfigChanged() {
+        _vaultConfigVersion.value++
+    }
+
     private val _isVaultUnlocked = MutableStateFlow(false)
     val isVaultUnlocked: StateFlow<Boolean> = _isVaultUnlocked.asStateFlow()
 
     fun unlockVault() {
         _isVaultUnlocked.value = true
+        _vaultConfigVersion.value++
     }
 
     fun lockVault(context: Context) {
@@ -129,6 +137,7 @@ class MainViewModel @Inject constructor(
             currentScreen = Screen.Albums
         }
         clearVaultCache(context)
+        _vaultConfigVersion.value++
     }
 
     private var _appThemeState = mutableStateOf(prefs.getString("app_theme", "system") ?: "system")
@@ -200,6 +209,52 @@ class MainViewModel @Inject constructor(
     private val _buckets = MutableStateFlow<List<BucketInfo>>(emptyList())
     val buckets: StateFlow<List<BucketInfo>> = _buckets.asStateFlow()
 
+    private val _excludedBucketIds = MutableStateFlow<Set<String>>(
+        (prefs.getStringSet("excluded_buckets", null)
+            ?: application.getSharedPreferences("album_prefs", Context.MODE_PRIVATE).getStringSet("excluded_buckets", emptySet())
+            ?: emptySet())
+    )
+    val excludedBucketIds: StateFlow<Set<String>> = _excludedBucketIds.asStateFlow()
+
+    private val _pinnedBucketIds = MutableStateFlow<Set<String>>(
+        (prefs.getStringSet("pinned_buckets", null)
+            ?: application.getSharedPreferences("album_prefs", Context.MODE_PRIVATE).getStringSet("pinned_buckets", emptySet())
+            ?: emptySet())
+    )
+    val pinnedBucketIds: StateFlow<Set<String>> = _pinnedBucketIds.asStateFlow()
+
+    val visibleBuckets: StateFlow<List<BucketInfo>> = combine(
+        _buckets, _excludedBucketIds
+    ) { list, excluded ->
+        list.filter { !excluded.contains(it.id.toString()) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun excludeBucket(bucketId: Long) {
+        val newSet = _excludedBucketIds.value.toMutableSet().apply { add(bucketId.toString()) }
+        _excludedBucketIds.value = newSet
+        prefs.edit().putStringSet("excluded_buckets", newSet).apply()
+        application.getSharedPreferences("album_prefs", Context.MODE_PRIVATE).edit().putStringSet("excluded_buckets", newSet).apply()
+        refreshAll()
+    }
+
+    fun restoreExcludedBucket(bucketId: String) {
+        val newSet = _excludedBucketIds.value.toMutableSet().apply { remove(bucketId) }
+        _excludedBucketIds.value = newSet
+        prefs.edit().putStringSet("excluded_buckets", newSet).apply()
+        application.getSharedPreferences("album_prefs", Context.MODE_PRIVATE).edit().putStringSet("excluded_buckets", newSet).apply()
+        refreshAll()
+    }
+
+    fun togglePinBucket(bucketId: Long) {
+        val isPinned = _pinnedBucketIds.value.contains(bucketId.toString())
+        val newSet = _pinnedBucketIds.value.toMutableSet().apply {
+            if (isPinned) remove(bucketId.toString()) else add(bucketId.toString())
+        }
+        _pinnedBucketIds.value = newSet
+        prefs.edit().putStringSet("pinned_buckets", newSet).apply()
+        application.getSharedPreferences("album_prefs", Context.MODE_PRIVATE).edit().putStringSet("pinned_buckets", newSet).apply()
+    }
+
     private val _favorites = MutableStateFlow<List<MediaItem>>(emptyList())
     val favorites: StateFlow<List<MediaItem>> = _favorites.asStateFlow()
 
@@ -209,19 +264,53 @@ class MainViewModel @Inject constructor(
     private val _hidden = MutableStateFlow<List<MediaItem>>(emptyList())
     val hidden: StateFlow<List<MediaItem>> = _hidden.asStateFlow()
 
+    data class StorageStats(
+        val photosBytes: Long = 0L,
+        val videosBytes: Long = 0L,
+        val vaultBytes: Long = 0L,
+        val trashBytes: Long = 0L
+    )
+
+    val storageBreakdown: StateFlow<StorageStats> = combine(
+        mediaItems, hidden, trashed, _excludedBucketIds
+    ) { raw, vault, trash, excluded ->
+        var photosBytes = 0L
+        var videosBytes = 0L
+        for (item in raw) {
+            if (!excluded.contains(item.bucketId.toString())) {
+                if (item.isVideo) {
+                    videosBytes += item.size
+                } else {
+                    photosBytes += item.size
+                }
+            }
+        }
+        val vaultBytes = vault.sumOf { it.size }
+        val trashBytes = trash.sumOf { it.size }
+        StorageStats(
+            photosBytes = photosBytes,
+            videosBytes = videosBytes,
+            vaultBytes = vaultBytes,
+            trashBytes = trashBytes
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), StorageStats())
+
     val videosCount: StateFlow<Int> = mediaItems.map { list ->
         list.count { it is MediaItem.Video }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     val visibleMediaItems: StateFlow<List<MediaItem>> = combine(
-        mediaItems, favorites, trashed, hidden, _currentCategoryName
-    ) { raw, favs, trash, vault, category ->
+        combine(mediaItems, favorites) { m, f -> Pair(m, f) },
+        combine(trashed, hidden) { t, h -> Pair(t, h) },
+        _currentCategoryName,
+        _excludedBucketIds
+    ) { (raw, favs), (trash, vault), category, excluded ->
         val list = when (category) {
             "Favorites" -> favs
             "Trash" -> trash
             "Hidden Vault" -> vault
-            "Videos" -> raw.filterIsInstance<MediaItem.Video>()
-            else -> raw
+            "Videos" -> raw.filterIsInstance<MediaItem.Video>().let { if (currentBucketId != null) it else it.filter { item -> !excluded.contains(item.bucketId.toString()) } }
+            else -> if (currentBucketId != null) raw else raw.filter { !excluded.contains(it.bucketId.toString()) }
         }
         if (sortOrder == SortOrder.OLDEST_FIRST) {
             list.sortedBy { it.dateTaken }
@@ -320,15 +409,15 @@ class MainViewModel @Inject constructor(
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val pagingDataFlow: Flow<PagingData<TimelineItem>> = combine(
-        snapshotFlow { currentBucketId },
-        _currentCategoryName,
-        snapshotFlow { sortMode },
-        snapshotFlow { sortOrder },
+        combine(snapshotFlow { currentBucketId }, _currentCategoryName) { bId, cat -> Pair(bId, cat) },
+        combine(snapshotFlow { sortMode }, snapshotFlow { sortOrder }) { mode, order -> Pair(mode, order) },
+        _excludedBucketIds,
         refreshTrigger
-    ) { bucketId, category, mode, order, _ ->
+    ) { (bucketId, category), (mode, order), excluded, _ ->
         val itemsFlow: Flow<PagingData<MediaItem>> = when (category) {
             "Favorites" -> favorites.map { list ->
-                val sorted = if (order == SortOrder.OLDEST_FIRST) list.sortedBy { it.dateTaken } else list.sortedByDescending { it.dateTaken }
+                val filtered = if (bucketId != null) list else list.filter { !excluded.contains(it.bucketId.toString()) }
+                val sorted = if (order == SortOrder.OLDEST_FIRST) filtered.sortedBy { it.dateTaken } else filtered.sortedByDescending { it.dateTaken }
                 PagingData.from(sorted)
             }
             "Trash" -> trashed.map { list ->
@@ -340,15 +429,17 @@ class MainViewModel @Inject constructor(
                 PagingData.from(sorted)
             }
             "Videos" -> Pager(
-                config = PagingConfig(pageSize = 60, prefetchDistance = 30, enablePlaceholders = true),
+                config = PagingConfig(pageSize = 60, prefetchDistance = 40, enablePlaceholders = false),
                 pagingSourceFactory = { MediaPagingSource(repository, bucketId, order) }
             ).flow.map { pagingData ->
-                pagingData.filter { it is MediaItem.Video }
+                pagingData.filter { it is MediaItem.Video && (bucketId != null || !excluded.contains(it.bucketId.toString())) }
             }
             else -> Pager(
-                config = PagingConfig(pageSize = 60, prefetchDistance = 30, enablePlaceholders = true),
+                config = PagingConfig(pageSize = 60, prefetchDistance = 40, enablePlaceholders = false),
                 pagingSourceFactory = { MediaPagingSource(repository, bucketId, order) }
-            ).flow
+            ).flow.map { pagingData ->
+                if (bucketId != null) pagingData else pagingData.filter { !excluded.contains(it.bucketId.toString()) }
+            }
         }
         itemsFlow.map { pagingData ->
             val mapped: PagingData<TimelineItem> = pagingData.map { TimelineItem.Media(it) }
@@ -449,24 +540,87 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    var pendingRenameItem: MediaItem? = null
+    var pendingRenameName: String? = null
+
     fun renameMedia(context: Context, item: MediaItem, newName: String) {
         viewModelScope.launch {
-            val success = repository.renameMedia(context, item, newName)
-            if (success) {
-                val file = java.io.File(item.path)
-                val ext = file.extension.ifEmpty { "jpg" }
-                val finalName = if (newName.contains(".")) newName else "$newName.$ext"
-                val newPath = if (file.parentFile != null) java.io.File(file.parentFile, finalName).absolutePath else item.path
+            try {
+                val success = repository.renameMedia(context, item, newName)
+                if (success) {
+                    applyRenamedState(item, newName)
+                }
+            } catch (e: Exception) {
+                val recoverable = e as? android.app.RecoverableSecurityException
+                    ?: e.cause as? android.app.RecoverableSecurityException
+                val isSec = e is SecurityException || e.cause is SecurityException
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R && (isSec || recoverable != null)) {
+                    val activity = context as? android.app.Activity
+                    if (activity != null) {
+                        pendingRenameItem = item
+                        pendingRenameName = newName
+                        val pendingIntent = android.provider.MediaStore.createWriteRequest(
+                            context.contentResolver,
+                            listOf(item.uri)
+                        )
+                        activity.startIntentSenderForResult(
+                            pendingIntent.intentSender,
+                            1006,
+                            null,
+                            0,
+                            0,
+                            0
+                        )
+                    }
+                } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q && recoverable != null) {
+                    val activity = context as? android.app.Activity
+                    if (activity != null) {
+                        pendingRenameItem = item
+                        pendingRenameName = newName
+                        activity.startIntentSenderForResult(
+                            recoverable.userAction.actionIntent.intentSender,
+                            1006,
+                            null,
+                            0,
+                            0,
+                            0
+                        )
+                    }
+                } else {
+                    e.printStackTrace()
+                }
+            }
+        }
+    }
 
+    private fun applyRenamedState(item: MediaItem, newName: String) {
+        val file = java.io.File(item.path)
+        val ext = file.extension.ifEmpty { "jpg" }
+        val finalName = if (newName.contains(".")) newName else "$newName.$ext"
+        val newPath = if (file.parentFile != null) java.io.File(file.parentFile, finalName).absolutePath else item.path
+
+        val currentActive = activeMediaItem
+        if (currentActive?.id == item.id) {
+            activeMediaItem = when (currentActive) {
+                is MediaItem.Photo -> currentActive.copy(path = newPath)
+                is MediaItem.Video -> currentActive.copy(path = newPath)
+            }
+        }
+        refreshAll()
+    }
+
+    fun updateMediaDateTaken(context: Context, item: MediaItem, newDateMs: Long) {
+        viewModelScope.launch {
+            val success = repository.updateMediaDateTaken(context, item, newDateMs)
+            if (success) {
                 val currentActive = activeMediaItem
                 if (currentActive?.id == item.id) {
                     activeMediaItem = when (currentActive) {
-                        is MediaItem.Photo -> currentActive.copy(path = newPath)
-                        is MediaItem.Video -> currentActive.copy(path = newPath)
+                        is MediaItem.Photo -> currentActive.copy(dateTaken = newDateMs)
+                        is MediaItem.Video -> currentActive.copy(dateTaken = newDateMs)
                     }
                 }
-                refreshTrigger.value++
-                loadNextPage()
+                refreshAll()
             }
         }
     }
@@ -478,7 +632,7 @@ class MainViewModel @Inject constructor(
                 offset = 0,
                 bucketId = currentBucketId
             )
-            _mediaItems.value = items
+            _mediaItems.value = if (currentBucketId != null) items else items.filter { !_excludedBucketIds.value.contains(it.bucketId.toString()) }
         }
     }
 
@@ -678,6 +832,40 @@ class MainViewModel @Inject constructor(
                 }
             }
             refreshAll()
+        }
+    }
+
+    fun disableVault(context: Context) {
+        val prefs = context.getSharedPreferences("vault_prefs", Context.MODE_PRIVATE)
+        prefs.edit()
+            .putBoolean("vault_disabled", true)
+            .remove("vault_pin_hash")
+            .remove("vault_salt")
+            .remove("vault_pin")
+            .remove("vault_biometric_enabled")
+            .remove("vault_stealth_mode")
+            .apply()
+        _isVaultUnlocked.value = true
+        _vaultConfigVersion.value++
+        refreshAll()
+    }
+
+    fun deleteVault(context: Context, restoreMedia: Boolean, onComplete: () -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (restoreMedia) {
+                repository.restoreAllVaultMedia(context)
+            } else {
+                repository.deleteAllVaultData(context)
+            }
+            val prefs = context.getSharedPreferences("vault_prefs", Context.MODE_PRIVATE)
+            prefs.edit().clear().apply()
+            _isVaultUnlocked.value = false
+            currentCategoryName = null
+            _vaultConfigVersion.value++
+            refreshAll()
+            withContext(Dispatchers.Main) {
+                onComplete()
+            }
         }
     }
 
@@ -1018,7 +1206,7 @@ class MainViewModel @Inject constructor(
         }
     }
 
-    fun handleActivityResult(requestCode: Int, resultCode: Int) {
+    fun handleActivityResult(requestCode: Int, resultCode: Int, context: Context? = null) {
         val item = pendingActionItem
         val batchItems = pendingBatchActionItems
 
@@ -1089,6 +1277,28 @@ class MainViewModel @Inject constructor(
                         refreshAll()
                     }
                 }
+                1006 -> {
+                    val renameItem = pendingRenameItem
+                    val renameName = pendingRenameName
+                    if (renameItem != null && renameName != null && context != null) {
+                        viewModelScope.launch {
+                            try {
+                                val success = repository.renameMedia(context, renameItem, renameName)
+                                if (success) {
+                                    applyRenamedState(renameItem, renameName)
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            } finally {
+                                pendingRenameItem = null
+                                pendingRenameName = null
+                            }
+                        }
+                    } else {
+                        pendingRenameItem = null
+                        pendingRenameName = null
+                    }
+                }
             }
         } else {
             // Cancelled flow
@@ -1102,6 +1312,8 @@ class MainViewModel @Inject constructor(
             } else {
                 pendingActionItem = null
                 pendingBatchActionItems = null
+                pendingRenameItem = null
+                pendingRenameName = null
                 refreshAll()
             }
         }

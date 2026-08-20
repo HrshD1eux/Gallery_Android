@@ -122,14 +122,15 @@ fun SearchScreen(
                 )
                 var showSecretVaultUnlockDialog by remember { mutableStateOf(false) }
                 val context = LocalContext.current
-                val prefs = remember(context) { context.getSharedPreferences("vault_prefs", Context.MODE_PRIVATE) }
-                val secretTrigger = remember(prefs) { prefs.getString("vault_secret_trigger", "#vault") ?: "#vault" }
 
                 LaunchedEffect(searchQuery) {
+                    val prefs = context.getSharedPreferences("vault_prefs", Context.MODE_PRIVATE)
+                    val secretTrigger = prefs.getString("vault_secret_trigger", "#vault") ?: "#vault"
+                    val isVaultDisabled = prefs.getBoolean("vault_disabled", false)
+                    val isBiometricEnabled = prefs.getBoolean("vault_biometric_enabled", false)
                     val query = searchQuery.trim()
-                    if (query.isNotEmpty() && query.equals(secretTrigger.trim(), ignoreCase = true)) {
+                    if (!isVaultDisabled && query.isNotEmpty() && query.equals(secretTrigger.trim(), ignoreCase = true)) {
                         val activity = context as? android.app.Activity
-                        val isBiometricEnabled = prefs.getBoolean("vault_biometric_enabled", false)
                         if (isBiometricEnabled && activity != null) {
                             com.HrshD1eux.Gallery.core.util.BiometricAuthHelper.authenticate(
                                 activity = activity,

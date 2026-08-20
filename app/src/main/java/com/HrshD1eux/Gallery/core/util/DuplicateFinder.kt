@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import com.HrshD1eux.Gallery.data.model.MediaItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 
 data class DuplicateGroup(
     val id: String,
@@ -37,19 +38,56 @@ object DuplicateFinder {
 
         photos.forEach { item ->
             try {
-                resolver.openInputStream(item.uri)?.use { input ->
-                    val options = BitmapFactory.Options().apply {
-                        inSampleSize = 4 // Downsample for rapid, memory-safe hashing
+                var bitmap: Bitmap? = null
+
+                // 1. Try decoding from MediaStore content URI
+                try {
+                    resolver.openInputStream(item.uri)?.use { input ->
+                        val options = BitmapFactory.Options().apply {
+                            inPreferredConfig = Bitmap.Config.ARGB_8888
+                            inSampleSize = if (item.width > 0 && item.height > 0) {
+                                val maxDim = maxOf(item.width, item.height)
+                                if (maxDim > 128) maxDim / 64 else 1
+                            } else {
+                                4
+                            }
+                        }
+                        bitmap = BitmapFactory.decodeStream(input, null, options)
                     }
-                    val bitmap = BitmapFactory.decodeStream(input, null, options)
-                    if (bitmap != null) {
-                        val dHash = computeDHash(bitmap)
-                        val aHash = computeAHash(bitmap)
-                        signatures.add(PhotoSignature(item, dHash, aHash))
-                        bitmap.recycle()
-                    }
+                } catch (_: Exception) {}
+
+                // 2. Fallback to direct file path if stream decode was null
+                if (bitmap == null && item.path.isNotBlank()) {
+                    try {
+                        val file = java.io.File(item.path)
+                        if (file.exists() && file.canRead()) {
+                            val options = BitmapFactory.Options().apply {
+                                inPreferredConfig = Bitmap.Config.ARGB_8888
+                                inSampleSize = 4
+                            }
+                            bitmap = BitmapFactory.decodeFile(file.absolutePath, options)
+                        }
+                    } catch (_: Exception) {}
                 }
-            } catch (_: Exception) {}
+
+                if (bitmap != null) {
+                    val rawBmp = bitmap!!
+                    val softwareBitmap = if (rawBmp.config == Bitmap.Config.HARDWARE) {
+                        rawBmp.copy(Bitmap.Config.ARGB_8888, false) ?: rawBmp
+                    } else {
+                        rawBmp
+                    }
+                    val dHash = computeDHash(softwareBitmap)
+                    val aHash = computeAHash(softwareBitmap)
+                    signatures.add(PhotoSignature(item, dHash, aHash))
+                    if (softwareBitmap != rawBmp) {
+                        softwareBitmap.recycle()
+                    }
+                    rawBmp.recycle()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
 
         val visited = mutableSetOf<Long>()
@@ -100,19 +138,30 @@ object DuplicateFinder {
             return true
         }
 
-        // 2. Perceptual hash comparison
+        // 2. Near-exact attribute match (e.g. re-saved screenshot)
+        if (a.item.width > 0 && a.item.width == b.item.width && a.item.height == b.item.height && abs(a.item.size - b.item.size) < 1024) {
+            val dDist = java.lang.Long.bitCount(a.dHash xor b.dHash)
+            if (dDist <= 4) return true
+        }
+
+        // 3. Perceptual hash comparison
         val dDist = java.lang.Long.bitCount(a.dHash xor b.dHash)
         val aDist = java.lang.Long.bitCount(a.aHash xor b.aHash)
 
         // Threshold of <= 10 bits out of 64 bits detects identical screenshots, bursts, and re-saved images
-        return dDist <= 10 || (dDist <= 12 && aDist <= 8)
+        return dDist <= 10 || aDist <= 6 || (dDist <= 14 && aDist <= 10)
     }
 
     /**
      * Computes 64-bit dHash (difference hash) by resizing bitmap to 9x8 and tracking horizontal gradients.
      */
     fun computeDHash(src: Bitmap): Long {
-        val scaled = Bitmap.createScaledBitmap(src, 9, 8, true)
+        val softwareSrc = if (src.config == Bitmap.Config.HARDWARE) {
+            src.copy(Bitmap.Config.ARGB_8888, false) ?: src
+        } else {
+            src
+        }
+        val scaled = Bitmap.createScaledBitmap(softwareSrc, 9, 8, false)
         var hash = 0L
         for (y in 0 until 8) {
             for (x in 0 until 8) {
@@ -123,8 +172,11 @@ object DuplicateFinder {
                 }
             }
         }
-        if (scaled != src) {
+        if (scaled != softwareSrc && scaled != src) {
             scaled.recycle()
+        }
+        if (softwareSrc != src) {
+            softwareSrc.recycle()
         }
         return hash
     }
@@ -133,7 +185,12 @@ object DuplicateFinder {
      * Computes 64-bit aHash (average hash) by resizing bitmap to 8x8 and comparing against mean luminance.
      */
     fun computeAHash(src: Bitmap): Long {
-        val scaled = Bitmap.createScaledBitmap(src, 8, 8, true)
+        val softwareSrc = if (src.config == Bitmap.Config.HARDWARE) {
+            src.copy(Bitmap.Config.ARGB_8888, false) ?: src
+        } else {
+            src
+        }
+        val scaled = Bitmap.createScaledBitmap(softwareSrc, 8, 8, false)
         val grays = IntArray(64)
         var sum = 0L
         for (y in 0 until 8) {
@@ -150,8 +207,11 @@ object DuplicateFinder {
                 hash = hash or (1L shl i)
             }
         }
-        if (scaled != src) {
+        if (scaled != softwareSrc && scaled != src) {
             scaled.recycle()
+        }
+        if (softwareSrc != src) {
+            softwareSrc.recycle()
         }
         return hash
     }
@@ -163,4 +223,3 @@ object DuplicateFinder {
         return (r * 30 + g * 59 + b * 11) / 100
     }
 }
-

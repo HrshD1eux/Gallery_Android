@@ -31,6 +31,7 @@ fun PatternLockView(
     errorColor: Color = MaterialTheme.colorScheme.error,
     dotColor: Color = MaterialTheme.colorScheme.onSurfaceVariant
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val selectedDots = remember { mutableStateListOf<Int>() }
     var currentTouchPosition by remember { mutableStateOf<Offset?>(null) }
 
@@ -52,6 +53,7 @@ fun PatternLockView(
                             val dotIndex = getTouchedDotIndex(offset, size.width.toFloat(), size.height.toFloat())
                             if (dotIndex != -1 && !selectedDots.contains(dotIndex)) {
                                 selectedDots.add(dotIndex)
+                                com.HrshD1eux.Gallery.core.util.HapticUtil.performTick(context)
                             }
                         },
                         onDrag = { change, _ ->
@@ -61,6 +63,7 @@ fun PatternLockView(
                             val dotIndex = getTouchedDotIndex(offset, size.width.toFloat(), size.height.toFloat())
                             if (dotIndex != -1 && !selectedDots.contains(dotIndex)) {
                                 selectedDots.add(dotIndex)
+                                com.HrshD1eux.Gallery.core.util.HapticUtil.performTick(context)
                             }
                         },
                         onDragEnd = {

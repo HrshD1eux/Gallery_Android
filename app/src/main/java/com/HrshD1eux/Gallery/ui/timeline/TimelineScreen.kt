@@ -4,6 +4,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.ui.draw.clipToBounds
@@ -61,6 +62,7 @@ fun TimelineScreen(
     modifier: Modifier = Modifier
 ) {
     val lazyPagingItems = viewModel.pagingDataFlow.collectAsLazyPagingItems()
+    val context = LocalContext.current
     val selectionState = viewModel.selectionState
 
     // 2. Pinch-to-zoom: continuous cell width
@@ -68,17 +70,58 @@ fun TimelineScreen(
 
     val gridState = rememberLazyStaggeredGridState()
 
+    val dragSelectionModifier = if (selectionState.inSelectionMode) {
+        Modifier.pointerInput(selectionState.inSelectionMode) {
+            detectDragGestures(
+                onDragStart = { offset ->
+                    val hitItem = gridState.layoutInfo.visibleItemsInfo.firstOrNull { info ->
+                        offset.x >= info.offset.x && offset.x <= (info.offset.x + info.size.width) &&
+                        offset.y >= info.offset.y && offset.y <= (info.offset.y + info.size.height)
+                    }
+                    if (hitItem != null) {
+                        val timelineItem = lazyPagingItems.peek(hitItem.index)
+                        if (timelineItem is TimelineItem.Media) {
+                            selectionState.select(timelineItem.item.id)
+                            com.HrshD1eux.Gallery.core.util.HapticUtil.performSelection(context)
+                        }
+                    }
+                },
+                onDrag = { change, _ ->
+                    change.consume()
+                    val offset = change.position
+                    val hitItem = gridState.layoutInfo.visibleItemsInfo.firstOrNull { info ->
+                        offset.x >= info.offset.x && offset.x <= (info.offset.x + info.size.width) &&
+                        offset.y >= info.offset.y && offset.y <= (info.offset.y + info.size.height)
+                    }
+                    if (hitItem != null) {
+                        val timelineItem = lazyPagingItems.peek(hitItem.index)
+                        if (timelineItem is TimelineItem.Media && !selectionState.selectedIds.contains(timelineItem.item.id)) {
+                            selectionState.select(timelineItem.item.id)
+                            com.HrshD1eux.Gallery.core.util.HapticUtil.performSelection(context)
+                        }
+                    }
+                }
+            )
+        }
+    } else {
+        Modifier
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .clipToBounds()
-            .pointerInput(Unit) {
-                detectTransformGestures { _, _, zoom: Float, _ ->
-                    if (zoom != 1f) {
-                        targetColumnWidth = (targetColumnWidth / zoom).coerceIn(80f, 300f)
+            .then(
+                if (!selectionState.inSelectionMode) {
+                    Modifier.pointerInput(Unit) {
+                        detectTransformGestures(panZoomLock = true) { _, _, zoom: Float, _ ->
+                            if (kotlin.math.abs(zoom - 1f) > 0.02f) {
+                                targetColumnWidth = (targetColumnWidth / zoom).coerceIn(80f, 300f)
+                            }
+                        }
                     }
-                }
-            }
+                } else Modifier
+            )
     ) {
         if (lazyPagingItems.itemCount == 0) {
             Box(
@@ -104,7 +147,9 @@ fun TimelineScreen(
                     ),
                     horizontalArrangement = Arrangement.spacedBy(2.dp),
                     verticalItemSpacing = 2.dp,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(dragSelectionModifier)
                 ) {
                     items(
                         count = lazyPagingItems.itemCount,
@@ -113,7 +158,7 @@ fun TimelineScreen(
                             when (item) {
                                 is TimelineItem.Header -> "header_${item.title}"
                                 is TimelineItem.Media -> item.item.id
-                                null -> index
+                                null -> "placeholder_$index"
                             }
                         },
                         span = { index ->
@@ -148,12 +193,14 @@ fun TimelineScreen(
                                         onClick = {
                                             if (selectionState.inSelectionMode) {
                                                 selectionState.toggle(mediaItem.id)
+                                                com.HrshD1eux.Gallery.core.util.HapticUtil.performSelection(context)
                                             } else {
                                                 viewModel.activeMediaItem = mediaItem
                                             }
                                         },
                                         onLongClick = {
                                             selectionState.toggle(mediaItem.id)
+                                            com.HrshD1eux.Gallery.core.util.HapticUtil.performLongPress(context)
                                         }
                                     )
                                 }
@@ -214,7 +261,9 @@ fun MediaGridCell(
     val imageRequest = remember(item.uri) {
         coil.request.ImageRequest.Builder(context)
             .data(item.uri)
-            .crossfade(true)
+            .crossfade(false)
+            .allowHardware(true)
+            .bitmapConfig(android.graphics.Bitmap.Config.RGB_565)
             .size(280, 280)
             .diskCachePolicy(coil.request.CachePolicy.ENABLED)
             .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
@@ -222,6 +271,16 @@ fun MediaGridCell(
             .error(android.R.drawable.ic_menu_report_image)
             .fallback(android.R.drawable.ic_menu_report_image)
             .build()
+    }
+
+    val cellGradient = remember {
+        Brush.verticalGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color.Black.copy(alpha = 0.4f)
+            ),
+            startY = 100f
+        )
     }
 
     Box(
@@ -244,15 +303,7 @@ fun MediaGridCell(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Color.Black.copy(alpha = 0.4f)
-                        ),
-                        startY = 100f
-                    )
-                )
+                .background(cellGradient)
         )
 
         // Select mode overlays

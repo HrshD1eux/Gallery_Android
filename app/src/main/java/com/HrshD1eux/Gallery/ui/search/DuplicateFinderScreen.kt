@@ -187,6 +187,7 @@ fun DuplicateFinderScreen(
                                             .size(110.dp)
                                             .clip(MaterialTheme.shapes.small)
                                             .clickable {
+                                                com.HrshD1eux.Gallery.core.util.HapticUtil.performSelection(context)
                                                 if (isSelected) {
                                                     selectedToDelete.remove(item.id)
                                                 } else {
