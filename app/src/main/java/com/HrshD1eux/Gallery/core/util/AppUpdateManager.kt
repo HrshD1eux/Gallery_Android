@@ -24,9 +24,9 @@ object AppUpdateManager {
 
     suspend fun checkForUpdates(context: Context): UpdateInfo = withContext(Dispatchers.IO) {
         val currentVersion = try {
-            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.1.2"
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.1.3"
         } catch (_: Exception) {
-            "1.1.2"
+            "1.1.3"
         }
 
         val githubApiUrls = listOf(
