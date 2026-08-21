@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AspectRatio
@@ -53,6 +54,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,6 +72,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.abs
 
@@ -95,9 +98,11 @@ fun VideoPlayerContainer(
     isSelectedPage: Boolean,
     showChrome: Boolean,
     onTap: () -> Unit,
+    resizeMode: Int = AspectRatioFrameLayout.RESIZE_MODE_FIT,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     var exoPlayer by remember(uri) { mutableStateOf<ExoPlayer?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
@@ -109,12 +114,9 @@ fun VideoPlayerContainer(
     var dragPositionMs by remember { mutableLongStateOf(0L) }
     var pendingSeekTargetMs by remember { mutableStateOf<Long?>(null) }
 
-    var resizeModeState by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
-    var isLocked by remember { mutableStateOf(false) }
-    var subtitlesEnabled by remember { mutableStateOf(true) }
-
-    // Double-tap gesture feedback overlay state
-    var doubleTapOverlayText by remember { mutableStateOf<String?>(null) }
+    // Gesture feedback overlay state
+    var gestureOverlayText by remember { mutableStateOf<String?>(null) }
+    var isHolding2x by remember { mutableStateOf(false) }
 
     if (!isSelectedPage) {
         coil.compose.AsyncImage(
@@ -181,6 +183,10 @@ fun VideoPlayerContainer(
                     currentPosition = player.currentPosition.coerceAtLeast(0L)
                 }
             }
+
+            override fun onIsPlayingChanged(playing: Boolean) {
+                isPlaying = playing
+            }
         }
         player.addListener(listener)
         exoPlayer = player
@@ -221,45 +227,70 @@ fun VideoPlayerContainer(
         }
     }
 
-    // Dismiss gesture feedback overlay after 800ms
-    LaunchedEffect(doubleTapOverlayText) {
-        if (doubleTapOverlayText != null) {
+    // Dismiss gesture feedback overlay after 800ms (unless holding 2x)
+    LaunchedEffect(gestureOverlayText, isHolding2x) {
+        if (gestureOverlayText != null && !isHolding2x) {
             delay(800)
-            doubleTapOverlayText = null
+            if (!isHolding2x) {
+                gestureOverlayText = null
+            }
         }
     }
 
     Box(
         modifier = modifier
             .fillMaxSize()
-            .pointerInput(isLocked) {
+            .pointerInput(Unit) {
                 detectTapGestures(
                     onTap = {
-                        if (!isLocked) {
-                            onTap()
+                        exoPlayer?.let { player ->
+                            if (player.isPlaying) {
+                                player.pause()
+                                gestureOverlayText = "⏸️ Pause"
+                            } else {
+                                player.play()
+                                gestureOverlayText = "▶ Play"
+                            }
                         }
+                        onTap()
                     },
                     onDoubleTap = { offset ->
-                        if (!isLocked) {
-                            exoPlayer?.let { player ->
-                                val width = size.width
-                                val basePos = pendingSeekTargetMs ?: currentPosition
-                                if (offset.x < width / 2) {
-                                    // Rewind 10 seconds
-                                    val newPos = (basePos - 10000L).coerceAtLeast(0L)
-                                    pendingSeekTargetMs = newPos
-                                    currentPosition = newPos
-                                    player.seekTo(newPos)
-                                    doubleTapOverlayText = "◀◀ 10s Rewind"
-                                } else {
-                                    // Fast Forward 10 seconds
-                                    val targetMax = if (player.duration > 0) player.duration else Long.MAX_VALUE
-                                    val newPos = (basePos + 10000L).coerceAtMost(targetMax)
-                                    pendingSeekTargetMs = newPos
-                                    currentPosition = newPos
-                                    player.seekTo(newPos)
-                                    doubleTapOverlayText = "10s Fast Forward ▶▶"
-                                }
+                        exoPlayer?.let { player ->
+                            val width = size.width
+                            val basePos = pendingSeekTargetMs ?: currentPosition
+                            if (offset.x < width / 2) {
+                                // Rewind 5 seconds
+                                val newPos = (basePos - 5000L).coerceAtLeast(0L)
+                                pendingSeekTargetMs = newPos
+                                currentPosition = newPos
+                                player.seekTo(newPos)
+                                gestureOverlayText = "◀◀ -5s"
+                            } else {
+                                // Fast Forward 5 seconds
+                                val targetMax = if (player.duration > 0) player.duration else Long.MAX_VALUE
+                                val newPos = (basePos + 5000L).coerceAtMost(targetMax)
+                                pendingSeekTargetMs = newPos
+                                currentPosition = newPos
+                                player.seekTo(newPos)
+                                gestureOverlayText = "+5s ▶▶"
+                            }
+                        }
+                    },
+                    onPress = {
+                        val longPressJob = scope.launch {
+                            delay(400)
+                            isHolding2x = true
+                            exoPlayer?.setPlaybackSpeed(2.0f)
+                            gestureOverlayText = "2x Speed ⏩"
+                        }
+                        try {
+                            awaitRelease()
+                        } finally {
+                            longPressJob.cancel()
+                            if (isHolding2x) {
+                                isHolding2x = false
+                                exoPlayer?.setPlaybackSpeed(1.0f)
+                                gestureOverlayText = null
                             }
                         }
                     }
@@ -271,9 +302,9 @@ fun VideoPlayerContainer(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
                         this.player = player
-                        useController = false // Completely disable built-in controller to eliminate all overlap
+                        useController = false // Completely disable built-in controller
                         setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
-                        resizeMode = resizeModeState
+                        this.resizeMode = resizeMode
                         layoutParams = FrameLayout.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT
@@ -282,7 +313,7 @@ fun VideoPlayerContainer(
                 },
                 update = { view ->
                     view.player = player
-                    view.resizeMode = resizeModeState
+                    view.resizeMode = resizeMode
                 },
                 onRelease = { view ->
                     view.player = null
@@ -291,30 +322,12 @@ fun VideoPlayerContainer(
             )
         }
 
-        // Title Bar at top center (when chrome is visible)
-        if (showChrome && !isLocked && title.isNotEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(top = 8.dp),
-                contentAlignment = Alignment.TopCenter
-            ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color.White,
-                    maxLines = 1
-                )
-            }
-        }
-
-        // Double-tap gesture feedback overlay indicator
-        doubleTapOverlayText?.let { text ->
+        // Gesture feedback overlay indicator (5s seek, 2x speed, play/pause)
+        gestureOverlayText?.let { text ->
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .background(Color.Black.copy(alpha = 0.7f), CircleShape)
+                    .background(Color.Black.copy(alpha = 0.75f), CircleShape)
                     .padding(horizontal = 20.dp, vertical = 10.dp)
             ) {
                 Text(
@@ -325,43 +338,22 @@ fun VideoPlayerContainer(
             }
         }
 
-        // If screen is locked, show a single Lock icon on top-left to unlock
-        if (isLocked) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .statusBarsPadding()
-                    .padding(16.dp)
-            ) {
-                IconButton(
-                    onClick = { isLocked = false },
-                    modifier = Modifier.background(Color.Black.copy(alpha = 0.6f), CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = "Unlock controls",
-                        tint = Color(0xFFFF5722)
-                    )
-                }
-            }
-        }
-
-        // Custom Video Controls Overlay matching Screenshot 2 (Zero Overlap)
+        // Video Progress / Seekbar Overlay (Row 1 above gallery bottom action bar)
         AnimatedVisibility(
-            visible = showChrome && !isLocked,
+            visible = showChrome,
             enter = fadeIn() + slideInVertically { it },
             exit = fadeOut() + slideOutVertically { it },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 76.dp) // Sits cleanly above gallery bottom action bar
+                .navigationBarsPadding()
+                .padding(bottom = 68.dp) // Sits cleanly above gallery bottom action bar
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = 0.65f))
+                    .background(Color.Black.copy(alpha = 0.55f))
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                // Display time position: Left = Current Position, Right = Total Duration
                 val displayPosMs = when {
                     isUserSeeking -> dragPositionMs
                     pendingSeekTargetMs != null -> pendingSeekTargetMs!!
@@ -385,7 +377,6 @@ fun VideoPlayerContainer(
                     )
                 }
 
-                // Custom Orange Seek Slider (Indestructible state tracking & zero-reset protection)
                 val maxSeekMs = if (duration > 0L) duration.toFloat() else 1000f
                 val sliderValueFloat = displayPosMs.toFloat().coerceIn(0f, maxSeekMs)
 
@@ -417,146 +408,6 @@ fun VideoPlayerContainer(
                         .fillMaxWidth()
                         .height(28.dp)
                 )
-
-                // Custom Player Control Bar with Speed, Loop, Mute, Trim, and Lock
-                var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
-                var isMuted by remember { mutableStateOf(false) }
-                var isLooping by remember { mutableStateOf(false) }
-                var showTrimDialog by remember { mutableStateOf(false) }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Playback Speed Button
-                    TextButton(
-                        onClick = {
-                            val speeds = listOf(0.5f, 1.0f, 1.25f, 1.5f, 2.0f)
-                            val nextIndex = (speeds.indexOf(playbackSpeed) + 1) % speeds.size
-                            val newSpeed = speeds[nextIndex]
-                            playbackSpeed = newSpeed
-                            exoPlayer?.setPlaybackSpeed(newSpeed)
-                            Toast.makeText(context, "${newSpeed}x Speed", Toast.LENGTH_SHORT).show()
-                        }
-                    ) {
-                        Text(
-                            text = "${if (playbackSpeed == 1.0f) "1" else playbackSpeed}x",
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelLarge
-                        )
-                    }
-
-                    // Mute / Unmute Button
-                    IconButton(onClick = {
-                        isMuted = !isMuted
-                        exoPlayer?.volume = if (isMuted) 0f else 1f
-                    }) {
-                        Icon(
-                            imageVector = if (isMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
-                            contentDescription = if (isMuted) "Unmute" else "Mute",
-                            tint = Color.White
-                        )
-                    }
-
-                    // Fast Rewind 10s Button
-                    IconButton(onClick = {
-                        exoPlayer?.let { player ->
-                            val basePos = pendingSeekTargetMs ?: currentPosition
-                            val newPos = (basePos - 10000L).coerceAtLeast(0L)
-                            pendingSeekTargetMs = newPos
-                            currentPosition = newPos
-                            player.seekTo(newPos)
-                            doubleTapOverlayText = "◀◀ 10s Rewind"
-                        }
-                    }) {
-                        Icon(
-                            imageVector = Icons.Default.FastRewind,
-                            contentDescription = "Rewind 10s",
-                            tint = Color.White
-                        )
-                    }
-
-                    // Center Big Play / Pause Button
-                    IconButton(
-                        onClick = {
-                            exoPlayer?.let { player ->
-                                if (player.isPlaying) {
-                                    player.pause()
-                                } else {
-                                    player.play()
-                                }
-                                isPlaying = player.isPlaying
-                            }
-                        },
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (isPlaying) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
-                            contentDescription = if (isPlaying) "Pause" else "Play",
-                            tint = Color.White,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-
-                    // Fast Forward 10s Button
-                    IconButton(onClick = {
-                        exoPlayer?.let { player ->
-                            val basePos = pendingSeekTargetMs ?: currentPosition
-                            val targetMax = if (player.duration > 0) player.duration else Long.MAX_VALUE
-                            val newPos = (basePos + 10000L).coerceAtMost(targetMax)
-                            pendingSeekTargetMs = newPos
-                            currentPosition = newPos
-                            player.seekTo(newPos)
-                            doubleTapOverlayText = "10s Fast Forward ▶▶"
-                        }
-                    }) {
-                        Icon(
-                            imageVector = Icons.Default.FastForward,
-                            contentDescription = "Forward 10s",
-                            tint = Color.White
-                        )
-                    }
-
-                    // Loop Toggle
-                    IconButton(onClick = {
-                        isLooping = !isLooping
-                        exoPlayer?.repeatMode = if (isLooping) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
-                        Toast.makeText(context, if (isLooping) "Loop On" else "Loop Off", Toast.LENGTH_SHORT).show()
-                    }) {
-                        Icon(
-                            imageVector = if (isLooping) Icons.Default.RepeatOne else Icons.Default.Repeat,
-                            contentDescription = "Loop Video",
-                            tint = if (isLooping) Color(0xFFFF5722) else Color.White
-                        )
-                    }
-
-                    // Aspect Ratio / Fit Screen mode
-                    IconButton(onClick = {
-                        resizeModeState = when (resizeModeState) {
-                            AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                            AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                        }
-                    }) {
-                        Icon(
-                            imageVector = Icons.Default.AspectRatio,
-                            contentDescription = "Aspect Ratio",
-                            tint = Color.White
-                        )
-                    }
-
-                    // Lock Screen Controls Button
-                    IconButton(onClick = { isLocked = true }) {
-                        Icon(
-                            imageVector = Icons.Default.LockOpen,
-                            contentDescription = "Lock Controls",
-                            tint = Color.White
-                        )
-                    }
-                }
             }
         }
     }

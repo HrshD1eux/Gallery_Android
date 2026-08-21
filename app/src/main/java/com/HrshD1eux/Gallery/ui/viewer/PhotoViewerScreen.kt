@@ -57,6 +57,8 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.AspectRatio
+import androidx.media3.ui.AspectRatioFrameLayout
 import com.HrshD1eux.Gallery.core.util.FormatUtils
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -86,6 +88,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -182,6 +185,7 @@ fun PhotoViewerScreen(
     var isSlideshowActive by remember { mutableStateOf(false) }
     var showCompressDialog by remember { mutableStateOf(false) }
     var targetKbInput by remember { mutableStateOf("15") }
+    var videoResizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
 
     LaunchedEffect(isSlideshowActive) {
         if (isSlideshowActive) {
@@ -296,6 +300,7 @@ fun PhotoViewerScreen(
                             isSelectedPage = (page == pagerState.currentPage),
                             showChrome = showChrome,
                             onTap = { showChrome = !showChrome },
+                            resizeMode = videoResizeMode,
                             modifier = Modifier.fillMaxSize()
                         )
                     } else if (isPlayingMotionPhoto && motionVideoFile != null && page == pagerState.currentPage) {
@@ -305,6 +310,7 @@ fun PhotoViewerScreen(
                             isSelectedPage = true,
                             showChrome = showChrome,
                             onTap = { showChrome = !showChrome },
+                            resizeMode = videoResizeMode,
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
@@ -341,28 +347,42 @@ fun PhotoViewerScreen(
             }
         }
 
-        // Top App Bar Chrome overlay
+        // Top App Bar Chrome overlay (Zero Overlap with filename constrained and ellipsized)
         AnimatedVisibility(
             visible = showChrome,
             enter = fadeIn() + slideInVertically { -it },
             exit = fadeOut() + slideOutVertically { -it },
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
-            Box(
+            val currentItem = mediaItems.getOrNull(pagerState.currentPage) ?: activeItem
+            val fileName = currentItem.path.substringAfterLast('/')
+
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = 0.4f))
+                    .background(Color.Black.copy(alpha = 0.45f))
                     .statusBarsPadding()
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
-                    onClick = { viewModel.activeMediaItem = null },
-                    modifier = Modifier.align(Alignment.CenterStart)
+                    onClick = { viewModel.activeMediaItem = null }
                 ) {
                     Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
                 }
 
-                // Motion Photo Badge / Player Button in Top Center
+                Text(
+                    text = fileName,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 6.dp)
+                )
+
+                // Motion Photo Badge / Player Button
                 if (isMotionPhoto) {
                     FilterChip(
                         selected = isPlayingMotionPhoto,
@@ -382,91 +402,106 @@ fun PhotoViewerScreen(
                                 }
                             }
                         },
-                        label = { Text(if (isPlayingMotionPhoto) "Playing Motion ⏸️" else "Motion Photo 🎞️", color = Color.White) },
-                        modifier = Modifier.align(Alignment.Center)
+                        label = { Text(if (isPlayingMotionPhoto) "Playing ⏸️" else "Motion 🎞️", color = Color.White) },
+                        modifier = Modifier.padding(end = 4.dp)
                     )
                 }
 
-                Row(
-                    modifier = Modifier.align(Alignment.CenterEnd),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = { showInfoSheet = true }) {
-                        Icon(imageVector = Icons.Default.Info, contentDescription = "Info", tint = Color.White)
+                IconButton(onClick = { showInfoSheet = true }) {
+                    Icon(imageVector = Icons.Default.Info, contentDescription = "Info", tint = Color.White)
+                }
+
+                Box {
+                    IconButton(onClick = { showMoreMenu = true }) {
+                        Icon(imageVector = Icons.Default.MoreVert, contentDescription = "More options", tint = Color.White)
                     }
 
-                    Box {
-                        IconButton(onClick = { showMoreMenu = true }) {
-                            Icon(imageVector = Icons.Default.MoreVert, contentDescription = "More options", tint = Color.White)
+                    DropdownMenu(
+                        expanded = showMoreMenu,
+                        onDismissRequest = { showMoreMenu = false }
+                    ) {
+                        val item = mediaItems.getOrNull(pagerState.currentPage) ?: activeItem
+                        DropdownMenuItem(
+                            text = { Text("Rename") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = null
+                                )
+                            },
+                            onClick = {
+                                showMoreMenu = false
+                                renameInputText = java.io.File(item.path).nameWithoutExtension
+                                showRenameDialog = true
+                            }
+                        )
+
+                        DropdownMenuItem(
+                            text = { Text(if (item.isHidden) "Unhide from Vault" else "Move to Vault") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = if (item.isHidden) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                    contentDescription = null
+                                )
+                            },
+                            onClick = {
+                                showMoreMenu = false
+                                if (item.isHidden) {
+                                    viewModel.toggleHidden(context, item)
+                                } else {
+                                    showVaultConfirmDialog = true
+                                }
+                            }
+                        )
+
+                        DropdownMenuItem(
+                            text = { Text("Start Slideshow 🎞️") },
+                            leadingIcon = { Icon(Icons.Default.PlayArrow, contentDescription = null) },
+                            onClick = {
+                                showMoreMenu = false
+                                isSlideshowActive = true
+                            }
+                        )
+
+                        DropdownMenuItem(
+                            text = { Text("Set as Wallpaper / Contact") },
+                            leadingIcon = { Icon(Icons.Default.Wallpaper, contentDescription = null) },
+                            onClick = {
+                                showMoreMenu = false
+                                showSetAsDialog = true
+                            }
+                        )
+
+                        if (item is com.HrshD1eux.Gallery.data.model.MediaItem.Video) {
+                            DropdownMenuItem(
+                                text = { Text("Trim Video / Make GIF 🎬") },
+                                leadingIcon = { Icon(Icons.Default.ContentCut, contentDescription = null) },
+                                onClick = {
+                                    showMoreMenu = false
+                                    showVideoTrimDialog = true
+                                }
+                            )
+
+                            val aspectLabel = when (videoResizeMode) {
+                                AspectRatioFrameLayout.RESIZE_MODE_FIT -> "Aspect Ratio: Fit (Tap to Zoom)"
+                                AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Aspect Ratio: Zoom (Tap to Fill)"
+                                else -> "Aspect Ratio: Fill (Tap to Fit)"
+                            }
+                            DropdownMenuItem(
+                                text = { Text(aspectLabel) },
+                                leadingIcon = { Icon(Icons.Default.AspectRatio, contentDescription = null) },
+                                onClick = {
+                                    videoResizeMode = when (videoResizeMode) {
+                                        AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                        AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                                        else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                    }
+                                    showMoreMenu = false
+                                }
+                            )
                         }
 
-                        DropdownMenu(
-                            expanded = showMoreMenu,
-                            onDismissRequest = { showMoreMenu = false }
-                        ) {
-                            val item = mediaItems.getOrNull(pagerState.currentPage) ?: activeItem
-                            DropdownMenuItem(
-                                text = { Text("Rename") },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.Edit,
-                                        contentDescription = null
-                                    )
-                                },
-                                onClick = {
-                                    showMoreMenu = false
-                                    renameInputText = java.io.File(item.path).nameWithoutExtension
-                                    showRenameDialog = true
-                                }
-                            )
-
-                            DropdownMenuItem(
-                                text = { Text(if (item.isHidden) "Unhide from Vault" else "Move to Vault") },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = if (item.isHidden) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                        contentDescription = null
-                                    )
-                                },
-                                onClick = {
-                                    showMoreMenu = false
-                                    if (item.isHidden) {
-                                        viewModel.toggleHidden(context, item)
-                                    } else {
-                                        showVaultConfirmDialog = true
-                                    }
-                                }
-                            )
-
-                            DropdownMenuItem(
-                                text = { Text("Start Slideshow 🎞️") },
-                                leadingIcon = { Icon(Icons.Default.PlayArrow, contentDescription = null) },
-                                onClick = {
-                                    showMoreMenu = false
-                                    isSlideshowActive = true
-                                }
-                            )
-
-                            DropdownMenuItem(
-                                text = { Text("Set as Wallpaper / Contact") },
-                                leadingIcon = { Icon(Icons.Default.Wallpaper, contentDescription = null) },
-                                onClick = {
-                                    showMoreMenu = false
-                                    showSetAsDialog = true
-                                }
-                            )
-
-                            if (item is com.HrshD1eux.Gallery.data.model.MediaItem.Video) {
-                                DropdownMenuItem(
-                                    text = { Text("Trim Video / Make GIF 🎬") },
-                                    leadingIcon = { Icon(Icons.Default.ContentCut, contentDescription = null) },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        showVideoTrimDialog = true
-                                    }
-                                )
-                            }
-
+                        if (item is com.HrshD1eux.Gallery.data.model.MediaItem.Photo) {
                             DropdownMenuItem(
                                 text = { Text("Compress Image 📉") },
                                 leadingIcon = { Icon(Icons.Default.Compress, contentDescription = null) },

@@ -40,6 +40,12 @@ import com.HrshD1eux.Gallery.data.model.MediaItem
 import kotlinx.coroutines.launch
 import java.util.Locale
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+
 @Composable
 fun VideoTrimDialog(
     mediaItem: MediaItem.Video,
@@ -78,17 +84,33 @@ fun VideoTrimDialog(
         },
         title = { Text(text = "Trim Video / Create GIF") },
         text = {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = mediaItem.path.substringAfterLast('/'),
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1
-                )
-                Spacer(modifier = Modifier.height(16.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = mediaItem.path.substringAfterLast('/'),
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
 
-                // Mode Chips
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Mode Chips in a horizontal scrollable row
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     FilterChip(
@@ -105,12 +127,13 @@ fun VideoTrimDialog(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 // Time Range Display
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = "Start: ${formatDuration(startMs)}",
