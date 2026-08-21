@@ -1,4 +1,4 @@
-# 🖼️ Android Gallery — Production-Grade Media & Vault App
+# 🖼️ Android Gallery
 
 A high-performance, privacy-focused, production-grade Android Gallery application built with **Jetpack Compose**, **Hilt**, **Room**, **Coil**, **Media3 ExoPlayer**, and **Hardware-Backed AES-256-GCM Cryptography**.
 
