@@ -32,9 +32,9 @@
 -dontwarn androidx.media3.**
 
 # Data Models & Entities
--keep class com.HrshD1eux.Gallery.data.model.** { *; }
--keep class com.HrshD1eux.Gallery.data.database.** { *; }
--keep class com.HrshD1eux.Gallery.core.util.** { *; }
--keep class com.HrshD1eux.Gallery.data.repository.DatePositionHeader { *; }
--keep class com.HrshD1eux.Gallery.data.media.BucketInfo { *; }
+-keep class com.hrshd1eux.imava.data.model.** { *; }
+-keep class com.hrshd1eux.imava.data.database.** { *; }
+-keep class com.hrshd1eux.imava.core.util.** { *; }
+-keep class com.hrshd1eux.imava.data.repository.DatePositionHeader { *; }
+-keep class com.hrshd1eux.imava.data.media.BucketInfo { *; }
 

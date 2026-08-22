@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Base application theme targeting native material with no action bar -->
-    <style name="Theme.Gallery" parent="android:Theme.Material.NoActionBar">
+    <style name="Theme.Imava" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@android:color/white</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>

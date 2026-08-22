@@ -1,8 +1,28 @@
-# 🖼️ Android Gallery
+<p align="center">
+  <img src="app/src/main/ic_launcher-playstore.png" width="120" height="120" alt="Imava Icon" />
+</p>
 
-A high-performance, privacy-focused Android Gallery application built with **Jetpack Compose**, **Dagger Hilt**, **Room (KSP)**, **Coil**, **Media3 ExoPlayer**, **AndroidX WorkManager**, and **Hardware-Backed AES-256-GCM Cryptography**.
+<h1 align="center">Imava</h1>
 
-Engineered for massive photo libraries with efficient memory management, streaming video playback, non-destructive photo editing, and a hardware-encrypted vault.
+<p align="center">
+  <strong>Private by design. Your moments, yours alone.</strong>
+</p>
+
+<p align="center">
+  A high-performance, privacy-focused Android Gallery application built with <strong>Jetpack Compose</strong>, <strong>Dagger Hilt</strong>, <strong>Room (KSP)</strong>, <strong>Coil</strong>, <strong>Media3 ExoPlayer</strong>, <strong>AndroidX WorkManager</strong>, <strong>AndroidX Print</strong>, and <strong>Hardware-Backed AES-256-GCM Cryptography</strong>.
+</p>
+
+---
+
+## 📱 Screenshots & Interface
+
+| Photos Timeline & Memories | Side-by-Side Comparison | Encrypted Vault & Security |
+|:---:|:---:|:---:|
+| Dynamic 1–6 Column Grid & "On This Day" Carousel | Synchronized Dual-Pane Loupe | AES-256-GCM Hardware Lock & Decoy PIN |
+
+| Photo Editor & Tuning | Flexible Album Layouts | Media3 Video Player |
+|:---:|:---:|:---:|
+| Color Sliders, Presets & Crop | Multi-Column Grids & Custom Covers | Gesture Controls & 0.25x–3.0x Speed |
 
 ---
 
@@ -10,18 +30,28 @@ Engineered for massive photo libraries with efficient memory management, streami
 
 ### 🚀 Scalable Architecture & Performance
 - **Jetpack Paging 3 Grid**: Incremental SQL pagination (`pageSize = 60`) loads media in small chunks with minimal UI memory footprint ($O(1)$ rendering relative to total storage).
-- **Interactive Multi-Column Pinch-to-Zoom**: Pinch dynamically between 1 to 6 thumbnail columns with fluid physics.
+- **Interactive Multi-Column Pinch-to-Zoom**: Pinch dynamically between 1 to 6 thumbnail columns with fluid physics, supported by a settings slider.
 - **Fast Timeline Scrubber**: Equidistant date sampling with $O(1)$ cursor seeks across 100,000+ media collections.
 - **Multi-URI Reactive ContentObserver**: Concurrent observation on `MediaStore.Images`, `MediaStore.Video`, and `MediaStore.Files` for immediate timeline sync when media changes externally.
 - **Batched Metadata Queries**: Room queries use chunked `WHERE mediaId IN (:ids)` batch queries (500 items/chunk) to eliminate N+1 query overhead.
 - **Downsampled Thumbnail Grid**: Coil `AsyncImage` decodes downsampled grid cells to `280x280` px for minimal RAM and GPU overhead.
 
-### 🖼️ Photo Viewer & Gestures
+### 📅 "On This Day" Throwback Memories (100% Offline)
+- **Zero Cloud / Zero AI Memory Engine**: Automatically surfaces photos captured on today's calendar date in previous years ("1 Year Ago Today", "2 Years Ago Today") via local date queries.
+- **Story Carousel Header**: Interactive, dismissible horizontal memory cards at the top of the timeline for quick access to past anniversaries and milestones.
+
+### 🔍 Side-by-Side Photo Comparison Loupe
+- **Dual-Pane Split Viewer**: Compare any two photos side-by-side with split layout switcher (vertical or horizontal split).
+- **Synchronized Transform Physics**: Gestures for zooming and panning can be synchronized between both panes or adjusted independently for detail inspection.
+
+### 🖼️ Photo Viewer, Tags & Printing
 - **Interactive Swipe-Down-to-Dismiss**: Natural drag-to-dismiss gesture with dynamic scaling, positional translation, and background alpha fading back to the timeline.
 - **High-Res Sub-Sampling Tile Decoder**: Memory-safe deep zoom for 50MP+ full-resolution photos without OOM.
+- **🏷️ Custom Offline Tags & Hashtags**: Add custom tags (e.g. `#Receipt`, `#Travel`, `#Family`) directly from the photo details bottom sheet, indexed in Room and searchable in the search tab.
+- **🖨️ Direct Hardware Printing**: Integrated `AndroidX PrintHelper` with automatic EXIF rotation to print photos directly to physical printers.
 - **1-Tap "Set as Wallpaper"**: Native Android wallpaper cropper dispatch for Home & Lock screens.
-- **"Set as Album Cover"**: Choose any photo to represent an album in the grid or list views.
-- **EXIF GPS Resolver**: Interactive metadata bottom sheet with 1-tap "Open in Maps" navigation.
+- **"Set as Album Cover"**: Choose any photo to represent an album with an interactive album selector dialog.
+- **EXIF GPS Resolver**: Interactive metadata bottom sheet with 1-tap "Open in Maps" navigation and date/time editor.
 
 ### 📁 Flexible Album Organization & Custom Covers
 - **Multiple Layout Modes**: Switch instantly between **List View**, **Large Grid (2 Columns)**, **Medium Grid (3 Columns)**, and **Small Grid (4 Columns)**.
@@ -30,10 +60,10 @@ Engineered for massive photo libraries with efficient memory management, streami
 - **Storage Overview**: Live visual breakdown of total photos, videos, vault, and trash file counts and disk usage.
 
 ### 🏷️ Batch Multi-Photo Rename Tool
-- **Numbered Sequence**: Rename 50+ photos at once using customizable prefixes and zero-padded counters (`Vacation_###.jpg` $\rightarrow$ `Vacation_001.jpg`, `Vacation_002.jpg`).
+- **Numbered Sequence**: Rename dozens of photos at once using customizable prefixes and zero-padded counters (`Trip_###.jpg` $\rightarrow$ `Trip_001.jpg`, `Trip_002.jpg`).
 - **Date-Stamped Prefix**: Prepend capture dates (`2026-08-24_<OriginalName>.jpg`).
 - **Find & Replace**: Batch replace camera prefixes (e.g. replace `IMG_` with `Shoot_`).
-- **Live Preview**: Real-time preview of the first 3 renamed files before committing changes.
+- **Responsive Layout**: Soft-keyboard adaptive scrollable dialogs for all screen sizes and orientations.
 
 ### 🎨 Hardware-Accelerated Photo Editor & Color Tuning
 - **Fine Tuning Sliders**: Adjust **Brightness** (-100 to +100), **Contrast** (0.5x to 2.0x), **Saturation** (0.0x to 2.0x), and **Warmth / Temperature** (-50 to +50).
@@ -41,16 +71,18 @@ Engineered for massive photo libraries with efficient memory management, streami
 - **Interactive Crop & Transformations**: Freeform pointer crop with explicit Apply/Reset controls, 1:1, 4:3, 16:9 aspect presets, 90° rotation, and horizontal/vertical flipping.
 - **Target KB Compressor**: Memory-safe bitmap subsampling (`inSampleSize`) to compress photos to target sizes (e.g. 50 KB, 500 KB) without heap exhaustion.
 
-### 🎥 Media3 Video Player, Trimmer & Audio Extractor
-- **Vertical Swipe Gestures**: Left vertical drag controls screen brightness; right vertical drag controls media volume with on-screen visual pills.
+### 🎥 Media3 Video Player, Speed Controls & Trimmer
+- **Variable Playback Speed**: Select playback speeds from `0.25x` to `3.0x` with pitch-corrected audio, plus long-press 2x speed hold.
+- **Vertical Swipe Gestures**: Left vertical drag controls screen brightness; right vertical drag controls media volume with on-screen visual feedback.
 - **Multi-Audio & Subtitle Track Selector**: Switch between embedded multilingual audio tracks and subtitle/caption streams.
 - **1-Tap Audio Extractor**: Lossless demuxing of video audio into `.m4a` files saved directly to `Music/Gallery_Audio` via `MediaExtractor` + `MediaMuxer` (no re-encoding delay).
 - **Lossless Video Trimmer**: Keyframe-aligned track copying for instant trimming without re-encoding.
 - **Animated GIF Generator**: Extracts video frames and encodes standard GIF89a animations.
 
-### 🔐 Hardware-Backed Encrypted Vault
+### 🔐 Hardware-Backed Encrypted Vault & Decoy PIN
 - **AES-256-GCM Hardware Encryption**: Media moved to the Hidden Vault is encrypted at rest using AES-256-GCM via `AndroidKeyStore` (`AES/GCM/NoPadding`, 12-byte random IV header, 128-bit authentication tag).
 - **Brute-Force Resistant PIN Hashing**: PIN authentication uses `PBKDF2WithHmacSHA256` with 100,000 iterations and a 16-byte cryptographically secure salt.
+- **🔒 Decoy PIN (Plausible Deniability)**: Configure an alternate decoy PIN in Vault settings that silently unlocks a fake, empty vault view when entered.
 - **Persistent Lockout Rate Limiting**: Anti-tampering failed attempt tracking and lockout timestamps are persisted to prevent rate-limit bypass.
 - **Zero Plaintext Flash Storage Leak**: Stream-decrypted in-memory decoding via custom Coil `VaultFetcher` and Media3 `EncryptedVaultDataSource` (`CipherInputStream`). Decrypted bytes never touch disk cache.
 - **Dynamic `FLAG_SECURE` Protection**: Applies window security flags when viewing vault media to prevent screenshots and task preview leaks.
@@ -67,14 +99,9 @@ Engineered for massive photo libraries with efficient memory management, streami
 - **Automatic Trash Auto-Purge**: Daily recurring background worker powered by `androidx.work:work-runtime-ktx` that permanently deletes media and database records older than 30 days.
 - **One-Tap Empty Trash**: Immediate permanent purge confirmation dialog.
 
-### 🌓 Theming & AMOLED Dark Mode
-- **Pure Black AMOLED Dark Mode**: Complete `#000000` surface and background theme for OLED battery savings.
-- **System & Standard Dark/Light Modes**: Dynamic Material You color scheme adaptability.
-
-### 🛡️ Privacy Tools & Sharing
+### 🛡️ Privacy Tools & PDF Export
 - **EXIF Metadata Stripper**: Strips GPS coordinates, camera model, and private timestamps prior to sharing.
-- **Date & Time Editor**: Update timestamps across Room, MediaStore, and EXIF `TAG_DATETIME`.
-- **Multi-Photo PDF Export**: Converts selected photos into high-resolution multi-page A4 PDF documents.
+- **Multi-Photo PDF Export**: Converts selected photos into high-resolution multi-page A4 PDF documents with automatic EXIF orientation correction and landscape/portrait matching.
 
 ---
 

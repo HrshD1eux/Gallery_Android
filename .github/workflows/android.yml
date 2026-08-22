@@ -97,7 +97,7 @@ jobs:
 
       - name: Rename APK for Distribution
         run: |
-          DIST_NAME="Gallery-v${VERSION_NAME}.apk"
+          DIST_NAME="Imava-v${VERSION_NAME}.apk"
           cp "$APK_PATH" "$DIST_NAME"
           echo "DIST_APK=${DIST_NAME}" >> $GITHUB_ENV
           echo "Prepared $DIST_NAME for distribution."
@@ -105,7 +105,7 @@ jobs:
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Gallery-v${{ env.VERSION_NAME }}
+          name: Imava-v${{ env.VERSION_NAME }}
           path: ${{ env.DIST_APK }}
           if-no-files-found: error
 
@@ -114,19 +114,23 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION_NAME }}
-          name: Gallery v${{ env.VERSION_NAME }}
+          name: Imava v${{ env.VERSION_NAME }}
           body: |
-            ## 🖼️ Gallery v${{ env.VERSION_NAME }} Release
+            ## 🖼️ Imava v${{ env.VERSION_NAME }} Release
+            *Private by design. Your moments, yours alone.*
             
             ### ✨ Highlights
-            * **High-Performance Timeline**: Jetpack Compose Lazy Staggered Grid with Paging 3 and fast $O(1)$ timeline scrubber.
-            * **AES-256-GCM Encrypted Vault**: Hardware-backed KeyStore encryption with PBKDF2 PIN hashing (100,000 rounds) and persistent rate-limiting.
-            * **Streaming Video Playback**: Progressive cipher streaming via ExoPlayer with minimal RAM consumption.
-            * **Non-Destructive Editor & Tools**: Fast cropping, 90° rotation, memory-safe compressor, and duplicate photo finder.
-            * **Modern Tooling**: Built with Kotlin Symbol Processing (KSP) and AndroidX Biometrics.
+            * **High-Performance Timeline**: Jetpack Compose Lazy Staggered Grid with Paging 3, dynamic pinch-to-zoom (1-6 columns), and fast $O(1)$ timeline scrubber.
+            * **"On This Day" Throwback Memories**: 100% offline story carousel highlighting photos taken on today's calendar date in previous years.
+            * **Side-by-Side Photo Comparison Loupe**: Synchronized dual-pane zoom & pan with vertical/horizontal split switcher.
+            * **Direct Hardware Photo Printing**: Integrated `AndroidX PrintHelper` with EXIF auto-rotation to send photos directly to physical printers.
+            * **Custom Offline Tags & Hashtags**: View, add, and remove tags in the metadata sheet with hashtag search indexing.
+            * **AES-256-GCM Encrypted Vault & Decoy PIN**: Hardware-backed KeyStore encryption with PBKDF2 PIN hashing and decoy PIN for plausible deniability.
+            * **Variable Video Playback Speed**: Precise playback speed selector (0.25x to 3.0x) with pitch correction and gesture controls.
+            * **Non-Destructive Editor & Tools**: Color tuning sliders, 1-tap filter presets, interactive cropping, lossless audio extraction, and batch renaming.
             
             ### 📦 Download & Install
-            Download the attached `Gallery-v${{ env.VERSION_NAME }}.apk` below.
+            Download the attached `Imava-v${{ env.VERSION_NAME }}.apk` below.
           files: ${{ env.DIST_APK }}
           draft: false
           prerelease: false
