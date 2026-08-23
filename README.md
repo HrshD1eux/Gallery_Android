@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="app/src/main/ic_launcher-playstore.png" width="120" height="120" alt="Imava Icon" />
+  <img src="assets/icon.png" width="128" height="128" alt="Imava Icon" />
 </p>
 
 <h1 align="center">Imava</h1>
@@ -16,13 +16,12 @@
 
 ## 📱 Screenshots & Interface
 
-| Photos Timeline & Memories | Side-by-Side Comparison | Encrypted Vault & Security |
-|:---:|:---:|:---:|
-| Dynamic 1–6 Column Grid & "On This Day" Carousel | Synchronized Dual-Pane Loupe | AES-256-GCM Hardware Lock & Decoy PIN |
-
-| Photo Editor & Tuning | Flexible Album Layouts | Media3 Video Player |
-|:---:|:---:|:---:|
-| Color Sliders, Presets & Crop | Multi-Column Grids & Custom Covers | Gesture Controls & 0.25x–3.0x Speed |
+<p align="center">
+  <img src="screenshots/photos.jpg" width="23%" alt="Photos Timeline" />
+  <img src="screenshots/album.jpg" width="23%" alt="Albums & Folders" />
+  <img src="screenshots/vault.jpg" width="23%" alt="Encrypted Vault" />
+  <img src="screenshots/setting.jpg" width="23%" alt="Settings & Preferences" />
+</p>
 
 ---
 
@@ -162,8 +161,14 @@ Run the automated test suite locally:
 
 ---
 
-## 📄 License
+## 📄 License & Attribution
 
 Copyright (c) 2026 **HrshD1eux**
 
-Licensed under the MIT License. See [LICENSE](LICENSE) for full details.
+Licensed under the **GNU General Public License v2.0 (GPLv2)** with **Non-Commercial & Mandatory Attribution Clause**.
+
+- ✅ **Allowed**: Free personal use, study, modification, compilation, and non-commercial forks.
+- ❌ **Prohibited**: Commercial exploitation, selling/reselling, monetization, paid bundling, or closed-source redistribution.
+- 🏷️ **Attribution**: Any public fork or redistribution must prominently credit **HrshD1eux** and link back to [https://github.com/HrshD1eux/Imava](https://github.com/HrshD1eux/Imava).
+
+See [LICENSE](LICENSE) for full legal terms.

@@ -30,9 +30,9 @@ object AppUpdateManager {
         }
 
         val githubApiUrls = listOf(
+            "https://api.github.com/repos/HrshD1eux/imava/releases/latest",
             "https://api.github.com/repos/HrshD1eux/Imava/releases/latest",
-            "https://api.github.com/repos/HrshD1eux/Gallery_Android/releases/latest",
-            "https://api.github.com/repos/HrshD1eux/Gallery/releases/latest"
+            "https://api.github.com/repos/HrshD1eux/Gallery_Android/releases/latest"
         )
 
         var jsonResponse: String? = null
