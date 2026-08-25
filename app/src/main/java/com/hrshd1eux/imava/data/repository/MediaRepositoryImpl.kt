@@ -424,18 +424,21 @@ class MediaRepositoryImpl @Inject constructor(
 
     private fun applyMetadata(item: MediaItem, meta: MediaMetadataEntity?): MediaItem {
         if (meta == null) return item
+        val tagList = if (meta.tags.isNotBlank()) meta.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() } else emptyList()
         return when (item) {
             is MediaItem.Photo -> item.copy(
                 isFavorite = meta.isFavorite,
                 isHidden = meta.isHidden,
                 isTrashed = meta.isTrashed || item.isTrashed,
-                trashTime = meta.trashTime
+                trashTime = meta.trashTime,
+                tags = tagList
             )
             is MediaItem.Video -> item.copy(
                 isFavorite = meta.isFavorite,
                 isHidden = meta.isHidden,
                 isTrashed = meta.isTrashed || item.isTrashed,
-                trashTime = meta.trashTime
+                trashTime = meta.trashTime,
+                tags = tagList
             )
         }
     }
@@ -530,17 +533,35 @@ class MediaRepositoryImpl @Inject constructor(
 
     override suspend fun searchMedia(query: String): List<MediaItem> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext emptyList()
-        val rawResults = mediaStoreDataSource.searchMedia(query)
-        if (rawResults.isEmpty()) return@withContext emptyList()
+        val cleanQuery = query.trim().removePrefix("#")
+        val rawResults = mediaStoreDataSource.searchMedia(cleanQuery)
+        val tagMatchedEntities = metadataDao.getMetadataByTag(cleanQuery)
+        val tagMatchedIds = tagMatchedEntities.map { it.mediaId }.toSet()
 
-        val ids = rawResults.map { it.id }
-        val metadataList = metadataDao.getMetadataForMediaIds(ids)
+        val allIds = (rawResults.map { it.id } + tagMatchedIds).toList()
+        if (allIds.isEmpty()) return@withContext emptyList()
+
+        val metadataList = metadataDao.getMetadataForMediaIds(allIds)
         val metadataMap = metadataList.associateBy { it.mediaId }
 
-        rawResults.map { item ->
+        val extraItems = if (tagMatchedIds.isNotEmpty()) {
+            val existingIds = rawResults.map { it.id }.toSet()
+            val missingIds = tagMatchedIds - existingIds
+            if (missingIds.isNotEmpty()) {
+                mediaStoreDataSource.fetchMediaByIds(missingIds)
+            } else emptyList<MediaItem>()
+        } else emptyList<MediaItem>()
+
+        (rawResults + extraItems).distinctBy { it.id }.map { item ->
             val meta = metadataMap[item.id]
             applyMetadata(item, meta)
         }.filter { !it.isHidden && !it.isTrashed }
+    }
+
+    override suspend fun updateMediaTags(mediaId: Long, tags: List<String>) = withContext(Dispatchers.IO) {
+        val currentMeta = metadataDao.getMetadataForMedia(mediaId) ?: MediaMetadataEntity(mediaId = mediaId)
+        val tagStr = tags.joinToString(",")
+        metadataDao.insertOrUpdate(currentMeta.copy(tags = tagStr))
     }
 
     override suspend fun scanSecondaryMediaDirectories(): Int = mediaStoreDataSource.scanSecondaryMediaDirectories()

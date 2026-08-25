@@ -2,6 +2,8 @@ package com.hrshd1eux.imava.ui.editor
 
 import android.graphics.Bitmap
 import android.graphics.RectF
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -30,6 +32,8 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Rotate90DegreesCcw
 import androidx.compose.material.icons.filled.Rotate90DegreesCw
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -42,6 +46,8 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -192,6 +198,120 @@ fun PhotoEditorScreen(
         }
     }
 
+    val hasModifications = rotationDegrees != 0f ||
+            flipHorizontal || flipVertical ||
+            brightnessOffset != 0f || contrast != 1.0f ||
+            saturation != 1.0f || warmth != 0f ||
+            selectedPreset != "none" ||
+            freeCropLeft > 0.001f || freeCropTop > 0.001f ||
+            freeCropRight > 0.001f || freeCropBottom > 0.001f ||
+            cropAspectRatio != null
+
+    var showDiscardConfirmDialog by remember { mutableStateOf(false) }
+
+    fun performSaveEditedPhoto() {
+        if (isSaving) return
+        isSaving = true
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                val fullResSource = PhotoEditorUtils.decodeFullBitmapFromUri(context, mediaItem.uri)
+                if (fullResSource != null) {
+                    val fullResCropRect = if (cropAspectRatio != null) {
+                        val ratio = cropAspectRatio!!
+                        val srcWidth = fullResSource.width.toFloat()
+                        val srcHeight = fullResSource.height.toFloat()
+                        val srcRatio = srcWidth / srcHeight
+
+                        if (srcRatio > ratio) {
+                            val cropW = srcHeight * ratio
+                            val left = (srcWidth - cropW) / 2f / srcWidth
+                            val right = 1f - left
+                            RectF(left, 0f, right, 1f)
+                        } else {
+                            val cropH = srcWidth / ratio
+                            val top = (srcHeight - cropH) / 2f / srcHeight
+                            val bottom = 1f - top
+                            RectF(0f, top, 1f, bottom)
+                        }
+                    } else if (freeCropLeft > 0f || freeCropTop > 0f || freeCropRight > 0f || freeCropBottom > 0f) {
+                        RectF(freeCropLeft, freeCropTop, 1f - freeCropRight, 1f - freeCropBottom)
+                    } else {
+                        null
+                    }
+
+                    val finalFullResBitmap = PhotoEditorUtils.transformBitmap(
+                        source = fullResSource,
+                        rotationDegrees = rotationDegrees,
+                        flipHorizontal = flipHorizontal,
+                        flipVertical = flipVertical,
+                        cropRect = fullResCropRect,
+                        brightnessOffset = brightnessOffset,
+                        contrast = contrast,
+                        saturation = saturation,
+                        warmth = warmth,
+                        preset = selectedPreset
+                    )
+
+                    viewModel.saveEditedPhoto(context, mediaItem, finalFullResBitmap)
+                } else {
+                    val fallbackBmp = transformedBitmap ?: uncroppedPreviewBitmap ?: sourceBitmap
+                    if (fallbackBmp != null) {
+                        viewModel.saveEditedPhoto(context, mediaItem, fallbackBmp)
+                    }
+                }
+            }
+            com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
+            isSaving = false
+            onDismiss()
+        }
+    }
+
+    BackHandler(enabled = hasModifications && !isSaving) {
+        showDiscardConfirmDialog = true
+    }
+
+    if (showDiscardConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showDiscardConfirmDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(28.dp)
+                )
+            },
+            title = { Text("Unsaved Edits") },
+            text = { Text("You have unsaved changes to this photo. Do you want to save your edits or discard them?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDiscardConfirmDialog = false
+                        performSaveEditedPhoto()
+                    }
+                ) {
+                    Text("Save Changes")
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(
+                        onClick = {
+                            showDiscardConfirmDialog = false
+                            onDismiss()
+                        }
+                    ) {
+                        Text("Discard", color = MaterialTheme.colorScheme.error)
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    TextButton(onClick = { showDiscardConfirmDialog = false }) {
+                        Text("Keep Editing")
+                    }
+                }
+            }
+        )
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -207,7 +327,13 @@ fun PhotoEditorScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(
-                onClick = onDismiss,
+                onClick = {
+                    if (hasModifications) {
+                        showDiscardConfirmDialog = true
+                    } else {
+                        onDismiss()
+                    }
+                },
                 enabled = !isSaving
             ) {
                 Icon(imageVector = Icons.Default.Close, contentDescription = "Cancel", tint = Color.White)
@@ -227,62 +353,7 @@ fun PhotoEditorScreen(
                 )
             } else {
                 TextButton(
-                    onClick = {
-                        if (isSaving) return@TextButton
-                        isSaving = true
-                        scope.launch {
-                            withContext(Dispatchers.IO) {
-                                val fullResSource = PhotoEditorUtils.decodeFullBitmapFromUri(context, mediaItem.uri)
-                                if (fullResSource != null) {
-                                    val fullResCropRect = if (cropAspectRatio != null) {
-                                        val ratio = cropAspectRatio!!
-                                        val srcWidth = fullResSource.width.toFloat()
-                                        val srcHeight = fullResSource.height.toFloat()
-                                        val srcRatio = srcWidth / srcHeight
-
-                                        if (srcRatio > ratio) {
-                                            val cropW = srcHeight * ratio
-                                            val left = (srcWidth - cropW) / 2f / srcWidth
-                                            val right = 1f - left
-                                            RectF(left, 0f, right, 1f)
-                                        } else {
-                                            val cropH = srcWidth / ratio
-                                            val top = (srcHeight - cropH) / 2f / srcHeight
-                                            val bottom = 1f - top
-                                            RectF(0f, top, 1f, bottom)
-                                        }
-                                    } else if (freeCropLeft > 0f || freeCropTop > 0f || freeCropRight > 0f || freeCropBottom > 0f) {
-                                        RectF(freeCropLeft, freeCropTop, 1f - freeCropRight, 1f - freeCropBottom)
-                                    } else {
-                                        null
-                                    }
-
-                                    val finalFullResBitmap = PhotoEditorUtils.transformBitmap(
-                                        source = fullResSource,
-                                        rotationDegrees = rotationDegrees,
-                                        flipHorizontal = flipHorizontal,
-                                        flipVertical = flipVertical,
-                                        cropRect = fullResCropRect,
-                                        brightnessOffset = brightnessOffset,
-                                        contrast = contrast,
-                                        saturation = saturation,
-                                        warmth = warmth,
-                                        preset = selectedPreset
-                                    )
-
-                                    viewModel.saveEditedPhoto(context, mediaItem, finalFullResBitmap)
-                                } else {
-                                    val fallbackBmp = transformedBitmap ?: uncroppedPreviewBitmap ?: sourceBitmap
-                                    if (fallbackBmp != null) {
-                                        viewModel.saveEditedPhoto(context, mediaItem, fallbackBmp)
-                                    }
-                                }
-                            }
-                            com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
-                            isSaving = false
-                            onDismiss()
-                        }
-                    }
+                    onClick = { performSaveEditedPhoto() }
                 ) {
                     Text("Save as copy", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleMedium)
                 }
@@ -636,6 +707,19 @@ fun PhotoEditorScreen(
     }
 }
 
+private enum class CropHandle {
+    NONE,
+    TOP_LEFT,
+    TOP_RIGHT,
+    BOTTOM_LEFT,
+    BOTTOM_RIGHT,
+    LEFT,
+    RIGHT,
+    TOP,
+    BOTTOM,
+    CENTER
+}
+
 @Composable
 fun CropGridOverlay(
     left: Float,
@@ -645,106 +729,194 @@ fun CropGridOverlay(
     modifier: Modifier = Modifier,
     onCropChange: (left: Float, top: Float, right: Float, bottom: Float) -> Unit
 ) {
-    Box(
+    var activeHandle by remember { mutableStateOf(CropHandle.NONE) }
+
+    Canvas(
         modifier = modifier
             .fillMaxSize()
             .pointerInput(left, top, right, bottom) {
-                detectDragGestures { change, dragAmount ->
-                    change.consume()
-                    val width = size.width.toFloat()
-                    val height = size.height.toFloat()
-                    if (width <= 0f || height <= 0f) return@detectDragGestures
+                detectDragGestures(
+                    onDragStart = { startOffset ->
+                        val width = size.width.toFloat()
+                        val height = size.height.toFloat()
+                        if (width <= 0f || height <= 0f) return@detectDragGestures
 
-                    val touchX = change.position.x / width
-                    val touchY = change.position.y / height
+                        val touchX = startOffset.x
+                        val touchY = startOffset.y
 
-                    val currentLeft = left
-                    val currentTop = top
-                    val currentRight = 1f - right
-                    val currentBottom = 1f - bottom
+                        val curLeftPx = left * width
+                        val curTopPx = top * height
+                        val curRightPx = (1f - right) * width
+                        val curBottomPx = (1f - bottom) * height
 
-                    val distLeft = abs(touchX - currentLeft)
-                    val distRight = abs(touchX - currentRight)
-                    val distTop = abs(touchY - currentTop)
-                    val distBottom = abs(touchY - currentBottom)
+                        val cornerRadiusPx = 48.dp.toPx()
+                        val edgeMarginPx = 32.dp.toPx()
 
-                    val isHorizontalHandle = distLeft < distTop && distLeft < distBottom || distRight < distTop && distRight < distBottom
+                        fun dist(x1: Float, y1: Float, x2: Float, y2: Float) =
+                            kotlin.math.hypot(x1 - x2, y1 - y2)
 
-                    if (isHorizontalHandle) {
-                        if (distLeft < distRight) {
-                            val newLeft = (currentLeft + dragAmount.x / width).coerceIn(0f, currentRight - 0.1f)
-                            onCropChange(newLeft, top, right, bottom)
-                        } else {
-                            val newRight = (1f - (currentRight + dragAmount.x / width)).coerceIn(0f, 1f - currentLeft - 0.1f)
-                            onCropChange(left, top, newRight, bottom)
+                        activeHandle = when {
+                            dist(touchX, touchY, curLeftPx, curTopPx) < cornerRadiusPx -> CropHandle.TOP_LEFT
+                            dist(touchX, touchY, curRightPx, curTopPx) < cornerRadiusPx -> CropHandle.TOP_RIGHT
+                            dist(touchX, touchY, curLeftPx, curBottomPx) < cornerRadiusPx -> CropHandle.BOTTOM_LEFT
+                            dist(touchX, touchY, curRightPx, curBottomPx) < cornerRadiusPx -> CropHandle.BOTTOM_RIGHT
+                            abs(touchX - curLeftPx) < edgeMarginPx && touchY in curTopPx..curBottomPx -> CropHandle.LEFT
+                            abs(touchX - curRightPx) < edgeMarginPx && touchY in curTopPx..curBottomPx -> CropHandle.RIGHT
+                            abs(touchY - curTopPx) < edgeMarginPx && touchX in curLeftPx..curRightPx -> CropHandle.TOP
+                            abs(touchY - curBottomPx) < edgeMarginPx && touchX in curLeftPx..curRightPx -> CropHandle.BOTTOM
+                            touchX in curLeftPx..curRightPx && touchY in curTopPx..curBottomPx -> CropHandle.CENTER
+                            else -> CropHandle.NONE
                         }
-                    } else {
-                        if (distTop < distBottom) {
-                            val newTop = (currentTop + dragAmount.y / height).coerceIn(0f, currentBottom - 0.1f)
-                            onCropChange(left, newTop, right, bottom)
-                        } else {
-                            val newBottom = (1f - (currentBottom + dragAmount.y / height)).coerceIn(0f, 1f - currentTop - 0.1f)
-                            onCropChange(left, top, right, newBottom)
+                    },
+                    onDrag = { change, dragAmount ->
+                        change.consume()
+                        val width = size.width.toFloat()
+                        val height = size.height.toFloat()
+                        if (width <= 0f || height <= 0f || activeHandle == CropHandle.NONE) return@detectDragGestures
+
+                        val dx = dragAmount.x / width
+                        val dy = dragAmount.y / height
+
+                        val curLeft = left
+                        val curTop = top
+                        val curRight = 1f - right
+                        val curBottom = 1f - bottom
+                        val minSize = 0.1f // 10% minimum size
+
+                        var nLeft = left
+                        var nTop = top
+                        var nRight = right
+                        var nBottom = bottom
+
+                        when (activeHandle) {
+                            CropHandle.TOP_LEFT -> {
+                                nLeft = (curLeft + dx).coerceIn(0f, curRight - minSize)
+                                nTop = (curTop + dy).coerceIn(0f, curBottom - minSize)
+                            }
+                            CropHandle.TOP_RIGHT -> {
+                                val nR = (curRight + dx).coerceIn(curLeft + minSize, 1f)
+                                nRight = 1f - nR
+                                nTop = (curTop + dy).coerceIn(0f, curBottom - minSize)
+                            }
+                            CropHandle.BOTTOM_LEFT -> {
+                                nLeft = (curLeft + dx).coerceIn(0f, curRight - minSize)
+                                val nB = (curBottom + dy).coerceIn(curTop + minSize, 1f)
+                                nBottom = 1f - nB
+                            }
+                            CropHandle.BOTTOM_RIGHT -> {
+                                val nR = (curRight + dx).coerceIn(curLeft + minSize, 1f)
+                                val nB = (curBottom + dy).coerceIn(curTop + minSize, 1f)
+                                nRight = 1f - nR
+                                nBottom = 1f - nB
+                            }
+                            CropHandle.LEFT -> {
+                                nLeft = (curLeft + dx).coerceIn(0f, curRight - minSize)
+                            }
+                            CropHandle.RIGHT -> {
+                                val nR = (curRight + dx).coerceIn(curLeft + minSize, 1f)
+                                nRight = 1f - nR
+                            }
+                            CropHandle.TOP -> {
+                                nTop = (curTop + dy).coerceIn(0f, curBottom - minSize)
+                            }
+                            CropHandle.BOTTOM -> {
+                                val nB = (curBottom + dy).coerceIn(curTop + minSize, 1f)
+                                nBottom = 1f - nB
+                            }
+                            CropHandle.CENTER -> {
+                                val cropW = curRight - curLeft
+                                val cropH = curBottom - curTop
+                                val shiftedLeft = (curLeft + dx).coerceIn(0f, 1f - cropW)
+                                val shiftedTop = (curTop + dy).coerceIn(0f, 1f - cropH)
+                                nLeft = shiftedLeft
+                                nTop = shiftedTop
+                                nRight = 1f - (shiftedLeft + cropW)
+                                nBottom = 1f - (shiftedTop + cropH)
+                            }
+                            CropHandle.NONE -> {}
                         }
-                    }
-                }
+
+                        onCropChange(nLeft, nTop, nRight, nBottom)
+                    },
+                    onDragEnd = { activeHandle = CropHandle.NONE },
+                    onDragCancel = { activeHandle = CropHandle.NONE }
+                )
             }
     ) {
-        // Semi-transparent dark overlay around the cropped window
-        Column(modifier = Modifier.fillMaxSize()) {
-            if (top > 0f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(top.coerceAtLeast(0.001f))
-                        .background(Color.Black.copy(alpha = 0.6f))
-                )
-            }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight((1f - top - bottom).coerceAtLeast(0.001f))
-            ) {
-                if (left > 0f) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .weight(left.coerceAtLeast(0.001f))
-                            .background(Color.Black.copy(alpha = 0.6f))
-                    )
-                }
-                // Center clear cropped area with 3x3 grid lines
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .weight((1f - left - right).coerceAtLeast(0.001f))
-                        .background(Color.Transparent)
-                ) {
-                    // Outer border
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Transparent)
-                            .padding(1.dp)
-                    )
-                }
-                if (right > 0f) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .weight(right.coerceAtLeast(0.001f))
-                            .background(Color.Black.copy(alpha = 0.6f))
-                    )
-                }
-            }
-            if (bottom > 0f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(bottom.coerceAtLeast(0.001f))
-                        .background(Color.Black.copy(alpha = 0.6f))
-                )
-            }
-        }
+        val width = size.width
+        val height = size.height
+        val curLeftPx = left * width
+        val curTopPx = top * height
+        val curRightPx = (1f - right) * width
+        val curBottomPx = (1f - bottom) * height
+        val cropWidth = curRightPx - curLeftPx
+        val cropHeight = curBottomPx - curTopPx
+
+        val dimColor = Color.Black.copy(alpha = 0.55f)
+
+        // 1. Draw outer dim overlays
+        // Top rect
+        drawRect(dimColor, topLeft = Offset(0f, 0f), size = Size(width, curTopPx))
+        // Bottom rect
+        drawRect(dimColor, topLeft = Offset(0f, curBottomPx), size = Size(width, height - curBottomPx))
+        // Left rect
+        drawRect(dimColor, topLeft = Offset(0f, curTopPx), size = Size(curLeftPx, cropHeight))
+        // Right rect
+        drawRect(dimColor, topLeft = Offset(curRightPx, curTopPx), size = Size(width - curRightPx, cropHeight))
+
+        // 2. Draw border
+        drawRect(
+            color = Color.White.copy(alpha = 0.85f),
+            topLeft = Offset(curLeftPx, curTopPx),
+            size = Size(cropWidth, cropHeight),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx())
+        )
+
+        // 3. Draw 3x3 Rule-of-Thirds Grid
+        val oneThirdW = cropWidth / 3f
+        val twoThirdsW = cropWidth * 2f / 3f
+        val oneThirdH = cropHeight / 3f
+        val twoThirdsH = cropHeight * 2f / 3f
+        val gridColor = Color.White.copy(alpha = 0.35f)
+        val gridStroke = 1.dp.toPx()
+
+        drawLine(gridColor, Offset(curLeftPx + oneThirdW, curTopPx), Offset(curLeftPx + oneThirdW, curBottomPx), strokeWidth = gridStroke)
+        drawLine(gridColor, Offset(curLeftPx + twoThirdsW, curTopPx), Offset(curLeftPx + twoThirdsW, curBottomPx), strokeWidth = gridStroke)
+        drawLine(gridColor, Offset(curLeftPx, curTopPx + oneThirdH), Offset(curRightPx, curTopPx + oneThirdH), strokeWidth = gridStroke)
+        drawLine(gridColor, Offset(curLeftPx, curTopPx + twoThirdsH), Offset(curRightPx, curTopPx + twoThirdsH), strokeWidth = gridStroke)
+
+        // 4. Draw Corner Brackets (Pointers)
+        val bracketLen = 22.dp.toPx().coerceAtMost(cropWidth / 3f).coerceAtMost(cropHeight / 3f)
+        val bracketThickness = 4.dp.toPx()
+        val bracketColor = Color.White
+
+        // Top-Left
+        drawLine(bracketColor, Offset(curLeftPx - 1.dp.toPx(), curTopPx), Offset(curLeftPx + bracketLen, curTopPx), strokeWidth = bracketThickness)
+        drawLine(bracketColor, Offset(curLeftPx, curTopPx - 1.dp.toPx()), Offset(curLeftPx, curTopPx + bracketLen), strokeWidth = bracketThickness)
+
+        // Top-Right
+        drawLine(bracketColor, Offset(curRightPx + 1.dp.toPx(), curTopPx), Offset(curRightPx - bracketLen, curTopPx), strokeWidth = bracketThickness)
+        drawLine(bracketColor, Offset(curRightPx, curTopPx - 1.dp.toPx()), Offset(curRightPx, curTopPx + bracketLen), strokeWidth = bracketThickness)
+
+        // Bottom-Left
+        drawLine(bracketColor, Offset(curLeftPx - 1.dp.toPx(), curBottomPx), Offset(curLeftPx + bracketLen, curBottomPx), strokeWidth = bracketThickness)
+        drawLine(bracketColor, Offset(curLeftPx, curBottomPx + 1.dp.toPx()), Offset(curLeftPx, curBottomPx - bracketLen), strokeWidth = bracketThickness)
+
+        // Bottom-Right
+        drawLine(bracketColor, Offset(curRightPx + 1.dp.toPx(), curBottomPx), Offset(curRightPx - bracketLen, curBottomPx), strokeWidth = bracketThickness)
+        drawLine(bracketColor, Offset(curRightPx, curBottomPx + 1.dp.toPx()), Offset(curRightPx, curBottomPx - bracketLen), strokeWidth = bracketThickness)
+
+        // 5. Draw Edge Midpoint Handles (Pills)
+        val edgeLen = 16.dp.toPx().coerceAtMost(cropWidth / 4f)
+        val edgeThickness = 3.dp.toPx()
+
+        // Top edge handle
+        drawLine(bracketColor, Offset(curLeftPx + cropWidth / 2f - edgeLen / 2f, curTopPx), Offset(curLeftPx + cropWidth / 2f + edgeLen / 2f, curTopPx), strokeWidth = edgeThickness)
+        // Bottom edge handle
+        drawLine(bracketColor, Offset(curLeftPx + cropWidth / 2f - edgeLen / 2f, curBottomPx), Offset(curLeftPx + cropWidth / 2f + edgeLen / 2f, curBottomPx), strokeWidth = edgeThickness)
+        // Left edge handle
+        drawLine(bracketColor, Offset(curLeftPx, curTopPx + cropHeight / 2f - edgeLen / 2f), Offset(curLeftPx, curTopPx + cropHeight / 2f + edgeLen / 2f), strokeWidth = edgeThickness)
+        // Right edge handle
+        drawLine(bracketColor, Offset(curRightPx, curTopPx + cropHeight / 2f - edgeLen / 2f), Offset(curRightPx, curTopPx + cropHeight / 2f + edgeLen / 2f), strokeWidth = edgeThickness)
     }
 }

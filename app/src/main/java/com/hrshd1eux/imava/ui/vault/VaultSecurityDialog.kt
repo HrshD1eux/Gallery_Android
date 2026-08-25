@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
@@ -63,6 +64,8 @@ fun VaultSecurityDialog(
     var isStealthMode by remember { mutableStateOf(prefs.getBoolean("vault_stealth_mode", false)) }
     var isVaultDisabled by remember { mutableStateOf(prefs.getBoolean("vault_disabled", false)) }
     var secretTrigger by remember { mutableStateOf(prefs.getString("vault_secret_trigger", "#vault") ?: "#vault") }
+    var hasDecoyPin by remember { mutableStateOf(prefs.getString("vault_decoy_pin_hash", null) != null) }
+    var showDecoyPinDialog by remember { mutableStateOf(false) }
 
     var showPinChangeDialog by remember { mutableStateOf(false) }
     var showPatternSetupDialog by remember { mutableStateOf(false) }
@@ -254,6 +257,35 @@ fun VaultSecurityDialog(
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
+                // --- Decoy PIN Option ---
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showDecoyPinDialog = true }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Security,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Configure Decoy PIN 🎭",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            text = if (hasDecoyPin) "Decoy PIN active (opens empty fake vault)" else "Set a decoy PIN for plausible deniability",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
                 // --- Disable Vault Option ---
                 Row(
                     modifier = Modifier
@@ -318,6 +350,102 @@ fun VaultSecurityDialog(
             }
         }
     )
+
+    // Configure Decoy PIN Dialog
+    if (showDecoyPinDialog) {
+        var decoyInput by remember { mutableStateOf("") }
+        var confirmDecoyInput by remember { mutableStateOf("") }
+        var decoyError by remember { mutableStateOf<String?>(null) }
+
+        AlertDialog(
+            onDismissRequest = { showDecoyPinDialog = false },
+            icon = { Icon(Icons.Default.Security, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+            title = { Text("Decoy PIN 🎭") },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "A decoy PIN provides plausible deniability. When typed at unlock, Imava unlocks an empty fake vault instead of revealing your private items.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = decoyInput,
+                        onValueChange = {
+                            if (it.length <= 8 && it.all { c -> c.isDigit() }) decoyInput = it
+                        },
+                        label = { Text("Decoy PIN (4-8 digits)") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = confirmDecoyInput,
+                        onValueChange = {
+                            if (it.length <= 8 && it.all { c -> c.isDigit() }) confirmDecoyInput = it
+                        },
+                        label = { Text("Confirm Decoy PIN") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (decoyError != null) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(text = decoyError!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (decoyInput.length < 4) {
+                            decoyError = "Decoy PIN must be at least 4 digits"
+                            return@Button
+                        }
+                        if (decoyInput != confirmDecoyInput) {
+                            decoyError = "PINs do not match"
+                            return@Button
+                        }
+                        val saltBase64 = prefs.getString("vault_salt", null)
+                        val saltBytes = if (saltBase64 != null) {
+                            android.util.Base64.decode(saltBase64, android.util.Base64.NO_WRAP)
+                        } else {
+                            VaultCrypto.generateSalt()
+                        }
+                        val decoyHash = VaultCrypto.hashPin(decoyInput, saltBytes)
+                        val encHash = VaultCrypto.encryptString(decoyHash)
+                        prefs.edit().putString("vault_decoy_pin_hash", encHash).apply()
+                        hasDecoyPin = true
+                        showDecoyPinDialog = false
+                        Toast.makeText(context, "Decoy PIN configured!", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text("Save Decoy PIN")
+                }
+            },
+            dismissButton = {
+                Row {
+                    if (hasDecoyPin) {
+                        TextButton(
+                            onClick = {
+                                prefs.edit().remove("vault_decoy_pin_hash").apply()
+                                hasDecoyPin = false
+                                showDecoyPinDialog = false
+                                Toast.makeText(context, "Decoy PIN removed", Toast.LENGTH_SHORT).show()
+                            }
+                        ) {
+                            Text("Remove", color = MaterialTheme.colorScheme.error)
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
+                    TextButton(onClick = { showDecoyPinDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            }
+        )
+    }
 
     // Confirm Disable Vault Dialog
     if (showDisableConfirmDialog) {

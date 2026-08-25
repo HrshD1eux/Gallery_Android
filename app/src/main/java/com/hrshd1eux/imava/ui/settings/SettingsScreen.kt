@@ -331,7 +331,7 @@ fun SettingsScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "Gallery App",
+                        text = "Imava",
                         style = MaterialTheme.typography.headlineSmall,
                         color = MaterialTheme.colorScheme.primary,
                         textAlign = TextAlign.Center
@@ -436,24 +436,30 @@ fun SettingsScreen(
                             title = { Text("New Version Available: v${currentInfo.latestVersion}") },
                             text = {
                                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                                    Card(
-                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f)),
-                                        shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                                    ) {
-                                        Text(
-                                            text = "⚠️ Migration Note: Because of our transition to the new package ID (com.hrshd1eux.imava), please download the APK, install it, and delete the older version manually.",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onErrorContainer,
-                                            modifier = Modifier.padding(8.dp)
-                                        )
+                                    if (com.hrshd1eux.imava.core.util.AppUpdateManager.isVersionOlderThan(currentInfo.currentVersion, "1.1.8")) {
+                                        Card(
+                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f)),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                                        ) {
+                                            Text(
+                                                text = "⚠️ Migration Note: Because of our transition to the new package ID (com.hrshd1eux.imava), please download the APK, install it, and delete the older version manually.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                                modifier = Modifier.padding(8.dp)
+                                            )
+                                        }
                                     }
 
                                     Text("Installed version: v${currentInfo.currentVersion}")
                                     Spacer(modifier = Modifier.height(8.dp))
-                                    Text("Release Notes:", style = MaterialTheme.typography.titleSmall)
+                                    Text("Release Highlights:", style = MaterialTheme.typography.titleSmall)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    val cleanedNotes = remember(currentInfo.releaseNotes) {
+                                        com.hrshd1eux.imava.core.util.AppUpdateManager.formatCleanReleaseNotes(currentInfo.releaseNotes)
+                                    }
                                     Text(
-                                        text = currentInfo.releaseNotes,
+                                        text = cleanedNotes,
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )

@@ -101,6 +101,15 @@ class MediaRepositoryImplTest {
             dbMap.remove(mediaId)
             deletedIds.add(mediaId)
         }
+
+        override suspend fun getMetadataByTag(tagQuery: String): List<MediaMetadataEntity> {
+            return dbMap.values.filter { it.tags.contains(tagQuery, ignoreCase = true) && !it.isHidden && !it.isTrashed }
+        }
+
+        override suspend fun updateTags(mediaId: Long, tags: String) {
+            val cur = dbMap[mediaId] ?: MediaMetadataEntity(mediaId = mediaId)
+            dbMap[mediaId] = cur.copy(tags = tags)
+        }
     }
 
     @Test

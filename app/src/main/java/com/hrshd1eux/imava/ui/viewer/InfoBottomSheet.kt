@@ -3,6 +3,7 @@ package com.hrshd1eux.imava.ui.viewer
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,20 +13,31 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.Style
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -65,11 +77,15 @@ fun InfoBottomSheet(
     sheetState: SheetState,
     onDismissRequest: () -> Unit,
     onUpdateDateTaken: ((Long) -> Unit)? = null,
+    onUpdateTags: ((List<String>) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     var details by remember(item) { mutableStateOf<ExifDetails?>(null) }
     var showDatePicker by remember { mutableStateOf(false) }
+    var tagsList by remember(item.id, item.tags) { mutableStateOf(item.tags) }
+    var showAddTagDialog by remember { mutableStateOf(false) }
+    var newTagInput by remember { mutableStateOf("") }
 
     LaunchedEffect(item) {
         withContext(Dispatchers.IO) {
@@ -196,6 +212,68 @@ fun InfoBottomSheet(
                     subtitle = "${info.resolution}  ·  ${info.fileSize}"
                 )
 
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Custom Offline Tags Section
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Tags & Hashtags 🏷️",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    IconButton(
+                        onClick = { showAddTagDialog = true },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Add Tag",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                ) {
+                    if (tagsList.isEmpty()) {
+                        item {
+                            Text(
+                                text = "No custom tags added yet",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        }
+                    } else {
+                        items(tagsList) { tag ->
+                            InputChip(
+                                selected = false,
+                                onClick = {},
+                                label = { Text("#$tag") },
+                                trailingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Remove Tag",
+                                        modifier = Modifier
+                                            .size(14.dp)
+                                            .clickable {
+                                                val updated = tagsList - tag
+                                                tagsList = updated
+                                                onUpdateTags?.invoke(updated)
+                                            }
+                                    )
+                                }
+                            )
+                        }
+                    }
+                }
+
                 if (info.hasGps) {
                     Spacer(modifier = Modifier.height(12.dp))
 
@@ -235,6 +313,45 @@ fun InfoBottomSheet(
             )
             
             Spacer(modifier = Modifier.height(24.dp))
+        }
+
+        if (showAddTagDialog) {
+            AlertDialog(
+                onDismissRequest = { showAddTagDialog = false },
+                title = { Text("Add Tag / Hashtag") },
+                text = {
+                    OutlinedTextField(
+                        value = newTagInput,
+                        onValueChange = { newTagInput = it },
+                        label = { Text("Tag name") },
+                        placeholder = { Text("e.g. vacation, sunset") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        enabled = newTagInput.isNotBlank(),
+                        onClick = {
+                            val clean = newTagInput.trim().removePrefix("#").lowercase()
+                            if (clean.isNotEmpty() && !tagsList.contains(clean)) {
+                                val updated = tagsList + clean
+                                tagsList = updated
+                                onUpdateTags?.invoke(updated)
+                            }
+                            newTagInput = ""
+                            showAddTagDialog = false
+                        }
+                    ) {
+                        Text("Add")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showAddTagDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
         }
     }
 }

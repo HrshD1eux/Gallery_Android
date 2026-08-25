@@ -57,7 +57,7 @@ private val LightColorScheme = lightColorScheme(
 )
 
 @Composable
-fun GalleryTheme(
+fun ImavaTheme(
     appTheme: String = "system",
     darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = true,

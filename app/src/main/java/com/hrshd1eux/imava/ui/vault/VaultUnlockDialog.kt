@@ -45,13 +45,15 @@ import kotlinx.coroutines.delay
 @Composable
 fun VaultUnlockDialog(
     onDismiss: () -> Unit,
-    onUnlockSuccess: () -> Unit
+    onUnlockSuccess: () -> Unit,
+    onUnlockDecoy: () -> Unit = onUnlockSuccess
 ) {
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences("vault_prefs", Context.MODE_PRIVATE) }
     
     val storedLockType = prefs.getString("vault_lock_type", "PIN") ?: "PIN"
     val storedPinHash = prefs.getString("vault_pin_hash", null)
+    val storedDecoyHash = prefs.getString("vault_decoy_pin_hash", null)
     val storedSaltBase64 = prefs.getString("vault_salt", null)
     val legacyPin = prefs.getString("vault_pin", null)
     val isVaultDisabled = prefs.getBoolean("vault_disabled", false)
@@ -117,6 +119,7 @@ fun VaultUnlockDialog(
         if (lockoutRemainingSeconds > 0) return
 
         var isValid = false
+        var isDecoy = false
         var needsUpgrade = false
 
         if (storedPinHash != null && storedSaltBase64 != null) {
@@ -124,9 +127,28 @@ fun VaultUnlockDialog(
             val res = VaultCrypto.verifyPin(input, storedPinHash, salt)
             isValid = res.isValid
             needsUpgrade = res.needsUpgrade
+
+            if (!isValid && storedDecoyHash != null) {
+                val decoyRes = VaultCrypto.verifyPin(input, storedDecoyHash, salt)
+                if (decoyRes.isValid) {
+                    isDecoy = true
+                }
+            }
         } else if (legacyPin != null && input == legacyPin) {
             isValid = true
             needsUpgrade = true
+        }
+
+        if (isDecoy) {
+            failedAttempts = 0
+            lockoutRemainingSeconds = 0
+            prefs.edit()
+                .remove("vault_lockout_until_ms")
+                .remove("vault_failed_attempts")
+                .apply()
+            HapticUtil.performSuccess(context)
+            onUnlockDecoy()
+            return
         }
 
         if (isValid) {

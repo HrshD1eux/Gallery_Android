@@ -28,5 +28,6 @@ data class MediaMetadataEntity(
     val height: Int = 0,
     val bucketId: Long = 0L,
     val bucketName: String = "",
-    val durationMs: Long = 0L
+    val durationMs: Long = 0L,
+    val tags: String = ""
 )

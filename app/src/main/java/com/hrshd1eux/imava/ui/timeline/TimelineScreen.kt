@@ -144,6 +144,8 @@ fun TimelineScreen(
         }
     } else Modifier
 
+    val memories by viewModel.throwbackMemories.collectAsState()
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -178,6 +180,20 @@ fun TimelineScreen(
                         .fillMaxSize()
                         .then(dragSelectionModifier)
                 ) {
+                    if (viewModel.currentBucketId == null && viewModel.currentCategoryName == null && memories.isNotEmpty()) {
+                        item(
+                            span = StaggeredGridItemSpan.FullLine,
+                            key = "memories_stories_header"
+                        ) {
+                            MemoriesStoriesHeader(
+                                memories = memories,
+                                onMemoryClick = { clickedItem ->
+                                    viewModel.activeMediaItem = clickedItem
+                                }
+                            )
+                        }
+                    }
+
                     items(
                         count = lazyPagingItems.itemCount,
                         key = { index ->

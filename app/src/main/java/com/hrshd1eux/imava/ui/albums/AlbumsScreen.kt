@@ -761,6 +761,14 @@ fun AlbumsScreen(
                     viewModel.currentBucketName = null
                     viewModel.currentCategoryName = "Hidden Vault"
                     viewModel.currentScreen = com.hrshd1eux.imava.ui.Screen.Photos
+                },
+                onUnlockDecoy = {
+                    viewModel.unlockDecoyVault()
+                    showHiddenLockedDialog = false
+                    viewModel.currentBucketId = null
+                    viewModel.currentBucketName = null
+                    viewModel.currentCategoryName = "Hidden Vault"
+                    viewModel.currentScreen = com.hrshd1eux.imava.ui.Screen.Photos
                 }
             )
         }

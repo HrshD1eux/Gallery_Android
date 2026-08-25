@@ -56,4 +56,10 @@ interface MetadataDao {
 
     @Query("DELETE FROM media_metadata WHERE mediaId = :mediaId")
     suspend fun deleteByMediaId(mediaId: Long)
+
+    @Query("SELECT * FROM media_metadata WHERE tags LIKE '%' || :tagQuery || '%' AND isHidden = 0 AND isTrashed = 0")
+    suspend fun getMetadataByTag(tagQuery: String): List<MediaMetadataEntity>
+
+    @Query("UPDATE media_metadata SET tags = :tags WHERE mediaId = :mediaId")
+    suspend fun updateTags(mediaId: Long, tags: String)
 }

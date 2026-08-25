@@ -168,6 +168,15 @@ fun SearchScreen(
                             viewModel.currentBucketName = null
                             viewModel.currentCategoryName = "Hidden Vault"
                             viewModel.currentScreen = com.hrshd1eux.imava.ui.Screen.Photos
+                        },
+                        onUnlockDecoy = {
+                            showSecretVaultUnlockDialog = false
+                            viewModel.setSearchQuery("")
+                            viewModel.unlockDecoyVault()
+                            viewModel.currentBucketId = null
+                            viewModel.currentBucketName = null
+                            viewModel.currentCategoryName = "Hidden Vault"
+                            viewModel.currentScreen = com.hrshd1eux.imava.ui.Screen.Photos
                         }
                     )
                 }

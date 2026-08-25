@@ -35,7 +35,7 @@ class AppUpdateCheckWorker(
         return try {
             val updateInfo = AppUpdateManager.checkForUpdates(applicationContext)
             if (updateInfo.hasUpdate) {
-                showUpdateNotification(updateInfo.latestVersion, updateInfo.apkDownloadUrl)
+                showUpdateNotification(updateInfo.latestVersion, updateInfo.currentVersion, updateInfo.apkDownloadUrl)
             }
             Result.success()
         } catch (_: Exception) {
@@ -43,7 +43,7 @@ class AppUpdateCheckWorker(
         }
     }
 
-    private fun showUpdateNotification(latestVersion: String, downloadUrl: String?) {
+    private fun showUpdateNotification(latestVersion: String, currentVersion: String, downloadUrl: String?) {
         val context = applicationContext
         createNotificationChannel(context)
 
@@ -64,7 +64,12 @@ class AppUpdateCheckWorker(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val message = "Imava v$latestVersion is available.\n\n⚠️ Migration Note: Because of our transition to the new package ID (com.hrshd1eux.imava), please download the APK, install it, and delete the older version manually."
+        val showMigration = AppUpdateManager.isVersionOlderThan(currentVersion, "1.1.8")
+        val message = if (showMigration) {
+            "Imava v$latestVersion is available.\n\n⚠️ Migration Note: Because of our transition to the new package ID (com.hrshd1eux.imava), please download the APK, install it, and delete the older version manually."
+        } else {
+            "Imava v$latestVersion is available. Tap to download and install."
+        }
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download_done)

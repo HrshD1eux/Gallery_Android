@@ -171,9 +171,37 @@ object AppUpdateManager {
         }
     }
 
+    fun isVersionOlderThan(version: String, target: String = "1.1.8"): Boolean {
+        val vParts = version.removePrefix("v").split(".").mapNotNull { it.toIntOrNull() }
+        val tParts = target.removePrefix("v").split(".").mapNotNull { it.toIntOrNull() }
+        val length = maxOf(vParts.size, tParts.size)
+
+        for (i in 0 until length) {
+            val v = vParts.getOrElse(i) { 0 }
+            val t = tParts.getOrElse(i) { 0 }
+            if (v < t) return true
+            if (v > t) return false
+        }
+        return false
+    }
+
+    fun formatCleanReleaseNotes(raw: String): String {
+        return raw.lines().joinToString("\n") { line ->
+            var cleaned = line.trim()
+            if (cleaned.startsWith("### ")) cleaned = cleaned.removePrefix("### ").trim()
+            else if (cleaned.startsWith("## ")) cleaned = cleaned.removePrefix("## ").trim()
+            else if (cleaned.startsWith("# ")) cleaned = cleaned.removePrefix("# ").trim()
+
+            if (cleaned.startsWith("* ") || cleaned.startsWith("- ")) {
+                cleaned = "• " + cleaned.substring(2).trim()
+            }
+            cleaned.replace("**", "").replace("`", "").replace("$", "")
+        }.trim()
+    }
+
     private fun isVersionNewer(latest: String, current: String): Boolean {
-        val latestParts = latest.split(".").mapNotNull { it.toIntOrNull() }
-        val currentParts = current.split(".").mapNotNull { it.toIntOrNull() }
+        val latestParts = latest.removePrefix("v").split(".").mapNotNull { it.toIntOrNull() }
+        val currentParts = current.removePrefix("v").split(".").mapNotNull { it.toIntOrNull() }
         val length = maxOf(latestParts.size, currentParts.size)
 
         for (i in 0 until length) {

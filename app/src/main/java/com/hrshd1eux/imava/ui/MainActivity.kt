@@ -69,6 +69,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.Compare
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -110,7 +112,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.hrshd1eux.imava.ui.albums.AlbumsScreen
 import com.hrshd1eux.imava.ui.search.SearchScreen
-import com.hrshd1eux.imava.ui.theme.GalleryTheme
+import com.hrshd1eux.imava.ui.theme.ImavaTheme
 import com.hrshd1eux.imava.ui.timeline.TimelineScreen
 import com.hrshd1eux.imava.ui.viewer.PhotoViewerScreen
 import dagger.hilt.android.AndroidEntryPoint
@@ -169,7 +171,7 @@ class MainActivity : FragmentActivity() {
         checkPermissions()
 
         setContent {
-            GalleryTheme(appTheme = viewModel.appTheme) {
+            ImavaTheme(appTheme = viewModel.appTheme) {
                 val hasPermissions by hasPermissionsState
 
                 Surface(
@@ -256,6 +258,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
     var stripMetadataOnShare by remember { androidx.compose.runtime.mutableStateOf(true) }
     var showMoveToAlbumDialog by remember { androidx.compose.runtime.mutableStateOf(false) }
     var showBatchRenameDialog by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var compareItems by remember { androidx.compose.runtime.mutableStateOf<Pair<com.hrshd1eux.imava.data.model.MediaItem, com.hrshd1eux.imava.data.model.MediaItem>?>(null) }
     val isVaultUnlocked by viewModel.isVaultUnlocked.collectAsState()
     val isVaultActive = (isVaultUnlocked && viewModel.currentCategoryName == "Hidden Vault") ||
             viewModel.activeMediaItem?.isHidden == true
@@ -618,6 +621,39 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                                 )
 
                                 if (!isViewingVault) {
+                                    if (selectedIds.size == 2) {
+                                        SelectionActionButton(
+                                            icon = Icons.Default.Compare,
+                                            label = "Compare",
+                                            onClick = {
+                                                val selectedIdsSet = selectionState.selectedIds.toSet()
+                                                scope.launch {
+                                                    val items = viewModel.getSelectedMediaItems(selectedIdsSet)
+                                                    if (items.size == 2) {
+                                                        compareItems = Pair(items[0], items[1])
+                                                    }
+                                                }
+                                            }
+                                        )
+                                    }
+
+                                    SelectionActionButton(
+                                        icon = Icons.Default.Print,
+                                        label = "Print",
+                                        onClick = {
+                                            val selectedIdsSet = selectionState.selectedIds.toSet()
+                                            scope.launch {
+                                                val items = viewModel.getSelectedMediaItems(selectedIdsSet)
+                                                val firstPhoto = items.filterIsInstance<com.hrshd1eux.imava.data.model.MediaItem.Photo>().firstOrNull()
+                                                if (firstPhoto != null) {
+                                                    com.hrshd1eux.imava.core.util.PrintUtil.printPhoto(context, firstPhoto)
+                                                } else {
+                                                    android.widget.Toast.makeText(context, "Select a photo to print", android.widget.Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        }
+                                    )
+
                                     SelectionActionButton(
                                         icon = Icons.Default.Edit,
                                         label = "Rename",
@@ -720,6 +756,20 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                 exit = fadeOut() + scaleOut(targetScale = 0.94f)
             ) {
                 PhotoViewerScreen(viewModel = viewModel)
+            }
+
+            AnimatedVisibility(
+                visible = compareItems != null,
+                enter = fadeIn() + scaleIn(initialScale = 0.94f),
+                exit = fadeOut() + scaleOut(targetScale = 0.94f)
+            ) {
+                compareItems?.let { (item1, item2) ->
+                    com.hrshd1eux.imava.ui.compare.PhotoCompareScreen(
+                        item1 = item1,
+                        item2 = item2,
+                        onBack = { compareItems = null }
+                    )
+                }
             }
         }
     }

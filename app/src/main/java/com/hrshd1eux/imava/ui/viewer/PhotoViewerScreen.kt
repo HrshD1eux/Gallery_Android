@@ -9,6 +9,8 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.detectDragGestures
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -23,6 +25,7 @@ import kotlin.math.abs
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -60,6 +63,8 @@ import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Print
 import androidx.media3.ui.AspectRatioFrameLayout
 import com.hrshd1eux.imava.core.util.FormatUtils
 import androidx.compose.material3.DropdownMenu
@@ -164,6 +169,7 @@ fun PhotoViewerScreen(
     var renameInputText by remember { mutableStateOf("") }
     var showVaultConfirmDialog by remember { mutableStateOf(false) }
     var showSetAsDialog by remember { mutableStateOf(false) }
+    var showAlbumCoverChooserDialog by remember { mutableStateOf(false) }
     var showVideoTrimDialog by remember { mutableStateOf(false) }
 
     var isMotionPhoto by remember { mutableStateOf(false) }
@@ -483,11 +489,22 @@ fun PhotoViewerScreen(
                             leadingIcon = { Icon(Icons.Default.Album, contentDescription = null) },
                             onClick = {
                                 showMoreMenu = false
-                                viewModel.setCustomAlbumCover(item.bucketId, item.id)
-                                com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
-                                android.widget.Toast.makeText(context, "Set as album cover!", android.widget.Toast.LENGTH_SHORT).show()
+                                showAlbumCoverChooserDialog = true
                             }
                         )
+
+                        if (item is com.hrshd1eux.imava.data.model.MediaItem.Photo) {
+                            DropdownMenuItem(
+                                text = { Text("Print Photo 🖨️") },
+                                leadingIcon = { Icon(Icons.Default.Print, contentDescription = null) },
+                                onClick = {
+                                    showMoreMenu = false
+                                    scope.launch {
+                                        com.hrshd1eux.imava.core.util.PrintUtil.printPhoto(context, item)
+                                    }
+                                }
+                            )
+                        }
 
                         if (item is com.hrshd1eux.imava.data.model.MediaItem.Video) {
                             DropdownMenuItem(
@@ -501,7 +518,7 @@ fun PhotoViewerScreen(
                                         val audioUri = com.hrshd1eux.imava.core.util.AudioExtractor.extractAudioFromVideo(context, item.uri, name)
                                         if (audioUri != null) {
                                             com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
-                                            android.widget.Toast.makeText(context, "Audio saved to Music/Gallery_Audio", android.widget.Toast.LENGTH_LONG).show()
+                                            android.widget.Toast.makeText(context, "Audio saved to Music/Imava_Audio", android.widget.Toast.LENGTH_LONG).show()
                                         } else {
                                             com.hrshd1eux.imava.core.util.HapticUtil.performError(context)
                                             android.widget.Toast.makeText(context, "Could not extract audio", android.widget.Toast.LENGTH_SHORT).show()
@@ -697,6 +714,9 @@ fun PhotoViewerScreen(
                 onDismissRequest = { showInfoSheet = false },
                 onUpdateDateTaken = { newDate ->
                     viewModel.updateMediaDateTaken(context, item, newDate)
+                },
+                onUpdateTags = { newTags ->
+                    viewModel.updateMediaTags(item, newTags)
                 }
             )
         }
@@ -774,7 +794,12 @@ fun PhotoViewerScreen(
                     )
                 },
                 text = {
-                    Column(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                            .imePadding()
+                    ) {
                         // Media preview snippet card
                         Card(
                             colors = CardDefaults.cardColors(
@@ -885,6 +910,66 @@ fun PhotoViewerScreen(
                 },
                 dismissButton = {
                     TextButton(onClick = { showRenameDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        if (showAlbumCoverChooserDialog) {
+            val item = mediaItems.getOrNull(pagerState.currentPage) ?: activeItem
+            val buckets by viewModel.buckets.collectAsState()
+            AlertDialog(
+                onDismissRequest = { showAlbumCoverChooserDialog = false },
+                icon = { Icon(Icons.Default.Album, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                title = { Text("Set as Album Cover") },
+                text = {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "Select which album you want this photo to represent as its cover:",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        LazyColumn(modifier = Modifier.heightIn(max = 280.dp)) {
+                            items(buckets) { bucket ->
+                                val isCurrent = bucket.id == item.bucketId
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (isCurrent) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    ),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                        .clickable {
+                                            viewModel.setCustomAlbumCover(bucket.id, item.id)
+                                            showAlbumCoverChooserDialog = false
+                                            com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
+                                            android.widget.Toast.makeText(context, "Cover updated for '${bucket.name}'", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(bucket.name, style = MaterialTheme.typography.titleSmall)
+                                            Text("${bucket.count} items", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        if (isCurrent) {
+                                            Text("(Current Album)", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    TextButton(onClick = { showAlbumCoverChooserDialog = false }) {
                         Text("Cancel")
                     }
                 }

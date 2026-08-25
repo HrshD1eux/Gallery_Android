@@ -125,13 +125,24 @@ class MainViewModel @Inject constructor(
     private val _isVaultUnlocked = MutableStateFlow(false)
     val isVaultUnlocked: StateFlow<Boolean> = _isVaultUnlocked.asStateFlow()
 
+    private var _isDecoyVault = mutableStateOf(false)
+    val isDecoyVault: Boolean get() = _isDecoyVault.value
+
     fun unlockVault() {
+        _isDecoyVault.value = false
+        _isVaultUnlocked.value = true
+        _vaultConfigVersion.value++
+    }
+
+    fun unlockDecoyVault() {
+        _isDecoyVault.value = true
         _isVaultUnlocked.value = true
         _vaultConfigVersion.value++
     }
 
     fun lockVault(context: Context) {
         _isVaultUnlocked.value = false
+        _isDecoyVault.value = false
         if (currentCategoryName == "Hidden Vault") {
             currentCategoryName = null
             currentScreen = Screen.Albums
@@ -399,7 +410,7 @@ class MainViewModel @Inject constructor(
         val list = when (category) {
             "Favorites" -> favs
             "Trash" -> trash
-            "Hidden Vault" -> vault
+            "Hidden Vault" -> if (isDecoyVault) emptyList() else vault
             "Videos" -> raw.filterIsInstance<MediaItem.Video>().let { if (currentBucketId != null) it else it.filter { item -> !excluded.contains(item.bucketId.toString()) } }
             else -> if (currentBucketId != null) raw else raw.filter { !excluded.contains(it.bucketId.toString()) }
         }
@@ -409,6 +420,44 @@ class MainViewModel @Inject constructor(
             list.sortedByDescending { it.dateTaken }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val throwbackMemories: StateFlow<List<com.hrshd1eux.imava.ui.timeline.MemoryStory>> = visibleMediaItems
+        .map { items ->
+            if (items.isEmpty()) return@map emptyList<com.hrshd1eux.imava.ui.timeline.MemoryStory>()
+            val zoneId = ZoneId.systemDefault()
+            val today = LocalDate.now(zoneId)
+            val todayMonth = today.monthValue
+            val todayDay = today.dayOfMonth
+
+            val matchingItems = items.filter { item ->
+                if (item.dateTaken <= 0) return@filter false
+                val itemDate = Instant.ofEpochMilli(item.dateTaken).atZone(zoneId).toLocalDate()
+                itemDate.monthValue == todayMonth && itemDate.dayOfMonth == todayDay && itemDate.year < today.year
+            }
+
+            if (matchingItems.isEmpty()) return@map emptyList<com.hrshd1eux.imava.ui.timeline.MemoryStory>()
+
+            val groupedByYear = matchingItems.groupBy { item ->
+                Instant.ofEpochMilli(item.dateTaken).atZone(zoneId).toLocalDate().year
+            }
+
+            groupedByYear.mapNotNull { (year, yearItems) ->
+                val yearsAgo = today.year - year
+                val title = if (yearsAgo == 1) "1 Year Ago Today" else "$yearsAgo Years Ago"
+                val formatter = DateTimeFormatter.ofPattern("MMMM d, yyyy", Locale.getDefault())
+                val sampleDate = Instant.ofEpochMilli(yearItems.first().dateTaken).atZone(zoneId).toLocalDate().format(formatter)
+                val cover = yearItems.firstOrNull() ?: return@mapNotNull null
+                com.hrshd1eux.imava.ui.timeline.MemoryStory(
+                    id = "memory_$year",
+                    title = title,
+                    dateSubtitle = sampleDate,
+                    coverItem = cover,
+                    items = yearItems
+                )
+            }.sortedByDescending { it.items.first().dateTaken }
+        }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -963,6 +1012,20 @@ class MainViewModel @Inject constructor(
                 activeMediaItem = when (val active = activeMediaItem) {
                     is MediaItem.Photo -> active.copy(isFavorite = !active.isFavorite)
                     is MediaItem.Video -> active.copy(isFavorite = !active.isFavorite)
+                    null -> null
+                }
+            }
+            refreshAll()
+        }
+    }
+
+    fun updateMediaTags(item: MediaItem, tags: List<String>) {
+        viewModelScope.launch {
+            repository.updateMediaTags(item.id, tags)
+            if (activeMediaItem?.id == item.id) {
+                activeMediaItem = when (val active = activeMediaItem) {
+                    is MediaItem.Photo -> active.copy(tags = tags)
+                    is MediaItem.Video -> active.copy(tags = tags)
                     null -> null
                 }
             }

@@ -39,5 +39,6 @@ interface MediaRepository {
     suspend fun clearVaultCache(context: android.content.Context)
     suspend fun restoreAllVaultMedia(context: android.content.Context): Int
     suspend fun deleteAllVaultData(context: android.content.Context): Int
+    suspend fun updateMediaTags(mediaId: Long, tags: List<String>)
     fun observeMediaChanges(): Flow<Unit>
 }

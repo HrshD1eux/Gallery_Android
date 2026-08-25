@@ -97,7 +97,7 @@ object PdfConverter {
                     val contentValues = ContentValues().apply {
                         put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
                         put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
-                        put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOCUMENTS + "/Gallery_PDFs")
+                        put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOCUMENTS + "/Imava_PDFs")
                     }
                     val docUri = context.contentResolver.insert(MediaStore.Files.getContentUri("external"), contentValues)
                     if (docUri != null) {

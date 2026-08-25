@@ -118,6 +118,8 @@ fun VideoPlayerContainer(
 
     // Gesture feedback overlay state
     var gestureOverlayText by remember { mutableStateOf<String?>(null) }
+    var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
+    var showSpeedDialog by remember { mutableStateOf(false) }
     var isHolding2x by remember { mutableStateOf(false) }
 
     // Track Selector State
@@ -392,6 +394,20 @@ fun VideoPlayerContainer(
                     )
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            onClick = { showSpeedDialog = true },
+                            color = Color.White.copy(alpha = 0.2f),
+                            shape = RoundedCornerShape(4.dp),
+                            modifier = Modifier.padding(end = 6.dp)
+                        ) {
+                            Text(
+                                text = "${playbackSpeed}x",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+
                         IconButton(
                             onClick = { showTrackDialog = true },
                             modifier = Modifier.size(32.dp)
@@ -445,6 +461,52 @@ fun VideoPlayerContainer(
                 )
             }
         }
+    }
+
+    // Playback Speed Selection Dialog
+    if (showSpeedDialog && exoPlayer != null) {
+        val speeds = listOf(0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f)
+        AlertDialog(
+            onDismissRequest = { showSpeedDialog = false },
+            title = { Text("Playback Speed ⚡") },
+            text = {
+                LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                    items(speeds) { sp ->
+                        val isSel = sp == playbackSpeed
+                        Surface(
+                            onClick = {
+                                playbackSpeed = sp
+                                exoPlayer?.setPlaybackSpeed(sp)
+                                showSpeedDialog = false
+                            },
+                            color = if (isSel) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (sp == 1.0f) "1.0x (Normal)" else "${sp}x",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                if (isSel) {
+                                    Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showSpeedDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     // Audio & Subtitles Selection Dialog

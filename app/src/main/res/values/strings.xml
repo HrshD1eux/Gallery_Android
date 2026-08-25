@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Gallery</string>
+    <string name="app_name">Imava</string>
     <string name="request_permissions_title">Storage Permission Required</string>
     <string name="request_permissions_desc">To display your photos and videos local-first, the app needs permission to access device media. No files are uploaded to any server.</string>
     <string name="grant_permission">Grant Permission</string>
