@@ -242,12 +242,20 @@ fun InfoBottomSheet(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
                 ) {
+                    item {
+                        InputChip(
+                            selected = false,
+                            onClick = { showAddTagDialog = true },
+                            label = { Text("+ Add Tag") }
+                        )
+                    }
                     if (tagsList.isEmpty()) {
                         item {
                             Text(
                                 text = "No custom tags added yet",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                modifier = Modifier.padding(start = 4.dp, top = 8.dp)
                             )
                         }
                     } else {

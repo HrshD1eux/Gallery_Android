@@ -58,13 +58,12 @@ data class MemoryStory(
 @Composable
 fun MemoriesStoriesHeader(
     memories: List<MemoryStory>,
-    onMemoryClick: (MediaItem) -> Unit,
+    onStoryClick: (MemoryStory) -> Unit,
+    onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var isDismissed by remember { mutableStateOf(false) }
-
     AnimatedVisibility(
-        visible = memories.isNotEmpty() && !isDismissed,
+        visible = memories.isNotEmpty(),
         enter = fadeIn(),
         exit = fadeOut() + shrinkVertically(),
         modifier = modifier
@@ -98,12 +97,12 @@ fun MemoriesStoriesHeader(
                 }
 
                 IconButton(
-                    onClick = { isDismissed = true },
+                    onClick = onDismiss,
                     modifier = Modifier.size(24.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Close,
-                        contentDescription = "Dismiss Memories",
+                        contentDescription = "Dismiss Memories for 24h",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(16.dp)
                     )
@@ -119,7 +118,7 @@ fun MemoriesStoriesHeader(
                 items(memories, key = { it.id }) { story ->
                     MemoryStoryCard(
                         story = story,
-                        onClick = { onMemoryClick(story.coverItem) }
+                        onClick = { onStoryClick(story) }
                     )
                 }
             }

@@ -55,6 +55,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -729,41 +730,65 @@ fun CropGridOverlay(
     modifier: Modifier = Modifier,
     onCropChange: (left: Float, top: Float, right: Float, bottom: Float) -> Unit
 ) {
+    val currentLeft by rememberUpdatedState(left)
+    val currentTop by rememberUpdatedState(top)
+    val currentRight by rememberUpdatedState(right)
+    val currentBottom by rememberUpdatedState(bottom)
+    val currentOnCropChange by rememberUpdatedState(onCropChange)
+
     var activeHandle by remember { mutableStateOf(CropHandle.NONE) }
+    var dragLeft by remember { mutableFloatStateOf(left) }
+    var dragTop by remember { mutableFloatStateOf(top) }
+    var dragRight by remember { mutableFloatStateOf(right) }
+    var dragBottom by remember { mutableFloatStateOf(bottom) }
+
+    LaunchedEffect(left, top, right, bottom) {
+        if (activeHandle == CropHandle.NONE) {
+            dragLeft = left
+            dragTop = top
+            dragRight = right
+            dragBottom = bottom
+        }
+    }
 
     Canvas(
         modifier = modifier
             .fillMaxSize()
-            .pointerInput(left, top, right, bottom) {
+            .pointerInput(Unit) {
                 detectDragGestures(
                     onDragStart = { startOffset ->
                         val width = size.width.toFloat()
                         val height = size.height.toFloat()
                         if (width <= 0f || height <= 0f) return@detectDragGestures
 
+                        dragLeft = currentLeft
+                        dragTop = currentTop
+                        dragRight = currentRight
+                        dragBottom = currentBottom
+
                         val touchX = startOffset.x
                         val touchY = startOffset.y
 
-                        val curLeftPx = left * width
-                        val curTopPx = top * height
-                        val curRightPx = (1f - right) * width
-                        val curBottomPx = (1f - bottom) * height
+                        val curLeftPx = dragLeft * width
+                        val curTopPx = dragTop * height
+                        val curRightPx = (1f - dragRight) * width
+                        val curBottomPx = (1f - dragBottom) * height
 
-                        val cornerRadiusPx = 48.dp.toPx()
-                        val edgeMarginPx = 32.dp.toPx()
+                        val cornerHitboxPx = 48.dp.toPx()
+                        val edgeHitboxPx = 36.dp.toPx()
 
                         fun dist(x1: Float, y1: Float, x2: Float, y2: Float) =
                             kotlin.math.hypot(x1 - x2, y1 - y2)
 
                         activeHandle = when {
-                            dist(touchX, touchY, curLeftPx, curTopPx) < cornerRadiusPx -> CropHandle.TOP_LEFT
-                            dist(touchX, touchY, curRightPx, curTopPx) < cornerRadiusPx -> CropHandle.TOP_RIGHT
-                            dist(touchX, touchY, curLeftPx, curBottomPx) < cornerRadiusPx -> CropHandle.BOTTOM_LEFT
-                            dist(touchX, touchY, curRightPx, curBottomPx) < cornerRadiusPx -> CropHandle.BOTTOM_RIGHT
-                            abs(touchX - curLeftPx) < edgeMarginPx && touchY in curTopPx..curBottomPx -> CropHandle.LEFT
-                            abs(touchX - curRightPx) < edgeMarginPx && touchY in curTopPx..curBottomPx -> CropHandle.RIGHT
-                            abs(touchY - curTopPx) < edgeMarginPx && touchX in curLeftPx..curRightPx -> CropHandle.TOP
-                            abs(touchY - curBottomPx) < edgeMarginPx && touchX in curLeftPx..curRightPx -> CropHandle.BOTTOM
+                            dist(touchX, touchY, curLeftPx, curTopPx) < cornerHitboxPx -> CropHandle.TOP_LEFT
+                            dist(touchX, touchY, curRightPx, curTopPx) < cornerHitboxPx -> CropHandle.TOP_RIGHT
+                            dist(touchX, touchY, curLeftPx, curBottomPx) < cornerHitboxPx -> CropHandle.BOTTOM_LEFT
+                            dist(touchX, touchY, curRightPx, curBottomPx) < cornerHitboxPx -> CropHandle.BOTTOM_RIGHT
+                            abs(touchX - curLeftPx) < edgeHitboxPx && touchY in curTopPx..curBottomPx -> CropHandle.LEFT
+                            abs(touchX - curRightPx) < edgeHitboxPx && touchY in curTopPx..curBottomPx -> CropHandle.RIGHT
+                            abs(touchY - curTopPx) < edgeHitboxPx && touchX in curLeftPx..curRightPx -> CropHandle.TOP
+                            abs(touchY - curBottomPx) < edgeHitboxPx && touchX in curLeftPx..curRightPx -> CropHandle.BOTTOM
                             touchX in curLeftPx..curRightPx && touchY in curTopPx..curBottomPx -> CropHandle.CENTER
                             else -> CropHandle.NONE
                         }
@@ -776,67 +801,57 @@ fun CropGridOverlay(
 
                         val dx = dragAmount.x / width
                         val dy = dragAmount.y / height
-
-                        val curLeft = left
-                        val curTop = top
-                        val curRight = 1f - right
-                        val curBottom = 1f - bottom
-                        val minSize = 0.1f // 10% minimum size
-
-                        var nLeft = left
-                        var nTop = top
-                        var nRight = right
-                        var nBottom = bottom
+                        val minSize = 0.08f // Minimum 8% crop box
 
                         when (activeHandle) {
                             CropHandle.TOP_LEFT -> {
-                                nLeft = (curLeft + dx).coerceIn(0f, curRight - minSize)
-                                nTop = (curTop + dy).coerceIn(0f, curBottom - minSize)
+                                dragLeft = (dragLeft + dx).coerceIn(0f, (1f - dragRight) - minSize)
+                                dragTop = (dragTop + dy).coerceIn(0f, (1f - dragBottom) - minSize)
                             }
                             CropHandle.TOP_RIGHT -> {
-                                val nR = (curRight + dx).coerceIn(curLeft + minSize, 1f)
-                                nRight = 1f - nR
-                                nTop = (curTop + dy).coerceIn(0f, curBottom - minSize)
+                                val nR = ((1f - dragRight) + dx).coerceIn(dragLeft + minSize, 1f)
+                                dragRight = 1f - nR
+                                dragTop = (dragTop + dy).coerceIn(0f, (1f - dragBottom) - minSize)
                             }
                             CropHandle.BOTTOM_LEFT -> {
-                                nLeft = (curLeft + dx).coerceIn(0f, curRight - minSize)
-                                val nB = (curBottom + dy).coerceIn(curTop + minSize, 1f)
-                                nBottom = 1f - nB
+                                dragLeft = (dragLeft + dx).coerceIn(0f, (1f - dragRight) - minSize)
+                                val nB = ((1f - dragBottom) + dy).coerceIn(dragTop + minSize, 1f)
+                                dragBottom = 1f - nB
                             }
                             CropHandle.BOTTOM_RIGHT -> {
-                                val nR = (curRight + dx).coerceIn(curLeft + minSize, 1f)
-                                val nB = (curBottom + dy).coerceIn(curTop + minSize, 1f)
-                                nRight = 1f - nR
-                                nBottom = 1f - nB
+                                val nR = ((1f - dragRight) + dx).coerceIn(dragLeft + minSize, 1f)
+                                val nB = ((1f - dragBottom) + dy).coerceIn(dragTop + minSize, 1f)
+                                dragRight = 1f - nR
+                                dragBottom = 1f - nB
                             }
                             CropHandle.LEFT -> {
-                                nLeft = (curLeft + dx).coerceIn(0f, curRight - minSize)
+                                dragLeft = (dragLeft + dx).coerceIn(0f, (1f - dragRight) - minSize)
                             }
                             CropHandle.RIGHT -> {
-                                val nR = (curRight + dx).coerceIn(curLeft + minSize, 1f)
-                                nRight = 1f - nR
+                                val nR = ((1f - dragRight) + dx).coerceIn(dragLeft + minSize, 1f)
+                                dragRight = 1f - nR
                             }
                             CropHandle.TOP -> {
-                                nTop = (curTop + dy).coerceIn(0f, curBottom - minSize)
+                                dragTop = (dragTop + dy).coerceIn(0f, (1f - dragBottom) - minSize)
                             }
                             CropHandle.BOTTOM -> {
-                                val nB = (curBottom + dy).coerceIn(curTop + minSize, 1f)
-                                nBottom = 1f - nB
+                                val nB = ((1f - dragBottom) + dy).coerceIn(dragTop + minSize, 1f)
+                                dragBottom = 1f - nB
                             }
                             CropHandle.CENTER -> {
-                                val cropW = curRight - curLeft
-                                val cropH = curBottom - curTop
-                                val shiftedLeft = (curLeft + dx).coerceIn(0f, 1f - cropW)
-                                val shiftedTop = (curTop + dy).coerceIn(0f, 1f - cropH)
-                                nLeft = shiftedLeft
-                                nTop = shiftedTop
-                                nRight = 1f - (shiftedLeft + cropW)
-                                nBottom = 1f - (shiftedTop + cropH)
+                                val cropW = (1f - dragRight) - dragLeft
+                                val cropH = (1f - dragBottom) - dragTop
+                                val shiftedLeft = (dragLeft + dx).coerceIn(0f, 1f - cropW)
+                                val shiftedTop = (dragTop + dy).coerceIn(0f, 1f - cropH)
+                                dragLeft = shiftedLeft
+                                dragTop = shiftedTop
+                                dragRight = 1f - (shiftedLeft + cropW)
+                                dragBottom = 1f - (shiftedTop + cropH)
                             }
                             CropHandle.NONE -> {}
                         }
 
-                        onCropChange(nLeft, nTop, nRight, nBottom)
+                        currentOnCropChange(dragLeft, dragTop, dragRight, dragBottom)
                     },
                     onDragEnd = { activeHandle = CropHandle.NONE },
                     onDragCancel = { activeHandle = CropHandle.NONE }
@@ -849,8 +864,8 @@ fun CropGridOverlay(
         val curTopPx = top * height
         val curRightPx = (1f - right) * width
         val curBottomPx = (1f - bottom) * height
-        val cropWidth = curRightPx - curLeftPx
-        val cropHeight = curBottomPx - curTopPx
+        val cropWidth = (curRightPx - curLeftPx).coerceAtLeast(1f)
+        val cropHeight = (curBottomPx - curTopPx).coerceAtLeast(1f)
 
         val dimColor = Color.Black.copy(alpha = 0.55f)
 
@@ -885,29 +900,50 @@ fun CropGridOverlay(
         drawLine(gridColor, Offset(curLeftPx, curTopPx + oneThirdH), Offset(curRightPx, curTopPx + oneThirdH), strokeWidth = gridStroke)
         drawLine(gridColor, Offset(curLeftPx, curTopPx + twoThirdsH), Offset(curRightPx, curTopPx + twoThirdsH), strokeWidth = gridStroke)
 
-        // 4. Draw Corner Brackets (Pointers)
-        val bracketLen = 22.dp.toPx().coerceAtMost(cropWidth / 3f).coerceAtMost(cropHeight / 3f)
+        // 4. Draw Corner Brackets (Pointers) with subtle shadow
+        val bracketLen = 24.dp.toPx().coerceAtMost(cropWidth / 3f).coerceAtMost(cropHeight / 3f)
         val bracketThickness = 4.dp.toPx()
         val bracketColor = Color.White
+        val shadowColor = Color.Black.copy(alpha = 0.4f)
+        val shadowOffset = 1.dp.toPx()
 
-        // Top-Left
-        drawLine(bracketColor, Offset(curLeftPx - 1.dp.toPx(), curTopPx), Offset(curLeftPx + bracketLen, curTopPx), strokeWidth = bracketThickness)
-        drawLine(bracketColor, Offset(curLeftPx, curTopPx - 1.dp.toPx()), Offset(curLeftPx, curTopPx + bracketLen), strokeWidth = bracketThickness)
+        fun drawBracketWithShadow(p1: Offset, p2: Offset, p3: Offset) {
+            drawLine(shadowColor, p1 + Offset(shadowOffset, shadowOffset), p2 + Offset(shadowOffset, shadowOffset), strokeWidth = bracketThickness)
+            drawLine(shadowColor, p2 + Offset(shadowOffset, shadowOffset), p3 + Offset(shadowOffset, shadowOffset), strokeWidth = bracketThickness)
+            drawLine(bracketColor, p1, p2, strokeWidth = bracketThickness)
+            drawLine(bracketColor, p2, p3, strokeWidth = bracketThickness)
+        }
 
-        // Top-Right
-        drawLine(bracketColor, Offset(curRightPx + 1.dp.toPx(), curTopPx), Offset(curRightPx - bracketLen, curTopPx), strokeWidth = bracketThickness)
-        drawLine(bracketColor, Offset(curRightPx, curTopPx - 1.dp.toPx()), Offset(curRightPx, curTopPx + bracketLen), strokeWidth = bracketThickness)
+        // Top-Left corner L-bracket
+        drawBracketWithShadow(
+            Offset(curLeftPx + bracketLen, curTopPx),
+            Offset(curLeftPx, curTopPx),
+            Offset(curLeftPx, curTopPx + bracketLen)
+        )
 
-        // Bottom-Left
-        drawLine(bracketColor, Offset(curLeftPx - 1.dp.toPx(), curBottomPx), Offset(curLeftPx + bracketLen, curBottomPx), strokeWidth = bracketThickness)
-        drawLine(bracketColor, Offset(curLeftPx, curBottomPx + 1.dp.toPx()), Offset(curLeftPx, curBottomPx - bracketLen), strokeWidth = bracketThickness)
+        // Top-Right corner L-bracket
+        drawBracketWithShadow(
+            Offset(curRightPx - bracketLen, curTopPx),
+            Offset(curRightPx, curTopPx),
+            Offset(curRightPx, curTopPx + bracketLen)
+        )
 
-        // Bottom-Right
-        drawLine(bracketColor, Offset(curRightPx + 1.dp.toPx(), curBottomPx), Offset(curRightPx - bracketLen, curBottomPx), strokeWidth = bracketThickness)
-        drawLine(bracketColor, Offset(curRightPx, curBottomPx + 1.dp.toPx()), Offset(curRightPx, curBottomPx - bracketLen), strokeWidth = bracketThickness)
+        // Bottom-Left corner L-bracket
+        drawBracketWithShadow(
+            Offset(curLeftPx, curBottomPx - bracketLen),
+            Offset(curLeftPx, curBottomPx),
+            Offset(curLeftPx + bracketLen, curBottomPx)
+        )
 
-        // 5. Draw Edge Midpoint Handles (Pills)
-        val edgeLen = 16.dp.toPx().coerceAtMost(cropWidth / 4f)
+        // Bottom-Right corner L-bracket
+        drawBracketWithShadow(
+            Offset(curRightPx - bracketLen, curBottomPx),
+            Offset(curRightPx, curBottomPx),
+            Offset(curRightPx, curBottomPx - bracketLen)
+        )
+
+        // 5. Draw Edge Midpoint Handles (Pill Bars)
+        val edgeLen = 18.dp.toPx().coerceAtMost(cropWidth / 4f)
         val edgeThickness = 3.dp.toPx()
 
         // Top edge handle

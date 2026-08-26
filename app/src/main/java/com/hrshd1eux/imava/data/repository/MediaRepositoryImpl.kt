@@ -154,35 +154,56 @@ class MediaRepositoryImpl @Inject constructor(
                     } else {
                         "restored_${currentMeta.mediaId}.${if (currentMeta.mimeType.contains("png")) "png" else "jpg"}"
                     }
+                    val mimeType = if (currentMeta.mimeType.isNotBlank()) currentMeta.mimeType else "image/jpeg"
                     val contentValues = android.content.ContentValues().apply {
                         put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, originalName)
-                        put(android.provider.MediaStore.MediaColumns.MIME_TYPE, if (currentMeta.mimeType.isNotBlank()) currentMeta.mimeType else "image/jpeg")
+                        put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mimeType)
                         put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/Restored")
                         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                             put(android.provider.MediaStore.MediaColumns.IS_PENDING, 1)
                         }
                     }
-                    val collectionUri = if (currentMeta.mimeType.contains("video", ignoreCase = true)) {
+                    val collectionUri = if (mimeType.contains("video", ignoreCase = true)) {
                         android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI
                     } else {
                         android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI
                     }
                     val targetUri = resolver.insert(collectionUri, contentValues)
                     if (targetUri != null) {
-                        resolver.openOutputStream(targetUri)?.use { output ->
-                            vaultFile.inputStream().use { input ->
-                                com.hrshd1eux.imava.core.util.VaultCrypto.decrypt(input, output)
+                        var decryptSuccess = false
+                        try {
+                            resolver.openOutputStream(targetUri)?.use { output ->
+                                vaultFile.inputStream().use { input ->
+                                    com.hrshd1eux.imava.core.util.VaultCrypto.decrypt(input, output)
+                                }
                             }
+                            decryptSuccess = true
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                                contentValues.clear()
+                                contentValues.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0)
+                                resolver.update(targetUri, contentValues, null, null)
+                            }
+
+                            // Trigger media scanner so it is indexed immediately
+                            try {
+                                android.media.MediaScannerConnection.scanFile(
+                                    context,
+                                    arrayOf(targetUri.toString(), currentMeta.originalPath),
+                                    arrayOf(mimeType)
+                                ) { _, _ -> }
+                            } catch (_: Exception) {}
+
+                            vaultFile.delete()
+                            val metaFile = java.io.File(currentMeta.vaultPath + ".meta")
+                            if (metaFile.exists()) metaFile.delete()
+                            com.hrshd1eux.imava.core.util.VaultCacheManager.removeCachedFile(context, currentMeta.mediaId)
+                            metadataDao.delete(currentMeta)
+                        } catch (e: Exception) {
+                            if (!decryptSuccess) {
+                                resolver.delete(targetUri, null, null)
+                            }
+                            throw e
                         }
-                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                            contentValues.clear()
-                            contentValues.put(android.provider.MediaStore.MediaColumns.IS_PENDING, 0)
-                            resolver.update(targetUri, contentValues, null, null)
-                        }
-                        vaultFile.delete()
-                        val metaFile = java.io.File(currentMeta.vaultPath + ".meta")
-                        if (metaFile.exists()) metaFile.delete()
-                        metadataDao.delete(currentMeta)
                     }
                 }
             }
@@ -190,12 +211,32 @@ class MediaRepositoryImpl @Inject constructor(
             // Hide and encrypt into secure vault
             val vaultDir = java.io.File(context.filesDir, "vault").apply { mkdirs() }
             val vaultFile = java.io.File(vaultDir, "vault_${mediaItem.id}")
+            val tempVaultFile = java.io.File(vaultDir, "vault_${mediaItem.id}.tmp")
             val resolver = context.contentResolver
-            resolver.openInputStream(mediaItem.uri)?.use { input ->
-                vaultFile.outputStream().use { output ->
+
+            val inputStream = if (mediaItem.path.isNotEmpty() && java.io.File(mediaItem.path).exists()) {
+                java.io.File(mediaItem.path).inputStream()
+            } else {
+                resolver.openInputStream(mediaItem.uri)
+            }
+
+            if (inputStream == null) {
+                throw java.io.IOException("Cannot open input stream for media: ${mediaItem.uri}")
+            }
+
+            inputStream.use { input ->
+                tempVaultFile.outputStream().use { output ->
                     com.hrshd1eux.imava.core.util.VaultCrypto.encrypt(input, output)
                 }
             }
+
+            if (tempVaultFile.length() <= 0) {
+                tempVaultFile.delete()
+                throw java.io.IOException("Vault encryption failed: file is empty")
+            }
+
+            if (vaultFile.exists()) vaultFile.delete()
+            tempVaultFile.renameTo(vaultFile)
             
             val duration = if (mediaItem is MediaItem.Video) mediaItem.durationMs else 0L
             val entity = MediaMetadataEntity(
@@ -358,15 +399,21 @@ class MediaRepositoryImpl @Inject constructor(
             .map { metadataList ->
                 if (!isVaultUnlocked) return@map emptyList<MediaItem>()
                 metadataList.filter { it.isHidden && !it.isTrashed }.mapNotNull { entity ->
-                    val vaultFile = java.io.File(entity.vaultPath)
-                    if (!vaultFile.exists()) return@mapNotNull null
-                    val uri = android.net.Uri.fromFile(vaultFile)
+                    val decryptedFile = com.hrshd1eux.imava.core.util.VaultCacheManager.getDecryptedFile(context, entity)
+                    val uri = if (decryptedFile != null) {
+                        android.net.Uri.fromFile(decryptedFile)
+                    } else {
+                        val vaultFile = java.io.File(entity.vaultPath)
+                        if (!vaultFile.exists()) return@mapNotNull null
+                        android.net.Uri.fromFile(vaultFile)
+                    }
+                    val path = decryptedFile?.absolutePath ?: entity.originalPath.ifEmpty { entity.vaultPath }
 
                     if (entity.mimeType.contains("video", ignoreCase = true)) {
                         MediaItem.Video(
                             id = entity.mediaId,
                             uri = uri,
-                            path = entity.originalPath.ifEmpty { entity.vaultPath },
+                            path = path,
                             mimeType = entity.mimeType,
                             dateTaken = entity.dateTaken,
                             size = entity.size,
@@ -384,7 +431,7 @@ class MediaRepositoryImpl @Inject constructor(
                         MediaItem.Photo(
                             id = entity.mediaId,
                             uri = uri,
-                            path = entity.originalPath.ifEmpty { entity.vaultPath },
+                            path = path,
                             mimeType = entity.mimeType,
                             dateTaken = entity.dateTaken,
                             size = entity.size,
@@ -405,14 +452,7 @@ class MediaRepositoryImpl @Inject constructor(
 
     @OptIn(coil.annotation.ExperimentalCoilApi::class)
     override suspend fun clearVaultCache(context: Context): Unit = withContext(Dispatchers.IO) {
-        try {
-            val cacheDir = java.io.File(context.cacheDir, "vault_cache")
-            if (cacheDir.exists()) {
-                cacheDir.deleteRecursively()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        com.hrshd1eux.imava.core.util.VaultCacheManager.clearCache(context)
         try {
             val imageLoader = coil.Coil.imageLoader(context)
             imageLoader.memoryCache?.clear()
@@ -485,14 +525,20 @@ class MediaRepositoryImpl @Inject constructor(
         if (missingIds.isNotEmpty()) {
             val vaultEntities = metadataList.filter { it.mediaId in missingIds && it.isHidden }
             val vaultItems = vaultEntities.mapNotNull { entity ->
-                val vaultFile = java.io.File(entity.vaultPath)
-                if (!vaultFile.exists()) return@mapNotNull null
-                val uri = android.net.Uri.fromFile(vaultFile)
+                val decryptedFile = com.hrshd1eux.imava.core.util.VaultCacheManager.getDecryptedFile(context, entity)
+                val uri = if (decryptedFile != null) {
+                    android.net.Uri.fromFile(decryptedFile)
+                } else {
+                    val vaultFile = java.io.File(entity.vaultPath)
+                    if (!vaultFile.exists()) return@mapNotNull null
+                    android.net.Uri.fromFile(vaultFile)
+                }
+                val path = decryptedFile?.absolutePath ?: entity.originalPath.ifEmpty { entity.vaultPath }
                 if (entity.mimeType.contains("video", ignoreCase = true)) {
                     MediaItem.Video(
                         id = entity.mediaId,
                         uri = uri,
-                        path = entity.originalPath.ifEmpty { entity.vaultPath },
+                        path = path,
                         mimeType = entity.mimeType,
                         dateTaken = entity.dateTaken,
                         size = entity.size,
@@ -510,7 +556,7 @@ class MediaRepositoryImpl @Inject constructor(
                     MediaItem.Photo(
                         id = entity.mediaId,
                         uri = uri,
-                        path = entity.originalPath.ifEmpty { entity.vaultPath },
+                        path = path,
                         mimeType = entity.mimeType,
                         dateTaken = entity.dateTaken,
                         size = entity.size,

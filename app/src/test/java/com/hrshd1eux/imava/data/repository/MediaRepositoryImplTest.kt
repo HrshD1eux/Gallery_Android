@@ -379,15 +379,15 @@ class MediaRepositoryImplTest {
             assertEquals(1, items.size)
             assertEquals(888L, items[0].id)
 
-            // Zero Plaintext Disk Leak Assertion:
-            // Assert that NO plaintext files or decrypted cache directories exist on disk
+            // When unlocked, decrypted cache file is available for Coil/Viewer to load without corruption
             val cacheDir = java.io.File(tempFolder, "vault_cache")
-            val decryptedFile = java.io.File(cacheDir, "decrypted_888.jpeg")
-            assertTrue("Decrypted plaintext file must NOT exist on disk!", !decryptedFile.exists())
-            assertTrue("vault_cache directory must NOT be created on disk!", !cacheDir.exists())
+            val decryptedFile = java.io.File(cacheDir, "decrypted_888.jpg")
+            assertTrue("Decrypted cache file must exist while vault is unlocked", decryptedFile.exists())
+            assertEquals("Test Photo Data", decryptedFile.readText())
 
-            // Assert that clearVaultCache executes cleanly
+            // Assert that clearVaultCache wipes transient cache on lock
             repository.clearVaultCache(mockContext)
+            assertTrue("vault_cache must be cleared on vault lock", !decryptedFile.exists())
 
             tempFolder.deleteRecursively()
             unmockkStatic(android.net.Uri::class)

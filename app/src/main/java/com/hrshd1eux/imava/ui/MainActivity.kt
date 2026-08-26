@@ -290,13 +290,16 @@ fun MainScreenLayout(viewModel: MainViewModel) {
 
     val screens = remember { listOf(Screen.Photos, Screen.Albums, Screen.Settings) }
     
-    val backEnabled = viewModel.activeMediaItem != null ||
+    val backEnabled = viewModel.activeMemoryStory != null ||
+            viewModel.activeMediaItem != null ||
             viewModel.currentCategoryName != null ||
             viewModel.currentBucketId != null ||
             currentScreen != Screen.Photos
 
     BackHandler(enabled = backEnabled) {
-        if (viewModel.activeMediaItem != null) {
+        if (viewModel.activeMemoryStory != null) {
+            viewModel.activeMemoryStory = null
+        } else if (viewModel.activeMediaItem != null) {
             viewModel.activeMediaItem = null
         } else if (viewModel.currentCategoryName != null) {
             if (viewModel.currentCategoryName == "Hidden Vault") {
@@ -342,7 +345,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
 
     Scaffold(
         topBar = {
-            if (viewModel.activeMediaItem == null && currentScreen != Screen.DuplicateFinder && currentScreen != Screen.Search) {
+            if (viewModel.activeMemoryStory == null && viewModel.activeMediaItem == null && compareItems == null && currentScreen != Screen.DuplicateFinder && currentScreen != Screen.Search) {
                 TopAppBar(
                 title = {
                     Text(
@@ -493,7 +496,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
         }
     },
         bottomBar = {
-            if (viewModel.activeMediaItem == null && currentScreen != Screen.DuplicateFinder && currentScreen != Screen.Search) {
+            if (viewModel.activeMemoryStory == null && viewModel.activeMediaItem == null && compareItems == null && currentScreen != Screen.DuplicateFinder && currentScreen != Screen.Search) {
                 AnimatedContent(
                 targetState = selectionState.inSelectionMode,
                 transitionSpec = {
@@ -683,13 +686,17 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                     ) {
                         NavigationBarItem(
                             selected = currentScreen == Screen.Photos,
-                            onClick = { viewModel.currentScreen = Screen.Photos },
+                            onClick = {
+                                viewModel.setSearchQuery("")
+                                viewModel.currentScreen = Screen.Photos
+                            },
                             icon = { Icon(Icons.Default.Photo, contentDescription = "Photos") },
                             label = { Text("Photos") }
                         )
                         NavigationBarItem(
                             selected = currentScreen == Screen.Albums,
-                            onClick = { 
+                            onClick = {
+                                viewModel.setSearchQuery("")
                                 viewModel.currentScreen = Screen.Albums
                                 viewModel.loadBuckets()
                             },
@@ -698,7 +705,10 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                         )
                         NavigationBarItem(
                             selected = currentScreen == Screen.Settings,
-                            onClick = { viewModel.currentScreen = Screen.Settings },
+                            onClick = {
+                                viewModel.setSearchQuery("")
+                                viewModel.currentScreen = Screen.Settings
+                            },
                             icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
                             label = { Text("Settings") }
                         )
@@ -748,6 +758,23 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                     viewModel = viewModel,
                     onBackClick = { viewModel.currentScreen = Screen.Albums }
                 )
+            }
+
+            AnimatedVisibility(
+                visible = viewModel.activeMemoryStory != null,
+                enter = fadeIn() + scaleIn(initialScale = 0.94f),
+                exit = fadeOut() + scaleOut(targetScale = 0.94f)
+            ) {
+                viewModel.activeMemoryStory?.let { story ->
+                    com.hrshd1eux.imava.ui.timeline.MemoryStoryPlayerScreen(
+                        story = story,
+                        onDismiss = { viewModel.activeMemoryStory = null },
+                        onOpenMediaInViewer = { mediaItem ->
+                            viewModel.activeMemoryStory = null
+                            viewModel.activeMediaItem = mediaItem
+                        }
+                    )
+                }
             }
 
             AnimatedVisibility(

@@ -53,6 +53,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
+import androidx.compose.material.icons.filled.Style
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.MoreVert
@@ -442,6 +443,20 @@ fun PhotoViewerScreen(
                                 showMoreMenu = false
                                 renameInputText = java.io.File(item.path).nameWithoutExtension
                                 showRenameDialog = true
+                            }
+                        )
+
+                        DropdownMenuItem(
+                            text = { Text("Tags & Hashtags 🏷️") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Style,
+                                    contentDescription = null
+                                )
+                            },
+                            onClick = {
+                                showMoreMenu = false
+                                showInfoSheet = true
                             }
                         )
 

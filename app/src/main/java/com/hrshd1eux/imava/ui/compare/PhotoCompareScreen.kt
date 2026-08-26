@@ -1,5 +1,6 @@
 package com.hrshd1eux.imava.ui.compare
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -80,6 +81,8 @@ fun PhotoCompareScreen(
         scale1 = 1f; offsetX1 = 0f; offsetY1 = 0f
         scale2 = 1f; offsetX2 = 0f; offsetY2 = 0f
     }
+
+    BackHandler(onBack = onBack)
 
     Box(
         modifier = modifier

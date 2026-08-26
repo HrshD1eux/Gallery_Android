@@ -421,40 +421,127 @@ class MainViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val throwbackMemories: StateFlow<List<com.hrshd1eux.imava.ui.timeline.MemoryStory>> = visibleMediaItems
-        .map { items ->
-            if (items.isEmpty()) return@map emptyList<com.hrshd1eux.imava.ui.timeline.MemoryStory>()
-            val zoneId = ZoneId.systemDefault()
+    var activeMemoryStory by mutableStateOf<com.hrshd1eux.imava.ui.timeline.MemoryStory?>(null)
+
+    private val _memoriesDismissedTimestamp = MutableStateFlow(prefs.getLong("memories_dismissed_at", 0L))
+    val memoriesDismissedTimestamp: StateFlow<Long> = _memoriesDismissedTimestamp.asStateFlow()
+
+    fun dismissMemoriesFor24Hours() {
+        val now = System.currentTimeMillis()
+        prefs.edit().putLong("memories_dismissed_at", now).apply()
+        _memoriesDismissedTimestamp.value = now
+    }
+
+    val throwbackMemories: StateFlow<List<com.hrshd1eux.imava.ui.timeline.MemoryStory>> = combine(
+        visibleMediaItems,
+        _memoriesDismissedTimestamp
+    ) { items, dismissedTimestamp ->
+        val now = System.currentTimeMillis()
+        if (dismissedTimestamp > 0L && (now - dismissedTimestamp) < 24 * 60 * 60 * 1000L) {
+            return@combine emptyList<com.hrshd1eux.imava.ui.timeline.MemoryStory>()
+        }
+        if (items.isEmpty()) return@combine emptyList<com.hrshd1eux.imava.ui.timeline.MemoryStory>()
+        val zoneId = ZoneId.systemDefault()
             val today = LocalDate.now(zoneId)
             val todayMonth = today.monthValue
             val todayDay = today.dayOfMonth
+            val formatter = DateTimeFormatter.ofPattern("MMMM d, yyyy", Locale.getDefault())
+            val monthFormatter = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault())
 
-            val matchingItems = items.filter { item ->
+            val stories = mutableListOf<com.hrshd1eux.imava.ui.timeline.MemoryStory>()
+
+            // 1. Exact Day Matches in previous years
+            val exactDayItems = items.filter { item ->
                 if (item.dateTaken <= 0) return@filter false
                 val itemDate = Instant.ofEpochMilli(item.dateTaken).atZone(zoneId).toLocalDate()
                 itemDate.monthValue == todayMonth && itemDate.dayOfMonth == todayDay && itemDate.year < today.year
             }
-
-            if (matchingItems.isEmpty()) return@map emptyList<com.hrshd1eux.imava.ui.timeline.MemoryStory>()
-
-            val groupedByYear = matchingItems.groupBy { item ->
-                Instant.ofEpochMilli(item.dateTaken).atZone(zoneId).toLocalDate().year
+            if (exactDayItems.isNotEmpty()) {
+                val groupedByYear = exactDayItems.groupBy { item ->
+                    Instant.ofEpochMilli(item.dateTaken).atZone(zoneId).toLocalDate().year
+                }
+                groupedByYear.forEach { (year, yearItems) ->
+                    val yearsAgo = today.year - year
+                    val title = if (yearsAgo == 1) "1 Year Ago Today 🌟" else "$yearsAgo Years Ago 🌟"
+                    val sampleDate = Instant.ofEpochMilli(yearItems.first().dateTaken).atZone(zoneId).toLocalDate().format(formatter)
+                    val cover = yearItems.firstOrNull()
+                    if (cover != null) {
+                        stories.add(
+                            com.hrshd1eux.imava.ui.timeline.MemoryStory(
+                                id = "memory_day_$year",
+                                title = title,
+                                dateSubtitle = sampleDate,
+                                coverItem = cover,
+                                items = yearItems
+                            )
+                        )
+                    }
+                }
             }
 
-            groupedByYear.mapNotNull { (year, yearItems) ->
-                val yearsAgo = today.year - year
-                val title = if (yearsAgo == 1) "1 Year Ago Today" else "$yearsAgo Years Ago"
-                val formatter = DateTimeFormatter.ofPattern("MMMM d, yyyy", Locale.getDefault())
-                val sampleDate = Instant.ofEpochMilli(yearItems.first().dateTaken).atZone(zoneId).toLocalDate().format(formatter)
-                val cover = yearItems.firstOrNull() ?: return@mapNotNull null
-                com.hrshd1eux.imava.ui.timeline.MemoryStory(
-                    id = "memory_$year",
-                    title = title,
-                    dateSubtitle = sampleDate,
-                    coverItem = cover,
-                    items = yearItems
-                )
-            }.sortedByDescending { it.items.first().dateTaken }
+            // 2. Same Month in previous years
+            val sameMonthPastYears = items.filter { item ->
+                if (item.dateTaken <= 0) return@filter false
+                val itemDate = Instant.ofEpochMilli(item.dateTaken).atZone(zoneId).toLocalDate()
+                itemDate.monthValue == todayMonth && itemDate.year < today.year && !exactDayItems.contains(item)
+            }
+            if (sameMonthPastYears.isNotEmpty()) {
+                val groupedByYear = sameMonthPastYears.groupBy { item ->
+                    Instant.ofEpochMilli(item.dateTaken).atZone(zoneId).toLocalDate().year
+                }
+                groupedByYear.forEach { (year, yearItems) ->
+                    val sampleDate = Instant.ofEpochMilli(yearItems.first().dateTaken).atZone(zoneId).toLocalDate().format(monthFormatter)
+                    val cover = yearItems.firstOrNull()
+                    if (cover != null && yearItems.size >= 2) {
+                        stories.add(
+                            com.hrshd1eux.imava.ui.timeline.MemoryStory(
+                                id = "memory_month_$year",
+                                title = "$sampleDate Memories 📸",
+                                dateSubtitle = "${yearItems.size} moments",
+                                coverItem = cover,
+                                items = yearItems
+                            )
+                        )
+                    }
+                }
+            }
+
+            // 3. Fallback: Monthly highlights across the gallery if stories are still empty
+            if (stories.isEmpty()) {
+                val validItems = items.filter { it.dateTaken > 0 }
+                val groupedByMonth = validItems.groupBy { item ->
+                    val date = Instant.ofEpochMilli(item.dateTaken).atZone(zoneId).toLocalDate()
+                    "${date.year}-${date.monthValue}"
+                }
+                groupedByMonth.entries.take(4).forEach { (_, monthItems) ->
+                    val sampleDate = Instant.ofEpochMilli(monthItems.first().dateTaken).atZone(zoneId).toLocalDate().format(monthFormatter)
+                    val cover = monthItems.firstOrNull()
+                    if (cover != null) {
+                        stories.add(
+                            com.hrshd1eux.imava.ui.timeline.MemoryStory(
+                                id = "memory_fallback_${cover.id}",
+                                title = "$sampleDate Highlights ✨",
+                                dateSubtitle = "${monthItems.size} moments",
+                                coverItem = cover,
+                                items = monthItems
+                            )
+                        )
+                    }
+                }
+            }
+
+            stories.sortedByDescending { it.items.firstOrNull()?.dateTaken ?: 0L }
+        }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allDistinctTags: StateFlow<List<String>> = visibleMediaItems
+        .map { items ->
+            items.flatMap { it.tags }
+                .map { it.trim().removePrefix("#").lowercase() }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .sorted()
         }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())

@@ -17,10 +17,10 @@
 ## 📱 Screenshots & Interface
 
 <p align="center">
-  <img src="screenshots/photos.jpg" width="23%" alt="Photos Timeline" />
-  <img src="screenshots/album.jpg" width="23%" alt="Albums & Folders" />
-  <img src="screenshots/vault.jpg" width="23%" alt="Encrypted Vault" />
-  <img src="screenshots/setting.jpg" width="23%" alt="Settings & Preferences" />
+  <img src="screenshots/photos.png" width="23%" alt="Photos Timeline" />
+  <img src="screenshots/album.png" width="23%" alt="Albums & Folders" />
+  <img src="screenshots/vault.png" width="23%" alt="Encrypted Vault" />
+  <img src="screenshots/setting.png" width="23%" alt="Settings & Preferences" />
 </p>
 
 ---
@@ -80,10 +80,11 @@
 
 ### 🔐 Hardware-Backed Encrypted Vault & Decoy PIN
 - **AES-256-GCM Hardware Encryption**: Media moved to the Hidden Vault is encrypted at rest using AES-256-GCM via `AndroidKeyStore` (`AES/GCM/NoPadding`, 12-byte random IV header, 128-bit authentication tag).
+- **Atomic Transient Decryption Cache**: When unlocked, photos & videos are safely accessible in app-private transient cache (`VaultCacheManager`) for high-fidelity viewing with Coil & Media3 ExoPlayer, and completely wiped on vault lock (`clearVaultCache`).
+- **Lossless Restore & Re-indexing**: Restoring media out of the vault decrypts byte-for-byte into public storage with original filenames, timestamps, and immediate `MediaScannerConnection` re-indexing with zero data corruption.
 - **Brute-Force Resistant PIN Hashing**: PIN authentication uses `PBKDF2WithHmacSHA256` with 100,000 iterations and a 16-byte cryptographically secure salt.
 - **🔒 Decoy PIN (Plausible Deniability)**: Configure an alternate decoy PIN in Vault settings that silently unlocks a fake, empty vault view when entered.
 - **Persistent Lockout Rate Limiting**: Anti-tampering failed attempt tracking and lockout timestamps are persisted to prevent rate-limit bypass.
-- **Zero Plaintext Flash Storage Leak**: Stream-decrypted in-memory decoding via custom Coil `VaultFetcher` and Media3 `EncryptedVaultDataSource` (`CipherInputStream`). Decrypted bytes never touch disk cache.
 - **Dynamic `FLAG_SECURE` Protection**: Applies window security flags when viewing vault media to prevent screenshots and task preview leaks.
 - **Multi-Factor Auth**: Supports PIN, 3x3 Pattern lock, and AndroidX Biometrics (Fingerprint/Face unlock).
 - **Stealth Mode**: Configurable secret search trigger (e.g. `#vault`) to access the vault when the album is hidden.

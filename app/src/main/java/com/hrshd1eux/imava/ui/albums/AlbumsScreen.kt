@@ -82,6 +82,7 @@ fun AlbumsScreen(
     val hidden by viewModel.hidden.collectAsState()
     val videosCount by viewModel.videosCount.collectAsState()
     val allMedia by viewModel.visibleMediaItems.collectAsState()
+    val throwbackMemories by viewModel.throwbackMemories.collectAsState()
 
     val context = LocalContext.current
     var showHiddenLockedDialog by remember { mutableStateOf(false) }
@@ -160,6 +161,23 @@ fun AlbumsScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            }
+
+            // Throwback Memories Stories (Only in Albums)
+            if (throwbackMemories.isNotEmpty()) {
+                item {
+                    Column(modifier = Modifier.padding(bottom = 16.dp)) {
+                        com.hrshd1eux.imava.ui.timeline.MemoriesStoriesHeader(
+                            memories = throwbackMemories,
+                            onStoryClick = { story ->
+                                viewModel.activeMemoryStory = story
+                            },
+                            onDismiss = {
+                                viewModel.dismissMemoriesFor24Hours()
+                            }
+                        )
+                    }
                 }
             }
 

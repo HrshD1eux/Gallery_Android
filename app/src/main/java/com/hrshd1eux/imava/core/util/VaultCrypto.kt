@@ -32,8 +32,11 @@ object VaultCrypto {
         return try {
             val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
             if (keyStore.containsAlias(KEY_ALIAS)) {
+                val key = keyStore.getKey(KEY_ALIAS, null) as? SecretKey
+                if (key != null) return key
                 val entry = keyStore.getEntry(KEY_ALIAS, null) as? KeyStore.SecretKeyEntry
                 if (entry != null) return entry.secretKey
+                throw KeystoreUnavailableException("Master key alias '$KEY_ALIAS' exists in KeyStore but secret key could not be retrieved.")
             }
 
             val keyGenerator = KeyGenerator.getInstance(
@@ -57,6 +60,21 @@ object VaultCrypto {
                 e
             )
         }
+    }
+
+    private fun isKnownMediaHeader(header: ByteArray): Boolean {
+        if (header.size < 4) return false
+        // JPEG: FF D8 FF
+        if (header[0] == 0xFF.toByte() && header[1] == 0xD8.toByte() && header[2] == 0xFF.toByte()) return true
+        // PNG: 89 50 4E 47
+        if (header[0] == 0x89.toByte() && header[1] == 0x50.toByte() && header[2] == 0x4E.toByte() && header[3] == 0x47.toByte()) return true
+        // GIF: 47 49 46 38
+        if (header[0] == 0x47.toByte() && header[1] == 0x49.toByte() && header[2] == 0x46.toByte() && header[3] == 0x38.toByte()) return true
+        // WEBP / RIFF: 52 49 46 46
+        if (header[0] == 0x52.toByte() && header[1] == 0x49.toByte() && header[2] == 0x46.toByte() && header[3] == 0x46.toByte()) return true
+        // MP4 / QuickTime ftyp at offset 4: 66 74 79 70
+        if (header.size >= 8 && header[4] == 0x66.toByte() && header[5] == 0x74.toByte() && header[6] == 0x79.toByte() && header[7] == 0x70.toByte()) return true
+        return false
     }
 
     /**
@@ -89,20 +107,39 @@ object VaultCrypto {
      * Decrypts stream containing IV (12 bytes) + AES-256-GCM ciphertext back to plaintext output stream.
      */
     fun decrypt(inputStream: InputStream, outputStream: OutputStream) {
-        val iv = ByteArray(IV_SIZE)
-        val readIv = inputStream.read(iv)
-        if (readIv != IV_SIZE) {
-            throw IllegalArgumentException("Invalid encrypted vault file: missing IV header")
+        val bufferedInput = if (inputStream.markSupported()) inputStream else java.io.BufferedInputStream(inputStream)
+        bufferedInput.mark(16)
+        val header = ByteArray(IV_SIZE)
+        var totalRead = 0
+        while (totalRead < IV_SIZE) {
+            val count = bufferedInput.read(header, totalRead, IV_SIZE - totalRead)
+            if (count == -1) break
+            totalRead += count
+        }
+
+        if (totalRead < IV_SIZE) {
+            bufferedInput.reset()
+            bufferedInput.copyTo(outputStream)
+            outputStream.flush()
+            return
+        }
+
+        // If file is already unencrypted media, bypass decryption
+        if (isKnownMediaHeader(header)) {
+            bufferedInput.reset()
+            bufferedInput.copyTo(outputStream)
+            outputStream.flush()
+            return
         }
 
         val secretKey = getSecretKey()
         val cipher = Cipher.getInstance(TRANSFORMATION)
-        val gcmSpec = GCMParameterSpec(TAG_SIZE, iv)
+        val gcmSpec = GCMParameterSpec(TAG_SIZE, header)
         cipher.init(Cipher.DECRYPT_MODE, secretKey, gcmSpec)
 
         val buffer = ByteArray(8192)
         var bytesRead: Int
-        while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+        while (bufferedInput.read(buffer).also { bytesRead = it } != -1) {
             val decryptedChunk = cipher.update(buffer, 0, bytesRead)
             if (decryptedChunk != null && decryptedChunk.isNotEmpty()) {
                 outputStream.write(decryptedChunk)

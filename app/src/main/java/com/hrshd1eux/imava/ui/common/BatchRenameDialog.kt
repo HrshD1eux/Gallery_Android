@@ -121,7 +121,7 @@ fun BatchRenameDialog(
                     .imePadding()
             ) {
                 // Mode Selector Chips
-                Row(
+                FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {

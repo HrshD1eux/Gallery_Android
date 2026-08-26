@@ -196,6 +196,20 @@ class MainViewModelTest {
         coVerify { mockRepository.searchMedia("vacation") }
         assertEquals(1, viewModel.searchResults.value.size)
         assertEquals(500L, viewModel.searchResults.value[0].id)
+
+        // Clear query
+        viewModel.setSearchQuery("")
+        testDispatcher.scheduler.advanceTimeBy(350)
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertEquals(0, viewModel.searchResults.value.size)
+
         job.cancel()
+    }
+
+    @Test
+    fun testDismissMemoriesFor24Hours_setsTimestamp() = runTest {
+        assertEquals(0L, viewModel.memoriesDismissedTimestamp.value)
+        viewModel.dismissMemoriesFor24Hours()
+        org.junit.Assert.assertTrue(viewModel.memoriesDismissedTimestamp.value > 0L)
     }
 }

@@ -1,6 +1,7 @@
 package com.hrshd1eux.imava.ui.search
 
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -25,6 +26,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -35,6 +40,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -48,6 +54,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.hrshd1eux.imava.data.model.MediaItem
@@ -83,6 +90,11 @@ fun SearchScreen(
             ) {}
             .clipToBounds()
     ) {
+        BackHandler {
+            viewModel.setSearchQuery("")
+            viewModel.currentScreen = com.hrshd1eux.imava.ui.Screen.Albums
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -92,7 +104,10 @@ fun SearchScreen(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = { viewModel.currentScreen = com.hrshd1eux.imava.ui.Screen.Albums }) {
+                IconButton(onClick = {
+                    viewModel.setSearchQuery("")
+                    viewModel.currentScreen = com.hrshd1eux.imava.ui.Screen.Albums
+                }) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back"
@@ -185,15 +200,57 @@ fun SearchScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             if (searchQuery.isBlank()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
+                val tags by viewModel.allDistinctTags.collectAsState()
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
                 ) {
                     Text(
-                        text = "Type a filename, folder, or format to search",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        text = "Custom Offline Tags & Hashtags 🏷️",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(bottom = 8.dp)
                     )
+
+                    val defaultTags = listOf("favorites", "nature", "trip", "family", "camera", "screenshot")
+                    val displayTags = (tags + defaultTags).distinct()
+
+                    @OptIn(ExperimentalLayoutApi::class)
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp)
+                    ) {
+                        displayTags.forEach { tag ->
+                            SuggestionChip(
+                                onClick = { viewModel.setSearchQuery("#$tag") },
+                                label = { Text("#$tag") }
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "Quick Media Filters 🔍",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+
+                    @OptIn(ExperimentalLayoutApi::class)
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp)
+                    ) {
+                        listOf("Photos" to "photo", "Videos" to "mp4", "PNG" to "png", "JPG" to "jpg", "Screenshots" to "Screenshot").forEach { (label, query) ->
+                            SuggestionChip(
+                                onClick = { viewModel.setSearchQuery(query) },
+                                label = { Text(label) }
+                            )
+                        }
+                    }
                 }
             } else {
                 Text(
