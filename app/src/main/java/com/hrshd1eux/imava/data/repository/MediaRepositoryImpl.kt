@@ -903,4 +903,81 @@ class MediaRepositoryImpl @Inject constructor(
         }
         deletedCount
     }
+
+    override suspend fun moveOrCopyMedia(
+        context: Context,
+        items: List<MediaItem>,
+        targetDirectory: java.io.File,
+        isCopy: Boolean
+    ): Result<Int> = withContext(Dispatchers.IO) {
+        if (!targetDirectory.exists()) {
+            targetDirectory.mkdirs()
+        }
+        var count = 0
+        val scannedPaths = mutableListOf<String>()
+
+        for (item in items) {
+            try {
+                val sourceFile = java.io.File(item.path)
+                if (!sourceFile.exists()) continue
+
+                val targetFile = java.io.File(targetDirectory, sourceFile.name)
+                var finalTarget = targetFile
+                var counter = 1
+                val baseName = sourceFile.nameWithoutExtension
+                val ext = sourceFile.extension
+                while (finalTarget.exists()) {
+                    val newName = if (ext.isNotEmpty()) "${baseName}_$counter.$ext" else "${baseName}_$counter"
+                    finalTarget = java.io.File(targetDirectory, newName)
+                    counter++
+                }
+
+                sourceFile.inputStream().use { input ->
+                    finalTarget.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+
+                if (finalTarget.exists() && finalTarget.length() == sourceFile.length()) {
+                    scannedPaths.add(finalTarget.absolutePath)
+                    count++
+
+                    if (!isCopy) {
+                        sourceFile.delete()
+                        try {
+                            context.contentResolver.delete(item.uri, null, null)
+                        } catch (_: Exception) {}
+                        deleteMetadataPermanently(item.id)
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        if (scannedPaths.isNotEmpty()) {
+            android.media.MediaScannerConnection.scanFile(
+                context,
+                scannedPaths.toTypedArray(),
+                null,
+                null
+            )
+        }
+
+        Result.success(count)
+    }
+
+    override suspend fun shiftMediaTimestamps(
+        context: Context,
+        items: List<MediaItem>,
+        offsetMillis: Long
+    ): Result<Int> = withContext(Dispatchers.IO) {
+        var count = 0
+        for (item in items) {
+            val newDate = (item.dateTaken + offsetMillis).coerceAtLeast(0L)
+            val success = updateMediaDateTaken(context, item, newDate)
+            if (success) count++
+        }
+        Result.success(count)
+    }
 }

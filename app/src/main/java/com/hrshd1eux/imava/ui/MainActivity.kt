@@ -97,6 +97,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import android.content.pm.ActivityInfo
+import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -170,6 +173,10 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            window.colorMode = ActivityInfo.COLOR_MODE_HDR
+        }
+
         checkPermissions()
 
         setContent {
@@ -205,10 +212,16 @@ class MainActivity : FragmentActivity() {
 
     override fun onResume() {
         super.onResume()
+        viewModel.onAppForegrounded(this)
         checkPermissions()
         if (hasPermissionsState.value) {
             viewModel.refreshAll()
         }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        viewModel.onAppBackgrounded()
     }
 
     override fun onUserLeaveHint() {
@@ -259,6 +272,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
     var showSelectionShareDialog by remember { androidx.compose.runtime.mutableStateOf(false) }
     var stripMetadataOnShare by remember { androidx.compose.runtime.mutableStateOf(true) }
     var showMoveToAlbumDialog by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var showTimeShiftDialog by remember { androidx.compose.runtime.mutableStateOf(false) }
     var showBatchRenameDialog by remember { androidx.compose.runtime.mutableStateOf(false) }
     var compareItems by remember { androidx.compose.runtime.mutableStateOf<Pair<com.hrshd1eux.imava.data.model.MediaItem, com.hrshd1eux.imava.data.model.MediaItem>?>(null) }
     var collageImageUris by remember { androidx.compose.runtime.mutableStateOf<List<Uri>?>(null) }
@@ -720,8 +734,14 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                                     )
 
                                     SelectionActionButton(
+                                        icon = Icons.Default.AccessTime,
+                                        label = "Shift Time",
+                                        onClick = { showTimeShiftDialog = true }
+                                    )
+
+                                    SelectionActionButton(
                                         icon = Icons.AutoMirrored.Filled.DriveFileMove,
-                                        label = "Move",
+                                        label = "Move/Copy",
                                         onClick = { showMoveToAlbumDialog = true }
                                     )
                                 }
@@ -735,7 +755,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                             }
                         }
                     }
-                } else {
+                } else if (viewModel.currentCategoryName != "Hidden Vault") {
                     NavigationBar(
                         containerColor = MaterialTheme.colorScheme.surface,
                         tonalElevation = 8.dp
@@ -970,78 +990,25 @@ fun MainScreenLayout(viewModel: MainViewModel) {
         )
     }
     if (showMoveToAlbumDialog) {
-        var createNewAlbumInMove by remember { mutableStateOf(false) }
-        var tempNewAlbumName by remember { mutableStateOf("") }
         val bucketList by viewModel.buckets.collectAsState()
-        
-        AlertDialog(
-            onDismissRequest = { 
-                showMoveToAlbumDialog = false 
-                createNewAlbumInMove = false
-                tempNewAlbumName = ""
-            },
-            title = { Text("Move to Album") },
-            text = {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    if (createNewAlbumInMove) {
-                        OutlinedTextField(
-                            value = tempNewAlbumName,
-                            onValueChange = { tempNewAlbumName = it },
-                            label = { Text("New Album Name") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    } else {
-                        LazyColumn(modifier = Modifier.heightIn(max = 250.dp)) {
-                            item {
-                                TextButton(
-                                    onClick = { createNewAlbumInMove = true },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text("+ Create New Album")
-                                }
-                            }
-                            items(bucketList) { bucket ->
-                                TextButton(
-                                    onClick = {
-                                        viewModel.moveSelectedMediaToFolder(context, bucket.name)
-                                        showMoveToAlbumDialog = false
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(bucket.name)
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                if (createNewAlbumInMove) {
-                    Button(
-                        onClick = {
-                            if (tempNewAlbumName.isNotBlank()) {
-                                viewModel.moveSelectedMediaToFolder(context, tempNewAlbumName.trim())
-                                showMoveToAlbumDialog = false
-                                createNewAlbumInMove = false
-                                tempNewAlbumName = ""
-                            }
-                        }
-                    ) {
-                        Text("Move")
-                    }
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        showMoveToAlbumDialog = false
-                        createNewAlbumInMove = false
-                        tempNewAlbumName = ""
-                    }
-                ) {
-                    Text("Cancel")
-                }
+        com.hrshd1eux.imava.ui.common.MoveCopyAlbumDialog(
+            buckets = bucketList,
+            isCopy = false,
+            onDismiss = { showMoveToAlbumDialog = false },
+            onConfirm = { targetDir, isCopy ->
+                showMoveToAlbumDialog = false
+                viewModel.moveOrCopySelectedMedia(context, targetDir, isCopy) {}
+            }
+        )
+    }
+
+    if (showTimeShiftDialog) {
+        com.hrshd1eux.imava.ui.common.ExifTimeShiftDialog(
+            selectedCount = selectionState.selectedIds.size,
+            onDismiss = { showTimeShiftDialog = false },
+            onConfirm = { offsetMs ->
+                showTimeShiftDialog = false
+                viewModel.shiftSelectedMediaTimestamp(context, offsetMs) {}
             }
         )
     }

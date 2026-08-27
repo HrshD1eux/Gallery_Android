@@ -1,6 +1,9 @@
 package com.hrshd1eux.imava.ui.viewer
 
 import android.content.Intent
+import android.graphics.Bitmap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -581,6 +584,43 @@ fun PhotoViewerScreen(
                                     showCompressDialog = true
                                 }
                             )
+
+                            if (item.mimeType.contains("gif", ignoreCase = true) || item.mimeType.contains("webp", ignoreCase = true)) {
+                                DropdownMenuItem(
+                                    text = { Text("Save Frame as JPEG") },
+                                    leadingIcon = { Icon(Icons.Default.Photo, contentDescription = null) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        scope.launch(Dispatchers.IO) {
+                                            try {
+                                                val loader = coil.ImageLoader(context)
+                                                val req = coil.request.ImageRequest.Builder(context)
+                                                    .data(item.uri)
+                                                    .allowHardware(false)
+                                                    .build()
+                                                val result = loader.execute(req)
+                                                val drawable = result.drawable
+                                                val bitmap = (drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
+                                                if (bitmap != null) {
+                                                    val framesDir = java.io.File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES), "Frames")
+                                                    framesDir.mkdirs()
+                                                    val frameFile = java.io.File(framesDir, "Frame_${System.currentTimeMillis()}.jpg")
+                                                    java.io.FileOutputStream(frameFile).use { out ->
+                                                        bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
+                                                    }
+                                                    android.media.MediaScannerConnection.scanFile(context, arrayOf(frameFile.absolutePath), null, null)
+                                                    withContext(Dispatchers.Main) {
+                                                        com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
+                                                        android.widget.Toast.makeText(context, "Frame saved to Pictures/Frames", android.widget.Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
+                                            } catch (e: Exception) {
+                                                e.printStackTrace()
+                                            }
+                                        }
+                                    }
+                                )
+                            }
                         }
                     }
                 }

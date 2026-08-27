@@ -17,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.DeleteForever
@@ -262,6 +263,84 @@ fun VaultSecurityDialog(
                             } else {
                                 isBiometricEnabled = false
                                 prefs.edit().putBoolean("vault_biometric_enabled", false).apply()
+                            }
+                        }
+                    )
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                var autoLockTimeout by remember { mutableStateOf(prefs.getLong("vault_autolock_timeout", 0L)) }
+                var showTimeoutDialog by remember { mutableStateOf(false) }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showTimeoutDialog = true }
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(imageVector = Icons.Default.AccessTime, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(text = "Auto-Lock Timeout", style = MaterialTheme.typography.titleMedium)
+                        val timeoutLabel = when (autoLockTimeout) {
+                            0L -> "Immediately on background"
+                            30000L -> "30 seconds"
+                            60000L -> "1 minute"
+                            300000L -> "5 minutes"
+                            else -> "Never"
+                        }
+                        Text(
+                            text = timeoutLabel,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                if (showTimeoutDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showTimeoutDialog = false },
+                        title = { Text("Auto-Lock Timeout") },
+                        text = {
+                            Column {
+                                val options = listOf(
+                                    0L to "Immediately on background",
+                                    30000L to "30 seconds",
+                                    60000L to "1 minute",
+                                    300000L to "5 minutes",
+                                    -1L to "Never"
+                                )
+                                options.forEach { (timeMs, label) ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable {
+                                                autoLockTimeout = timeMs
+                                                prefs.edit().putLong("vault_autolock_timeout", timeMs).apply()
+                                                showTimeoutDialog = false
+                                            }
+                                            .padding(vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        RadioButton(
+                                            selected = autoLockTimeout == timeMs,
+                                            onClick = {
+                                                autoLockTimeout = timeMs
+                                                prefs.edit().putLong("vault_autolock_timeout", timeMs).apply()
+                                                showTimeoutDialog = false
+                                            }
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(label)
+                                    }
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { showTimeoutDialog = false }) {
+                                Text("Close")
                             }
                         }
                     )

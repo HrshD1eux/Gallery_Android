@@ -133,6 +133,14 @@ class MainViewModel @Inject constructor(
         vaultState.lockVault(context)
     }
 
+    fun onAppBackgrounded() {
+        vaultState.onAppBackgrounded()
+    }
+
+    fun onAppForegrounded(context: Context) {
+        vaultState.onAppForegrounded(context)
+    }
+
     private var _appThemeState = mutableStateOf(prefs.getString("app_theme", "system") ?: "system")
     var appTheme: String
         get() = _appThemeState.value
@@ -1035,6 +1043,51 @@ class MainViewModel @Inject constructor(
                 com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
                 android.widget.Toast.makeText(context, "Renamed $count items", android.widget.Toast.LENGTH_SHORT).show()
             }
+        }
+    }
+
+    fun moveOrCopySelectedMedia(
+        context: Context,
+        targetDirectory: java.io.File,
+        isCopy: Boolean,
+        onComplete: (Int) -> Unit
+    ) {
+        val selectedIds = selectionState.selectedIds.toSet()
+        if (selectedIds.isEmpty()) return
+        viewModelScope.launch {
+            val items = getSelectedMediaItems(selectedIds)
+            val result = repository.moveOrCopyMedia(context, items, targetDirectory, isCopy)
+            val count = result.getOrDefault(0)
+            selectionState.clear()
+            loadBuckets()
+            refreshAll()
+            if (count > 0) {
+                com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
+                val actionName = if (isCopy) "Copied" else "Moved"
+                android.widget.Toast.makeText(context, "$actionName $count items to ${targetDirectory.name}", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            onComplete(count)
+        }
+    }
+
+    fun shiftSelectedMediaTimestamp(
+        context: Context,
+        offsetMillis: Long,
+        onComplete: (Int) -> Unit
+    ) {
+        val selectedIds = selectionState.selectedIds.toSet()
+        if (selectedIds.isEmpty()) return
+        viewModelScope.launch {
+            val items = getSelectedMediaItems(selectedIds)
+            val result = repository.shiftMediaTimestamps(context, items, offsetMillis)
+            val count = result.getOrDefault(0)
+            selectionState.clear()
+            refreshAll()
+            if (count > 0) {
+                com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
+                android.widget.Toast.makeText(context, "Adjusted time for $count items", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            onComplete(count)
         }
     }
 

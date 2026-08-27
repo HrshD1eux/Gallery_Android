@@ -69,6 +69,20 @@ fun TimelineScreen(
 
     val gridState = rememberLazyStaggeredGridState()
 
+    var lastTopIndex by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    var lastTopOffset by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+
+    LaunchedEffect(gridState.firstVisibleItemIndex, gridState.firstVisibleItemScrollOffset) {
+        lastTopIndex = gridState.firstVisibleItemIndex
+        lastTopOffset = gridState.firstVisibleItemScrollOffset
+    }
+
+    LaunchedEffect(viewModel.gridColumnCount) {
+        if (lastTopIndex > 0) {
+            gridState.scrollToItem(lastTopIndex, lastTopOffset)
+        }
+    }
+
     val dragSelectionModifier = if (selectionState.inSelectionMode) {
         Modifier.pointerInput(selectionState.inSelectionMode) {
             detectDragGestures(

@@ -1,6 +1,10 @@
 package com.hrshd1eux.imava.ui.settings
 
 import android.content.Context
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.SdCard
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -267,6 +271,54 @@ fun SettingsScreen(
                     }
                     Icon(
                         imageVector = Icons.Default.Folder,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+
+                val storagePrefs = remember(context) { context.getSharedPreferences("storage_prefs", Context.MODE_PRIVATE) }
+                var sdTreeUri by remember { mutableStateOf(storagePrefs.getString("sd_tree_uri", null)) }
+
+                val sdLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenDocumentTree()
+                ) { uri ->
+                    if (uri != null) {
+                        try {
+                            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                            context.contentResolver.takePersistableUriPermission(uri, flags)
+                            storagePrefs.edit().putString("sd_tree_uri", uri.toString()).apply()
+                            sdTreeUri = uri.toString()
+                            viewModel.refreshAll()
+                            com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
+                            android.widget.Toast.makeText(context, "Storage permission granted", android.widget.Toast.LENGTH_SHORT).show()
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { sdLauncher.launch(null) }
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "External SD Card / USB OTG Access",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            text = if (sdTreeUri != null) "Permission granted for external storage" else "Grant Storage Access Framework tree permission for secondary storage",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Default.SdCard,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary
                     )
