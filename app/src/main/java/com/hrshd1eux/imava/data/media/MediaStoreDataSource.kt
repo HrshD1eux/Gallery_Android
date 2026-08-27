@@ -180,84 +180,9 @@ class MediaStoreDataSource @Inject constructor(
         }
 
         cursor?.use {
-            val idCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
-            val dataCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATA)
-            val mimeCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE)
-            val dateCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_TAKEN)
-            val addedCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_ADDED)
-            val sizeCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
-            val widthCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.WIDTH)
-            val heightCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.HEIGHT)
-            val durCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DURATION)
-            val bucketIdCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.BUCKET_ID)
-            val bucketNameCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME)
-            val mediaTypeCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MEDIA_TYPE)
-
+            val indices = MediaCursorIndices(it)
             while (it.moveToNext()) {
-                val id = it.getLong(idCol)
-                val path = it.getString(dataCol) ?: ""
-                val mimeType = it.getString(mimeCol) ?: "image/jpeg"
-                
-                val rawDateTaken = it.getLong(dateCol)
-                val addedSecs = it.getLong(addedCol)
-                val addedMs = if (addedSecs > 0) addedSecs * 1000L else 0L
-                val dateTaken = if (rawDateTaken > 100000000000L) rawDateTaken else addedMs
-                
-                val size = it.getLong(sizeCol)
-                val width = it.getInt(widthCol)
-                val height = it.getInt(heightCol)
-                val bucketIdVal = it.getLong(bucketIdCol)
-                val bucketName = it.getString(bucketNameCol) ?: "Unknown"
-                val mediaType = it.getInt(mediaTypeCol)
-
-                val isTrashedSystem = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                    val trashedCol = it.getColumnIndex("is_trashed")
-                    if (trashedCol != -1) it.getInt(trashedCol) == 1 else false
-                } else {
-                    false
-                }
-
-                val uri = if (mediaType == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO) {
-                    ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
-                } else {
-                    ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
-                }
-
-                if (mediaType == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO) {
-                    val duration = it.getLong(durCol)
-                    mediaList.add(
-                        MediaItem.Video(
-                            id = id,
-                            uri = uri,
-                            path = path,
-                            mimeType = mimeType,
-                            dateTaken = dateTaken,
-                            size = size,
-                            width = width,
-                            height = height,
-                            durationMs = duration,
-                            bucketId = bucketIdVal,
-                            bucketName = bucketName,
-                            isTrashed = isTrashedSystem
-                        )
-                    )
-                } else {
-                    mediaList.add(
-                        MediaItem.Photo(
-                            id = id,
-                            uri = uri,
-                            path = path,
-                            mimeType = mimeType,
-                            dateTaken = dateTaken,
-                            size = size,
-                            width = width,
-                            height = height,
-                            bucketId = bucketIdVal,
-                            bucketName = bucketName,
-                            isTrashed = isTrashedSystem
-                        )
-                    )
-                }
+                mediaList.add(it.extractMediaItem(indices))
             }
         }
         mediaList
@@ -303,75 +228,9 @@ class MediaStoreDataSource @Inject constructor(
         }
 
         cursor?.use {
-            val idCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
-            val dataCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATA)
-            val mimeCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE)
-            val dateCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_TAKEN)
-            val addedCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_ADDED)
-            val sizeCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
-            val widthCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.WIDTH)
-            val heightCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.HEIGHT)
-            val durCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DURATION)
-            val bucketIdCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.BUCKET_ID)
-            val bucketNameCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME)
-            val mediaTypeCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MEDIA_TYPE)
-
+            val indices = MediaCursorIndices(it)
             while (it.moveToNext()) {
-                val id = it.getLong(idCol)
-                val path = it.getString(dataCol) ?: ""
-                val mimeType = it.getString(mimeCol) ?: "image/jpeg"
-                val rawDateTaken = it.getLong(dateCol)
-                val addedSecs = it.getLong(addedCol)
-                val addedMs = if (addedSecs > 0) addedSecs * 1000L else 0L
-                val dateTaken = if (rawDateTaken > 100000000000L) rawDateTaken else addedMs
-                val size = it.getLong(sizeCol)
-                val width = it.getInt(widthCol)
-                val height = it.getInt(heightCol)
-                val bucketIdVal = it.getLong(bucketIdCol)
-                val bucketName = it.getString(bucketNameCol) ?: "Unknown"
-                val mediaType = it.getInt(mediaTypeCol)
-
-                val uri = if (mediaType == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO) {
-                    ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
-                } else {
-                    ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
-                }
-
-                if (mediaType == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO) {
-                    val duration = it.getLong(durCol)
-                    mediaList.add(
-                        MediaItem.Video(
-                            id = id,
-                            uri = uri,
-                            path = path,
-                            mimeType = mimeType,
-                            dateTaken = dateTaken,
-                            size = size,
-                            width = width,
-                            height = height,
-                            durationMs = duration,
-                            bucketId = bucketIdVal,
-                            bucketName = bucketName,
-                            isTrashed = true
-                        )
-                    )
-                } else {
-                    mediaList.add(
-                        MediaItem.Photo(
-                            id = id,
-                            uri = uri,
-                            path = path,
-                            mimeType = mimeType,
-                            dateTaken = dateTaken,
-                            size = size,
-                            width = width,
-                            height = height,
-                            bucketId = bucketIdVal,
-                            bucketName = bucketName,
-                            isTrashed = true
-                        )
-                    )
-                }
+                mediaList.add(it.extractMediaItem(indices))
             }
         }
         mediaList
@@ -479,67 +338,9 @@ class MediaStoreDataSource @Inject constructor(
             }
 
             cursor?.use {
-                val idCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
-                val dataCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATA)
-                val mimeCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE)
-                val dateCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_TAKEN)
-                val addedCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_ADDED)
-                val sizeCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
-                val widthCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.WIDTH)
-                val heightCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.HEIGHT)
-                val durCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DURATION)
-                val bucketIdCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.BUCKET_ID)
-                val bucketNameCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME)
-                val mediaTypeCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MEDIA_TYPE)
-
+                val indices = MediaCursorIndices(it)
                 while (it.moveToNext()) {
-                    val id = it.getLong(idCol)
-                    val path = it.getString(dataCol) ?: ""
-                    val mimeType = it.getString(mimeCol) ?: "image/jpeg"
-                    var dateTaken = it.getLong(dateCol)
-                    if (dateTaken <= 0) {
-                        dateTaken = it.getLong(addedCol) * 1000
-                    }
-                    val size = it.getLong(sizeCol)
-                    val width = it.getInt(widthCol)
-                    val height = it.getInt(heightCol)
-                    val bucketIdVal = it.getLong(bucketIdCol)
-                    val bucketName = it.getString(bucketNameCol) ?: "Unknown"
-                    val mediaType = it.getInt(mediaTypeCol)
-
-                    val isTrashedSystem = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                        val trashedCol = it.getColumnIndex("is_trashed")
-                        if (trashedCol != -1) it.getInt(trashedCol) == 1 else false
-                    } else {
-                        false
-                    }
-
-                    val uri = if (mediaType == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO) {
-                        ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
-                    } else {
-                        ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
-                    }
-
-                    if (mediaType == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO) {
-                        val duration = it.getLong(durCol)
-                        mediaList.add(
-                            MediaItem.Video(
-                                id = id, uri = uri, path = path, mimeType = mimeType,
-                                dateTaken = dateTaken, size = size, width = width, height = height,
-                                durationMs = duration, bucketId = bucketIdVal, bucketName = bucketName,
-                                isTrashed = isTrashedSystem
-                            )
-                        )
-                    } else {
-                        mediaList.add(
-                            MediaItem.Photo(
-                                id = id, uri = uri, path = path, mimeType = mimeType,
-                                dateTaken = dateTaken, size = size, width = width, height = height,
-                                bucketId = bucketIdVal, bucketName = bucketName,
-                                isTrashed = isTrashedSystem
-                            )
-                        )
-                    }
+                    mediaList.add(it.extractMediaItem(indices))
                 }
             }
         }
@@ -664,67 +465,9 @@ class MediaStoreDataSource @Inject constructor(
         }
 
         cursor?.use {
-            val idCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
-            val dataCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATA)
-            val mimeCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE)
-            val dateCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_TAKEN)
-            val addedCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_ADDED)
-            val sizeCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
-            val widthCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.WIDTH)
-            val heightCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.HEIGHT)
-            val durCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DURATION)
-            val bucketIdCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.BUCKET_ID)
-            val bucketNameCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME)
-            val mediaTypeCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MEDIA_TYPE)
-
+            val indices = MediaCursorIndices(it)
             while (it.moveToNext()) {
-                val id = it.getLong(idCol)
-                val path = it.getString(dataCol) ?: ""
-                val mimeType = it.getString(mimeCol) ?: "image/jpeg"
-                var dateTaken = it.getLong(dateCol)
-                if (dateTaken <= 0) {
-                    dateTaken = it.getLong(addedCol) * 1000
-                }
-                val size = it.getLong(sizeCol)
-                val width = it.getInt(widthCol)
-                val height = it.getInt(heightCol)
-                val bucketIdVal = it.getLong(bucketIdCol)
-                val bucketName = it.getString(bucketNameCol) ?: "Unknown"
-                val mediaType = it.getInt(mediaTypeCol)
-
-                val isTrashedSystem = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                    val trashedCol = it.getColumnIndex("is_trashed")
-                    if (trashedCol != -1) it.getInt(trashedCol) == 1 else false
-                } else {
-                    false
-                }
-
-                val uri = if (mediaType == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO) {
-                    ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
-                } else {
-                    ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
-                }
-
-                if (mediaType == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO) {
-                    val duration = it.getLong(durCol)
-                    mediaList.add(
-                        MediaItem.Video(
-                            id = id, uri = uri, path = path, mimeType = mimeType,
-                            dateTaken = dateTaken, size = size, width = width, height = height,
-                            durationMs = duration, bucketId = bucketIdVal, bucketName = bucketName,
-                            isTrashed = isTrashedSystem
-                        )
-                    )
-                } else {
-                    mediaList.add(
-                        MediaItem.Photo(
-                            id = id, uri = uri, path = path, mimeType = mimeType,
-                            dateTaken = dateTaken, size = size, width = width, height = height,
-                            bucketId = bucketIdVal, bucketName = bucketName,
-                            isTrashed = isTrashedSystem
-                        )
-                    )
-                }
+                mediaList.add(it.extractMediaItem(indices))
             }
         }
         mediaList

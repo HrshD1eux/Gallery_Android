@@ -115,40 +115,22 @@ class MainViewModel @Inject constructor(
 
     private val refreshTrigger = MutableStateFlow(0L)
 
-    private val _vaultConfigVersion = MutableStateFlow(0)
-    val vaultConfigVersion: StateFlow<Int> = _vaultConfigVersion.asStateFlow()
+    private val vaultState = com.hrshd1eux.imava.ui.vault.VaultStateHolder()
 
-    fun notifyVaultConfigChanged() {
-        _vaultConfigVersion.value++
-    }
+    val vaultConfigVersion: StateFlow<Int> = vaultState.vaultConfigVersion
+    val isVaultUnlocked: StateFlow<Boolean> = vaultState.isVaultUnlocked
+    val isDecoyVault: Boolean get() = vaultState.isDecoyVault
 
-    private val _isVaultUnlocked = MutableStateFlow(false)
-    val isVaultUnlocked: StateFlow<Boolean> = _isVaultUnlocked.asStateFlow()
-
-    private var _isDecoyVault = mutableStateOf(false)
-    val isDecoyVault: Boolean get() = _isDecoyVault.value
-
-    fun unlockVault() {
-        _isDecoyVault.value = false
-        _isVaultUnlocked.value = true
-        _vaultConfigVersion.value++
-    }
-
-    fun unlockDecoyVault() {
-        _isDecoyVault.value = true
-        _isVaultUnlocked.value = true
-        _vaultConfigVersion.value++
-    }
+    fun notifyVaultConfigChanged() = vaultState.notifyVaultConfigChanged()
+    fun unlockVault() = vaultState.unlockVault()
+    fun unlockDecoyVault() = vaultState.unlockDecoyVault()
 
     fun lockVault(context: Context) {
-        _isVaultUnlocked.value = false
-        _isDecoyVault.value = false
         if (currentCategoryName == "Hidden Vault") {
             currentCategoryName = null
             currentScreen = Screen.Albums
         }
-        clearVaultCache(context)
-        _vaultConfigVersion.value++
+        vaultState.lockVault(context)
     }
 
     private var _appThemeState = mutableStateOf(prefs.getString("app_theme", "system") ?: "system")
@@ -438,102 +420,13 @@ class MainViewModel @Inject constructor(
     ) { items, dismissedTimestamp ->
         val now = System.currentTimeMillis()
         if (dismissedTimestamp > 0L && (now - dismissedTimestamp) < 24 * 60 * 60 * 1000L) {
-            return@combine emptyList<com.hrshd1eux.imava.ui.timeline.MemoryStory>()
+            emptyList()
+        } else {
+            com.hrshd1eux.imava.ui.timeline.MemoryStoryCalculator.generateStories(items)
         }
-        if (items.isEmpty()) return@combine emptyList<com.hrshd1eux.imava.ui.timeline.MemoryStory>()
-        val zoneId = ZoneId.systemDefault()
-            val today = LocalDate.now(zoneId)
-            val todayMonth = today.monthValue
-            val todayDay = today.dayOfMonth
-            val formatter = DateTimeFormatter.ofPattern("MMMM d, yyyy", Locale.getDefault())
-            val monthFormatter = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault())
-
-            val stories = mutableListOf<com.hrshd1eux.imava.ui.timeline.MemoryStory>()
-
-            // Exact Day Matches in previous years
-            val exactDayItems = items.filter { item ->
-                if (item.dateTaken <= 0) return@filter false
-                val itemDate = Instant.ofEpochMilli(item.dateTaken).atZone(zoneId).toLocalDate()
-                itemDate.monthValue == todayMonth && itemDate.dayOfMonth == todayDay && itemDate.year < today.year
-            }
-            if (exactDayItems.isNotEmpty()) {
-                val groupedByYear = exactDayItems.groupBy { item ->
-                    Instant.ofEpochMilli(item.dateTaken).atZone(zoneId).toLocalDate().year
-                }
-                groupedByYear.forEach { (year, yearItems) ->
-                    val yearsAgo = today.year - year
-                    val title = if (yearsAgo == 1) "1 Year Ago Today 🌟" else "$yearsAgo Years Ago 🌟"
-                    val sampleDate = Instant.ofEpochMilli(yearItems.first().dateTaken).atZone(zoneId).toLocalDate().format(formatter)
-                    val cover = yearItems.firstOrNull()
-                    if (cover != null) {
-                        stories.add(
-                            com.hrshd1eux.imava.ui.timeline.MemoryStory(
-                                id = "memory_day_$year",
-                                title = title,
-                                dateSubtitle = sampleDate,
-                                coverItem = cover,
-                                items = yearItems
-                            )
-                        )
-                    }
-                }
-            }
-
-            // Same Month in previous years
-            val sameMonthPastYears = items.filter { item ->
-                if (item.dateTaken <= 0) return@filter false
-                val itemDate = Instant.ofEpochMilli(item.dateTaken).atZone(zoneId).toLocalDate()
-                itemDate.monthValue == todayMonth && itemDate.year < today.year && !exactDayItems.contains(item)
-            }
-            if (sameMonthPastYears.isNotEmpty()) {
-                val groupedByYear = sameMonthPastYears.groupBy { item ->
-                    Instant.ofEpochMilli(item.dateTaken).atZone(zoneId).toLocalDate().year
-                }
-                groupedByYear.forEach { (year, yearItems) ->
-                    val sampleDate = Instant.ofEpochMilli(yearItems.first().dateTaken).atZone(zoneId).toLocalDate().format(monthFormatter)
-                    val cover = yearItems.firstOrNull()
-                    if (cover != null && yearItems.size >= 2) {
-                        stories.add(
-                            com.hrshd1eux.imava.ui.timeline.MemoryStory(
-                                id = "memory_month_$year",
-                                title = "$sampleDate Memories 📸",
-                                dateSubtitle = "${yearItems.size} moments",
-                                coverItem = cover,
-                                items = yearItems
-                            )
-                        )
-                    }
-                }
-            }
-
-            // Fallback: Monthly highlights
-            if (stories.isEmpty()) {
-                val validItems = items.filter { it.dateTaken > 0 }
-                val groupedByMonth = validItems.groupBy { item ->
-                    val date = Instant.ofEpochMilli(item.dateTaken).atZone(zoneId).toLocalDate()
-                    "${date.year}-${date.monthValue}"
-                }
-                groupedByMonth.entries.take(4).forEach { (_, monthItems) ->
-                    val sampleDate = Instant.ofEpochMilli(monthItems.first().dateTaken).atZone(zoneId).toLocalDate().format(monthFormatter)
-                    val cover = monthItems.firstOrNull()
-                    if (cover != null) {
-                        stories.add(
-                            com.hrshd1eux.imava.ui.timeline.MemoryStory(
-                                id = "memory_fallback_${cover.id}",
-                                title = "$sampleDate Highlights ✨",
-                                dateSubtitle = "${monthItems.size} moments",
-                                coverItem = cover,
-                                items = monthItems
-                            )
-                        )
-                    }
-                }
-            }
-
-            stories.sortedByDescending { it.items.firstOrNull()?.dateTaken ?: 0L }
-        }
-        .flowOn(Dispatchers.Default)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }
+    .flowOn(Dispatchers.Default)
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val allDistinctTags: StateFlow<List<String>> = visibleMediaItems
         .map { items ->
@@ -777,7 +670,7 @@ class MainViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            _isVaultUnlocked.flatMapLatest { unlocked ->
+            isVaultUnlocked.flatMapLatest { unlocked ->
                 repository.getHiddenMediaFlow(unlocked)
             }.collect {
                 _hidden.value = it
@@ -1155,8 +1048,7 @@ class MainViewModel @Inject constructor(
             .remove("vault_biometric_enabled")
             .remove("vault_stealth_mode")
             .apply()
-        _isVaultUnlocked.value = true
-        _vaultConfigVersion.value++
+        vaultState.setUnlocked(true)
         refreshAll()
     }
 
@@ -1169,9 +1061,8 @@ class MainViewModel @Inject constructor(
             }
             val prefs = context.getSharedPreferences("vault_prefs", Context.MODE_PRIVATE)
             prefs.edit().clear().apply()
-            _isVaultUnlocked.value = false
+            vaultState.setUnlocked(false)
             currentCategoryName = null
-            _vaultConfigVersion.value++
             refreshAll()
             withContext(Dispatchers.Main) {
                 onComplete()

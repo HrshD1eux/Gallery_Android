@@ -125,4 +125,36 @@ class VaultBackupManagerTest {
         assertFalse(restoreResult.success)
         assertTrue(restoreResult.message.contains("Incorrect password") || restoreResult.message.contains("failed"))
     }
+
+    @Test
+    fun testRestoreVaultBackup_corruptedHeader_fails() = runTest {
+        val corruptedBytes = byteArrayOf(0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
+        val inputStream = ByteArrayInputStream(corruptedBytes)
+        val restoreResult = VaultBackupManager.restoreVaultBackup(
+            context = mockContext,
+            database = mockDatabase,
+            inputStream = inputStream,
+            passphrase = "AnyPassword123".toCharArray()
+        )
+
+        assertFalse(restoreResult.success)
+        assertTrue(restoreResult.message.contains("Not a valid") || restoreResult.message.contains("format") || restoreResult.message.contains("corrupted"))
+    }
+
+    @Test
+    fun testRestoreVaultBackup_truncatedStream_fails() = runTest {
+        val magicHeader = "IMAVABAK".toByteArray(Charsets.UTF_8)
+        val truncatedStream = ByteArrayInputStream(magicHeader) // Missing salt, IV, and payload
+
+        val restoreResult = VaultBackupManager.restoreVaultBackup(
+            context = mockContext,
+            database = mockDatabase,
+            inputStream = truncatedStream,
+            passphrase = "AnyPassword123".toCharArray()
+        )
+
+        assertFalse(restoreResult.success)
+        assertTrue(restoreResult.message.contains("Invalid") || restoreResult.message.contains("corrupted") || restoreResult.message.contains("failed"))
+    }
 }
+
