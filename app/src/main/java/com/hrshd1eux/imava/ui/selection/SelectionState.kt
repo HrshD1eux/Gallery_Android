@@ -6,7 +6,7 @@ import androidx.compose.runtime.setValue
 import com.hrshd1eux.imava.data.model.MediaItem
 
 class SelectionState {
-    // Observable set of selected MediaItem IDs
+
     var selectedIds by mutableStateOf<Set<Long>>(emptySet())
         private set
 
@@ -29,9 +29,7 @@ class SelectionState {
         selectedIds = selectedIds - id
     }
 
-    /**
-     * Selects all items between startId and endId from the given ordered list of items.
-     */
+
     fun selectRange(startId: Long, endId: Long, allItems: List<MediaItem>) {
         val startIndex = allItems.indexOfFirst { it.id == startId }
         val endIndex = allItems.indexOfFirst { it.id == endId }

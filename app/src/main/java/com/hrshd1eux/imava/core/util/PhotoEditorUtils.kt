@@ -10,10 +10,6 @@ import android.graphics.RectF
 
 object PhotoEditorUtils {
 
-    /**
-     * Applies rotation, flip, crop, and color adjustments (brightness, contrast, saturation, warmth, presets)
-     * to a source bitmap in a single hardware-accelerated pass.
-     */
     fun transformBitmap(
         source: Bitmap,
         rotationDegrees: Float = 0f,
@@ -28,14 +24,12 @@ object PhotoEditorUtils {
     ): Bitmap {
         val matrix = Matrix()
 
-        // 1. Flip
         val sx = if (flipHorizontal) -1f else 1f
         val sy = if (flipVertical) -1f else 1f
         if (flipHorizontal || flipVertical) {
             matrix.postScale(sx, sy)
         }
 
-        // 2. Rotate
         if (rotationDegrees % 360f != 0f) {
             matrix.postRotate(rotationDegrees)
         }
@@ -55,7 +49,6 @@ object PhotoEditorUtils {
             source.copy(source.config ?: Bitmap.Config.ARGB_8888, true)
         }
 
-        // 3. Crop
         if (cropRect != null && cropRect.width() > 0 && cropRect.height() > 0) {
             val left = (cropRect.left * intermediate.width).toInt().coerceIn(0, intermediate.width - 1)
             val top = (cropRect.top * intermediate.height).toInt().coerceIn(0, intermediate.height - 1)
@@ -71,7 +64,6 @@ object PhotoEditorUtils {
             }
         }
 
-        // 4. Color Adjustments (Brightness, Contrast, Saturation, Warmth, Presets)
         val hasColorAdjustment = brightnessOffset != 0f || contrast != 1.0f || saturation != 1.0f || warmth != 0f || preset != "none"
         if (hasColorAdjustment) {
             val result = Bitmap.createBitmap(intermediate.width, intermediate.height, intermediate.config ?: Bitmap.Config.ARGB_8888)
@@ -97,7 +89,6 @@ object PhotoEditorUtils {
     ): ColorMatrix {
         val finalMatrix = ColorMatrix()
 
-        // 1. Preset filter baseline
         when (preset) {
             "bw" -> {
                 val bw = ColorMatrix()
@@ -144,14 +135,12 @@ object PhotoEditorUtils {
             }
         }
 
-        // 2. Saturation
         if (saturation != 1.0f && preset != "bw") {
             val satMatrix = ColorMatrix()
             satMatrix.setSaturation(saturation)
             finalMatrix.postConcat(satMatrix)
         }
 
-        // 3. Contrast & Brightness
         if (contrast != 1.0f || brightness != 0f) {
             val c = contrast
             val t = (-0.5f * c + 0.5f) * 255f + brightness
@@ -166,7 +155,6 @@ object PhotoEditorUtils {
             finalMatrix.postConcat(cbMatrix)
         }
 
-        // 4. Warmth (Color Temperature)
         if (warmth != 0f) {
             val warmMatrix = ColorMatrix(
                 floatArrayOf(
@@ -182,9 +170,6 @@ object PhotoEditorUtils {
         return finalMatrix
     }
 
-    /**
-     * Decodes a sub-sampled preview bitmap from Uri based on requested width and height to prevent OOM.
-     */
     fun decodeSubSampledBitmapFromUri(
         context: android.content.Context,
         uri: android.net.Uri,
@@ -212,9 +197,6 @@ object PhotoEditorUtils {
         }
     }
 
-    /**
-     * Decodes full-resolution bitmap from Uri for export/save processing with OOM safety fallback bounds.
-     */
     fun decodeFullBitmapFromUri(
         context: android.content.Context,
         uri: android.net.Uri,
@@ -252,9 +234,6 @@ object PhotoEditorUtils {
         }
     }
 
-    /**
-     * Calculates optimal inSampleSize power-of-two factor.
-     */
     fun calculateInSampleSize(
         options: android.graphics.BitmapFactory.Options,
         reqWidth: Int,
@@ -274,9 +253,6 @@ object PhotoEditorUtils {
         return inSampleSize
     }
 
-    /**
-     * Copies EXIF metadata attributes (camera info, timestamps, exposure, GPS) from source Uri to target Uri.
-     */
     fun copyExifAttributes(
         context: android.content.Context,
         sourceUri: android.net.Uri,
@@ -330,7 +306,7 @@ object PhotoEditorUtils {
                     }
                 }
 
-                // Set orientation to NORMAL (1) since rotation/flip edits are already burned into bitmap pixels
+                // reset EXIF orientation
                 targetExif.setAttribute(
                     androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION,
                     androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL.toString()

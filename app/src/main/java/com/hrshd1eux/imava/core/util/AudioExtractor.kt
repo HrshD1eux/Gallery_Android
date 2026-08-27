@@ -50,7 +50,6 @@ object AudioExtractor {
 
             extractor.selectTrack(audioTrackIndex)
 
-            // Prepare temp output file
             tempFile = File.createTempFile("extracted_audio_", ".m4a", context.cacheDir)
             muxer = MediaMuxer(tempFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
             val muxerTrackIndex = muxer.addTrack(audioFormat)
@@ -85,7 +84,6 @@ object AudioExtractor {
             extractor.release()
             extractor = null
 
-            // Insert into MediaStore Audio collection
             val contentValues = ContentValues().apply {
                 val name = if (outputDisplayName.endsWith(".m4a", ignoreCase = true)) outputDisplayName else "$outputDisplayName.m4a"
                 put(MediaStore.Audio.Media.DISPLAY_NAME, name)

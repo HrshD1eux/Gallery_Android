@@ -3,6 +3,7 @@ package com.hrshd1eux.imava.ui.viewer
 import android.content.Context
 import android.media.AudioManager
 import android.net.Uri
+import com.hrshd1eux.imava.core.util.HapticUtil
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.annotation.OptIn
@@ -34,6 +35,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Subtitles
@@ -419,6 +421,34 @@ fun VideoPlayerContainer(
                                 modifier = Modifier.size(18.dp)
                             )
                         }
+
+                        IconButton(
+                            onClick = {
+                                val pos = displayPosMs
+                                scope.launch {
+                                    HapticUtil.performClick(context)
+                                    val savedUri = com.hrshd1eux.imava.core.util.VideoFrameExtractor.captureFrame(
+                                        context = context,
+                                        videoUri = uri,
+                                        positionMs = pos
+                                    )
+                                    if (savedUri != null) {
+                                        android.widget.Toast.makeText(context, "Frame saved to Pictures/Video_Captures 📸", android.widget.Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        android.widget.Toast.makeText(context, "Failed to capture frame", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CameraAlt,
+                                contentDescription = "Capture High-Res Frame",
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = formatVideoTime(duration),

@@ -101,7 +101,7 @@ class MainViewModel @Inject constructor(
                 resolver.openOutputStream(targetUri)?.use { output ->
                     editedBitmap.compress(Bitmap.CompressFormat.JPEG, 95, output)
                 }
-                // Copy original EXIF metadata (camera info, GPS, creation timestamps) to the newly saved photo
+
                 com.hrshd1eux.imava.core.util.PhotoEditorUtils.copyExifAttributes(
                     context,
                     originalItem.uri,
@@ -450,7 +450,7 @@ class MainViewModel @Inject constructor(
 
             val stories = mutableListOf<com.hrshd1eux.imava.ui.timeline.MemoryStory>()
 
-            // 1. Exact Day Matches in previous years
+            // Exact Day Matches in previous years
             val exactDayItems = items.filter { item ->
                 if (item.dateTaken <= 0) return@filter false
                 val itemDate = Instant.ofEpochMilli(item.dateTaken).atZone(zoneId).toLocalDate()
@@ -479,7 +479,7 @@ class MainViewModel @Inject constructor(
                 }
             }
 
-            // 2. Same Month in previous years
+            // Same Month in previous years
             val sameMonthPastYears = items.filter { item ->
                 if (item.dateTaken <= 0) return@filter false
                 val itemDate = Instant.ofEpochMilli(item.dateTaken).atZone(zoneId).toLocalDate()
@@ -506,7 +506,7 @@ class MainViewModel @Inject constructor(
                 }
             }
 
-            // 3. Fallback: Monthly highlights across the gallery if stories are still empty
+            // Fallback: Monthly highlights
             if (stories.isEmpty()) {
                 val validItems = items.filter { it.dateTaken > 0 }
                 val groupedByMonth = validItems.groupBy { item ->
@@ -784,7 +784,7 @@ class MainViewModel @Inject constructor(
             }
         }
         
-        // Reactive MediaStore observer to reload current visible range in-place with debouncing
+
         viewModelScope.launch {
             @OptIn(FlowPreview::class)
             repository.observeMediaChanges()
@@ -794,11 +794,11 @@ class MainViewModel @Inject constructor(
                 }
         }
 
-        // Clean orphaned database metadata and scan secondary directories asynchronously after boot delay
+        // cleanup after boot
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 repository.purgeExpiredTrashMedia()
-                kotlinx.coroutines.delay(2000) // Defer scan by 2s so cold boot media rendering completes instantly
+                kotlinx.coroutines.delay(2000) // defer scan for cold boot performance
                 repository.scanSecondaryMediaDirectories()
                 val activeIds = repository.getActiveMediaIds()
                 if (activeIds.isNotEmpty()) {
@@ -1179,6 +1179,12 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    val isVaultDisabled: Boolean
+        get() {
+            val prefs = application.getSharedPreferences("vault_prefs", Context.MODE_PRIVATE)
+            return prefs.getBoolean("vault_disabled", false)
+        }
+
     fun toggleHidden(context: Context, item: MediaItem) {
         viewModelScope.launch {
             try {
@@ -1452,6 +1458,41 @@ class MainViewModel @Inject constructor(
                 } else {
                     e.printStackTrace()
                 }
+            }
+        }
+    }
+
+    fun deleteMediaItems(context: Context, items: List<MediaItem>) {
+        if (items.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    val activity = context as? android.app.Activity
+                    if (activity != null) {
+                        pendingBatchActionItems = items
+                        val uris = items.map { it.uri }
+                        val pendingIntent = android.provider.MediaStore.createTrashRequest(
+                            context.contentResolver,
+                            uris,
+                            true
+                        )
+                        activity.startIntentSenderForResult(
+                            pendingIntent.intentSender,
+                            1005,
+                            null,
+                            0,
+                            0,
+                            0
+                        )
+                    }
+                } else {
+                    items.forEach { item ->
+                        repository.toggleTrashed(item)
+                    }
+                    refreshAll()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
     }

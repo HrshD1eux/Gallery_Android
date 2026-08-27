@@ -142,7 +142,7 @@ fun PhotoViewerScreen(
         pageCount = { mediaItems.size }
     )
 
-    // Scroll to the tapped media item whenever activeItem changes
+
     LaunchedEffect(activeItem.id) {
         val targetIndex = mediaItems.indexOfFirst { it.id == activeItem.id }
         if (targetIndex >= 0 && pagerState.currentPage != targetIndex) {
@@ -150,7 +150,7 @@ fun PhotoViewerScreen(
         }
     }
 
-    // Sync active item state in ViewModel only when user finishes swiping to a settled page
+
     LaunchedEffect(pagerState.settledPage) {
         val currentMedia = mediaItems.getOrNull(pagerState.settledPage)
         if (currentMedia != null && currentMedia.id != viewModel.activeMediaItem?.id) {
@@ -217,10 +217,10 @@ fun PhotoViewerScreen(
 
     val infoSheetState = rememberModalBottomSheetState()
 
-    // Track whether the current page is zoomed (each page manages its own ZoomState internally)
+
     var isCurrentPageZoomed by remember { mutableStateOf(false) }
 
-    // Swipe down to dismiss state
+
     var dragOffsetY by remember { mutableStateOf(0f) }
     
     // Disable drag dismiss if image is zoomed in to avoid gesture collision.
@@ -234,9 +234,9 @@ fun PhotoViewerScreen(
             orientation = Orientation.Vertical,
             onDragStopped = { velocity ->
                 if (dragOffsetY > 220f || velocity > 800f) {
-                    viewModel.activeMediaItem = null // Trigger close
+                    viewModel.activeMediaItem = null
                 } else {
-                    dragOffsetY = 0f // Bounce back
+                    dragOffsetY = 0f
                 }
             }
         )
@@ -252,7 +252,7 @@ fun PhotoViewerScreen(
             .fillMaxSize()
             .background(Color.Black.copy(alpha = containerAlpha))
     ) {
-        // Main Horizontal Pager
+
         HorizontalPager(
             state = pagerState,
             key = { page -> mediaItems.getOrNull(page)?.id ?: page },
@@ -323,17 +323,17 @@ fun PhotoViewerScreen(
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
-                        // Each page gets its own independent zoom state
+
                         val pageZoomState = rememberZoomState()
 
-                        // Reset zoom when this page is no longer the active page
+
                         LaunchedEffect(pagerState.currentPage) {
                             if (page != pagerState.currentPage) {
                                 pageZoomState.reset()
                             }
                         }
 
-                        // Report zoom state to the parent for pager scroll locking
+
                         LaunchedEffect(pageZoomState.scale) {
                             if (page == pagerState.currentPage) {
                                 isCurrentPageZoomed = pageZoomState.scale > 1.05f
@@ -357,7 +357,7 @@ fun PhotoViewerScreen(
             }
         }
 
-        // Top App Bar Chrome overlay (Zero Overlap with filename constrained and ellipsized)
+
         AnimatedVisibility(
             visible = showChrome,
             enter = fadeIn() + slideInVertically { -it },
@@ -392,7 +392,7 @@ fun PhotoViewerScreen(
                         .padding(horizontal = 6.dp)
                 )
 
-                // Motion Photo Badge / Player Button
+
                 if (isMotionPhoto) {
                     FilterChip(
                         selected = isPlayingMotionPhoto,
@@ -460,23 +460,25 @@ fun PhotoViewerScreen(
                             }
                         )
 
-                        DropdownMenuItem(
-                            text = { Text(if (item.isHidden) "Unhide from Vault" else "Move to Vault") },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = if (item.isHidden) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                    contentDescription = null
-                                )
-                            },
-                            onClick = {
-                                showMoreMenu = false
-                                if (item.isHidden) {
-                                    viewModel.toggleHidden(context, item)
-                                } else {
-                                    showVaultConfirmDialog = true
+                        if (!viewModel.isVaultDisabled || item.isHidden) {
+                            DropdownMenuItem(
+                                text = { Text(if (item.isHidden) "Unhide from Vault" else "Move to Vault") },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = if (item.isHidden) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                        contentDescription = null
+                                    )
+                                },
+                                onClick = {
+                                    showMoreMenu = false
+                                    if (item.isHidden) {
+                                        viewModel.toggleHidden(context, item)
+                                    } else {
+                                        showVaultConfirmDialog = true
+                                    }
                                 }
-                            }
-                        )
+                            )
+                        }
 
                         DropdownMenuItem(
                             text = { Text("Start Slideshow 🎞️") },
@@ -585,7 +587,7 @@ fun PhotoViewerScreen(
             }
         }
 
-        // Bottom Navigation Actions overlay
+
         AnimatedVisibility(
             visible = showChrome,
             enter = fadeIn() + slideInVertically { it },
@@ -606,7 +608,7 @@ fun PhotoViewerScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (item.isTrashed) {
-                        // Actions for trashed items: Restore or Delete permanently
+
                         IconButton(onClick = {
                             com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
                             viewModel.toggleTrashed(context, item)
@@ -629,7 +631,7 @@ fun PhotoViewerScreen(
                             )
                         }
                     } else {
-                        // Standard actions
+
                         IconButton(onClick = {
                             com.hrshd1eux.imava.core.util.HapticUtil.performSelection(context)
                             viewModel.toggleFavorite(item)
@@ -679,7 +681,7 @@ fun PhotoViewerScreen(
             }
         }
 
-        // Intercepting share details prompt
+
         if (showShareDialog) {
             val item = mediaItems.getOrNull(pagerState.currentPage) ?: activeItem
             AlertDialog(
@@ -720,7 +722,7 @@ fun PhotoViewerScreen(
             )
         }
 
-        // Draggable info overlay sheet
+
         if (showInfoSheet) {
             val item = mediaItems.getOrNull(pagerState.currentPage) ?: activeItem
             InfoBottomSheet(
@@ -815,7 +817,7 @@ fun PhotoViewerScreen(
                             .verticalScroll(rememberScrollState())
                             .imePadding()
                     ) {
-                        // Media preview snippet card
+
                         Card(
                             colors = CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
@@ -1080,16 +1082,16 @@ fun PhotoViewerScreen(
                         tint = MaterialTheme.colorScheme.primary
                     )
                 },
-                title = { Text("Move to Hidden Vault?") },
+                title = { Text("Hide in Private Vault") },
                 text = {
                     Column {
                         Text(
-                            text = "This item will be safely locked inside your private Vault.",
+                            text = "This item will be safely locked in your private vault so only you can see it.",
                             style = MaterialTheme.typography.bodyMedium
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = "Note: The original item will be removed from your main gallery so other apps can't access it.",
+                            text = "Next, your phone will ask to remove the original from your main gallery. Please tap Allow on the next screen.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1102,7 +1104,7 @@ fun PhotoViewerScreen(
                             viewModel.toggleHidden(context, item)
                         }
                     ) {
-                        Text("Move to Vault")
+                        Text("Continue")
                     }
                 },
                 dismissButton = {
@@ -1145,7 +1147,7 @@ fun PhotoViewerScreen(
                             .fillMaxWidth()
                             .padding(vertical = 4.dp)
                     ) {
-                        // Original file information card
+
                         Card(
                             colors = CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
@@ -1289,7 +1291,7 @@ fun PhotoViewerScreen(
             )
         }
 
-        // Set As Wallpaper / Contact Photo Dialog
+
         if (showSetAsDialog) {
             val item = mediaItems.getOrNull(pagerState.currentPage) ?: activeItem
             val activity = context as? android.app.Activity
@@ -1348,7 +1350,7 @@ fun PhotoViewerScreen(
             )
         }
 
-        // Video Trimmer & GIF Generator Dialog
+
         if (showVideoTrimDialog) {
             val item = mediaItems.getOrNull(pagerState.currentPage) ?: activeItem
             if (item is com.hrshd1eux.imava.data.model.MediaItem.Video) {

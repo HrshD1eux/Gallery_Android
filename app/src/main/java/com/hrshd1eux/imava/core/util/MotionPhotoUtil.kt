@@ -20,12 +20,9 @@ object MotionPhotoUtil {
 
     private val MP4_FTYP = byteArrayOf('f'.code.toByte(), 't'.code.toByte(), 'y'.code.toByte(), 'p'.code.toByte())
 
-    /**
-     * Checks whether the given image is a Motion Photo (Google Pixel, Samsung, etc.).
-     */
     suspend fun checkMotionPhoto(context: Context, uri: Uri): MotionPhotoInfo = withContext(Dispatchers.IO) {
         try {
-            // 1. Check EXIF / XMP for GCamera:MicroVideo
+            // Check EXIF / XMP for GCamera:MicroVideo
             context.contentResolver.openInputStream(uri)?.use { stream ->
                 val exif = ExifInterface(stream)
                 val isMicroVideo = exif.getAttribute("GCamera:MicroVideo") == "1" ||
@@ -41,7 +38,7 @@ object MotionPhotoUtil {
                 }
             }
 
-            // 2. Fallback: Binary scan for embedded MP4 ftyp marker from the end of the file
+            // binary scan fallback
             val fileLength = getStreamLength(context, uri)
             if (fileLength > 64 * 1024) { // Only check files > 64 KB
                 val offsetFromEnd = scanForMp4FromEnd(context, uri, fileLength)
@@ -60,9 +57,6 @@ object MotionPhotoUtil {
         }
     }
 
-    /**
-     * Extracts the embedded MP4 video from a Motion Photo into a cache file for playback.
-     */
     suspend fun extractMotionVideo(context: Context, uri: Uri, info: MotionPhotoInfo): File? = withContext(Dispatchers.IO) {
         if (!info.isMotionPhoto) return@withContext null
 
@@ -124,7 +118,7 @@ object MotionPhotoUtil {
     }
 
     private fun scanForMp4FromEnd(context: Context, uri: Uri, totalLength: Long): Long {
-        // Scan at most 30 MB backwards in 64 KB streaming chunks to eliminate large heap spikes
+        // backwards scan in 64KB chunks
         val maxScanSize = minOf(totalLength, 30L * 1024L * 1024L)
         val startOffset = totalLength - maxScanSize
         val chunkSize = 64 * 1024

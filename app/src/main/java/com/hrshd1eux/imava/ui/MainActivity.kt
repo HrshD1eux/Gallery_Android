@@ -60,6 +60,8 @@ import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.Slideshow
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.CropSquare
 import androidx.compose.material.icons.filled.ViewStream
@@ -259,6 +261,10 @@ fun MainScreenLayout(viewModel: MainViewModel) {
     var showMoveToAlbumDialog by remember { androidx.compose.runtime.mutableStateOf(false) }
     var showBatchRenameDialog by remember { androidx.compose.runtime.mutableStateOf(false) }
     var compareItems by remember { androidx.compose.runtime.mutableStateOf<Pair<com.hrshd1eux.imava.data.model.MediaItem, com.hrshd1eux.imava.data.model.MediaItem>?>(null) }
+    var collageImageUris by remember { androidx.compose.runtime.mutableStateOf<List<Uri>?>(null) }
+    var showStorageDoctor by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var slideshowItems by remember { androidx.compose.runtime.mutableStateOf<List<com.hrshd1eux.imava.data.model.MediaItem>?>(null) }
+    var showVaultPreConfirmDialog by remember { androidx.compose.runtime.mutableStateOf(false) }
     val isVaultUnlocked by viewModel.isVaultUnlocked.collectAsState()
     val isVaultActive = (isVaultUnlocked && viewModel.currentCategoryName == "Hidden Vault") ||
             viewModel.activeMediaItem?.isHidden == true
@@ -290,14 +296,23 @@ fun MainScreenLayout(viewModel: MainViewModel) {
 
     val screens = remember { listOf(Screen.Photos, Screen.Albums, Screen.Settings) }
     
-    val backEnabled = viewModel.activeMemoryStory != null ||
+    val backEnabled = collageImageUris != null ||
+            showStorageDoctor ||
+            slideshowItems != null ||
+            viewModel.activeMemoryStory != null ||
             viewModel.activeMediaItem != null ||
             viewModel.currentCategoryName != null ||
             viewModel.currentBucketId != null ||
             currentScreen != Screen.Photos
 
     BackHandler(enabled = backEnabled) {
-        if (viewModel.activeMemoryStory != null) {
+        if (collageImageUris != null) {
+            collageImageUris = null
+        } else if (showStorageDoctor) {
+            showStorageDoctor = false
+        } else if (slideshowItems != null) {
+            slideshowItems = null
+        } else if (viewModel.activeMemoryStory != null) {
             viewModel.activeMemoryStory = null
         } else if (viewModel.activeMediaItem != null) {
             viewModel.activeMediaItem = null
@@ -320,7 +335,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
         pageCount = { screens.size }
     )
 
-    // Sync from screen change to pager page (instant smooth snap)
+
     LaunchedEffect(currentScreen) {
         if (currentScreen != Screen.Search) {
             val page = screens.indexOf(currentScreen)
@@ -330,7 +345,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
         }
     }
 
-    // Sync from user swipe gesture to screen change when settled
+
     LaunchedEffect(mainPagerState.settledPage) {
         if (currentScreen != Screen.Search) {
             val targetScreen = screens.getOrNull(mainPagerState.settledPage)
@@ -524,7 +539,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Selection count & Deselect chip
+
                             Surface(
                                 shape = MaterialTheme.shapes.small,
                                 color = MaterialTheme.colorScheme.primaryContainer,
@@ -617,13 +632,54 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                                     }
                                 )
 
-                                SelectionActionButton(
-                                    icon = if (isViewingVault) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                    label = if (isViewingVault) "Unhide" else "Vault",
-                                    onClick = { viewModel.hideSelectedMedia(context) }
-                                )
+                                if (!viewModel.isVaultDisabled || isViewingVault) {
+                                    SelectionActionButton(
+                                        icon = if (isViewingVault) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                        label = if (isViewingVault) "Unhide" else "Vault",
+                                        onClick = {
+                                            if (isViewingVault) {
+                                                viewModel.hideSelectedMedia(context)
+                                            } else {
+                                                showVaultPreConfirmDialog = true
+                                            }
+                                        }
+                                    )
+                                }
 
                                 if (!isViewingVault) {
+                                    if (selectedIds.size in 2..9) {
+                                        SelectionActionButton(
+                                            icon = Icons.Default.Dashboard,
+                                            label = "Collage",
+                                            onClick = {
+                                                val selectedIdsSet = selectionState.selectedIds.toSet()
+                                                scope.launch {
+                                                    val items = viewModel.getSelectedMediaItems(selectedIdsSet)
+                                                    val photoUris = items.filterIsInstance<com.hrshd1eux.imava.data.model.MediaItem.Photo>().map { it.uri }
+                                                    if (photoUris.size in 2..9) {
+                                                        collageImageUris = photoUris
+                                                    } else {
+                                                        android.widget.Toast.makeText(context, "Select 2 to 9 photos for collage", android.widget.Toast.LENGTH_SHORT).show()
+                                                    }
+                                                }
+                                            }
+                                        )
+                                    }
+
+                                    SelectionActionButton(
+                                        icon = Icons.Default.Slideshow,
+                                        label = "Slideshow",
+                                        onClick = {
+                                            val selectedIdsSet = selectionState.selectedIds.toSet()
+                                            scope.launch {
+                                                val items = viewModel.getSelectedMediaItems(selectedIdsSet)
+                                                if (items.isNotEmpty()) {
+                                                    slideshowItems = items
+                                                }
+                                            }
+                                        }
+                                    )
+
                                     if (selectedIds.size == 2) {
                                         SelectionActionButton(
                                             icon = Icons.Default.Compare,
@@ -734,7 +790,10 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                 ) { page ->
                     when (screens[page]) {
                         Screen.Photos -> TimelineScreen(viewModel = viewModel)
-                        Screen.Albums -> AlbumsScreen(viewModel = viewModel)
+                        Screen.Albums -> AlbumsScreen(
+                            viewModel = viewModel,
+                            onStorageDoctorClick = { showStorageDoctor = true }
+                        )
                         Screen.Settings -> com.hrshd1eux.imava.ui.settings.SettingsScreen(viewModel = viewModel)
                         else -> TimelineScreen(viewModel = viewModel)
                     }
@@ -760,18 +819,20 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                 )
             }
 
+
             AnimatedVisibility(
                 visible = viewModel.activeMemoryStory != null,
                 enter = fadeIn() + scaleIn(initialScale = 0.94f),
                 exit = fadeOut() + scaleOut(targetScale = 0.94f)
             ) {
-                viewModel.activeMemoryStory?.let { story ->
+                val story = viewModel.activeMemoryStory
+                if (story != null) {
                     com.hrshd1eux.imava.ui.timeline.MemoryStoryPlayerScreen(
                         story = story,
                         onDismiss = { viewModel.activeMemoryStory = null },
-                        onOpenMediaInViewer = { mediaItem ->
+                        onOpenMediaInViewer = { item ->
                             viewModel.activeMemoryStory = null
-                            viewModel.activeMediaItem = mediaItem
+                            viewModel.activeMediaItem = item
                         }
                     )
                 }
@@ -797,6 +858,41 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                         onBack = { compareItems = null }
                     )
                 }
+            }
+
+
+            val collageUris = collageImageUris
+            if (collageUris != null) {
+                com.hrshd1eux.imava.ui.collage.CollageMakerScreen(
+                    imageUris = collageUris,
+                    onDismiss = { collageImageUris = null },
+                    onCollageSaved = {
+                        collageImageUris = null
+                        selectionState.clear()
+                        viewModel.refreshAll()
+                    }
+                )
+            }
+
+
+            if (showStorageDoctor) {
+                com.hrshd1eux.imava.ui.storage.StorageDoctorScreen(
+                    viewModel = viewModel,
+                    onDismiss = { showStorageDoctor = false },
+                    onMediaClick = { item ->
+                        showStorageDoctor = false
+                        viewModel.activeMediaItem = item
+                    }
+                )
+            }
+
+
+            val showItems = slideshowItems
+            if (showItems != null) {
+                com.hrshd1eux.imava.ui.slideshow.SlideshowPlayerScreen(
+                    mediaItems = showItems,
+                    onDismiss = { slideshowItems = null }
+                )
             }
         }
     }
@@ -834,6 +930,40 @@ fun MainScreenLayout(viewModel: MainViewModel) {
             },
             dismissButton = {
                 TextButton(onClick = { showSelectionShareDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showVaultPreConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showVaultPreConfirmDialog = false },
+            icon = { Icon(Icons.Default.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+            title = { Text("Hide in Private Vault") },
+            text = {
+                Column {
+                    Text("The selected items will be safely locked in your private vault so only you can see them.")
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "Next, your phone will ask to remove the copies from your main gallery. Please tap Allow on the next screen.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showVaultPreConfirmDialog = false
+                        viewModel.hideSelectedMedia(context)
+                    }
+                ) {
+                    Text("Continue")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showVaultPreConfirmDialog = false }) {
                     Text("Cancel")
                 }
             }

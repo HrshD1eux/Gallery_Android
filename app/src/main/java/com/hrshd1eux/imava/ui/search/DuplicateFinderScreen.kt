@@ -84,7 +84,7 @@ fun DuplicateFinderScreen(
             scanTotal = total
         }
         groups = result
-        // Auto-select all duplicates except the best item in each group
+
         selectedToDelete.clear()
         result.forEach { group ->
             group.items.forEach { item ->

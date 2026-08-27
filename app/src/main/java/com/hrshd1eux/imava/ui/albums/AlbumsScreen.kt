@@ -75,7 +75,8 @@ import com.hrshd1eux.imava.ui.MainViewModel
 @Composable
 fun AlbumsScreen(
     viewModel: MainViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onStorageDoctorClick: () -> Unit = {}
 ) {
     val favorites by viewModel.favorites.collectAsState()
     val trashed by viewModel.trashed.collectAsState()
@@ -136,7 +137,7 @@ fun AlbumsScreen(
                 .padding(horizontal = 16.dp),
             contentPadding = PaddingValues(top = 16.dp, bottom = 100.dp)
         ) {
-            // Search Bar at top of Albums
+
             item {
                 Row(
                     modifier = Modifier
@@ -164,7 +165,7 @@ fun AlbumsScreen(
                 }
             }
 
-            // Throwback Memories Stories (Only in Albums)
+
             if (throwbackMemories.isNotEmpty()) {
                 item {
                     Column(modifier = Modifier.padding(bottom = 16.dp)) {
@@ -181,7 +182,7 @@ fun AlbumsScreen(
                 }
             }
 
-            // Storage Overview Card
+
             item {
                 Card(
                     colors = CardDefaults.cardColors(
@@ -191,6 +192,7 @@ fun AlbumsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 16.dp)
+                        .clickable { onStorageDoctorClick() }
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Row(
@@ -198,16 +200,18 @@ fun AlbumsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "Storage Doctor 🩺",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
                             Text(
-                                text = "Storage Overview",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = "Total: ${storageStats.formattedTotal}",
+                                text = "Total: ${storageStats.formattedTotal} · Analyze ➔",
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.primary
                             )
                         }
 
@@ -270,7 +274,7 @@ fun AlbumsScreen(
                 }
             }
 
-            // Smart Album: Favorites
+
             item {
                 AlbumRowItem(
                     icon = Icons.Default.Favorite,
@@ -285,7 +289,7 @@ fun AlbumsScreen(
                 )
             }
 
-            // Smart Album: Videos
+
             item {
                 AlbumRowItem(
                     icon = Icons.Default.PlayCircle,
@@ -300,7 +304,7 @@ fun AlbumsScreen(
                 )
             }
 
-            // Smart Album: Hidden (Only visible if Stealth Mode is disabled)
+
             if (!isStealthMode) {
                 item {
                     AlbumRowItem(
@@ -339,7 +343,7 @@ fun AlbumsScreen(
                 }
             }
 
-            // Smart Album: Trash
+
             item {
                 AlbumRowItem(
                     icon = Icons.Default.Delete,
@@ -354,7 +358,7 @@ fun AlbumsScreen(
                 )
             }
 
-            // Smart Album: Find Duplicates
+
             item {
                 AlbumRowItem(
                     icon = Icons.Default.CleaningServices,
@@ -373,7 +377,7 @@ fun AlbumsScreen(
                 Spacer(modifier = Modifier.height(12.dp))
             }
 
-            // Albums Header with Sort & Layout Switcher Controls
+
             item {
                 Row(
                     modifier = Modifier
@@ -390,7 +394,7 @@ fun AlbumsScreen(
                     )
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        // Layout Mode Dropdown
+
                         Box {
                             IconButton(onClick = { showLayoutMenu = true }) {
                                 Icon(
@@ -434,7 +438,7 @@ fun AlbumsScreen(
                             }
                         }
 
-                        // Sort Order Dropdown
+
                         Box {
                             IconButton(onClick = { showSortMenu = true }) {
                                 Icon(
@@ -474,7 +478,7 @@ fun AlbumsScreen(
                 }
             }
 
-            // Pinned Albums section
+
             if (pinnedBuckets.isNotEmpty()) {
                 item {
                     Text(

@@ -97,7 +97,7 @@ class MediaRepositoryImpl @Inject constructor(
             BucketInfo(bucket.id, bucket.name, newCount)
         }.toMutableList()
 
-        // Include user-created albums that may currently be empty in MediaStore
+
         val existingNames = processedBuckets.map { it.name }.toSet()
         for (albumName in createdAlbums) {
             if (!existingNames.contains(albumName)) {
@@ -144,7 +144,7 @@ class MediaRepositoryImpl @Inject constructor(
     override suspend fun toggleHidden(context: Context, mediaItem: MediaItem) {
         val currentMeta = metadataDao.getMetadataForMedia(mediaItem.id)
         if (mediaItem.isHidden) {
-            // Restore from Vault back to public storage
+            // vault restore
             if (currentMeta != null && currentMeta.vaultPath.isNotEmpty()) {
                 val vaultFile = java.io.File(currentMeta.vaultPath)
                 if (vaultFile.exists()) {
@@ -184,7 +184,7 @@ class MediaRepositoryImpl @Inject constructor(
                                 resolver.update(targetUri, contentValues, null, null)
                             }
 
-                            // Trigger media scanner so it is indexed immediately
+
                             try {
                                 android.media.MediaScannerConnection.scanFile(
                                     context,
@@ -208,7 +208,7 @@ class MediaRepositoryImpl @Inject constructor(
                 }
             }
         } else {
-            // Hide and encrypt into secure vault
+            // vault hide
             val vaultDir = java.io.File(context.filesDir, "vault").apply { mkdirs() }
             val vaultFile = java.io.File(vaultDir, "vault_${mediaItem.id}")
             val tempVaultFile = java.io.File(vaultDir, "vault_${mediaItem.id}.tmp")
@@ -257,7 +257,7 @@ class MediaRepositoryImpl @Inject constructor(
             )
             metadataDao.insertOrUpdate(entity)
 
-            // Write encrypted meta file
+
             val metaFile = java.io.File(vaultFile.absolutePath + ".meta")
             try {
                 val props = java.util.Properties().apply {
@@ -288,7 +288,7 @@ class MediaRepositoryImpl @Inject constructor(
                 e.printStackTrace()
             }
             
-            // Delete original file from public MediaStore
+
             try {
                 resolver.delete(mediaItem.uri, null, null)
             } catch (e: SecurityException) {
@@ -361,7 +361,7 @@ class MediaRepositoryImpl @Inject constructor(
                         }
                         props.load(java.io.ByteArrayInputStream(byteArrayOutput.toByteArray()))
                     } catch (e: Exception) {
-                        // Fallback for legacy unencrypted meta files
+                        // legacy meta fallback
                         java.io.FileInputStream(metaFile).use { input ->
                             props.load(input)
                         }
@@ -762,7 +762,7 @@ class MediaRepositoryImpl @Inject constructor(
 
     override suspend fun updateMediaDateTaken(context: Context, mediaItem: MediaItem, newDateMs: Long): Boolean = withContext(Dispatchers.IO) {
         try {
-            // Update Room database metadata
+
             val existing = metadataDao.getMetadataForMedia(mediaItem.id)
             if (existing != null) {
                 metadataDao.insertOrUpdate(existing.copy(dateTaken = newDateMs))
@@ -786,7 +786,7 @@ class MediaRepositoryImpl @Inject constructor(
                 )
             }
 
-            // Update MediaStore if not in vault
+
             if (!mediaItem.isHidden) {
                 val resolver = context.contentResolver
                 val contentValues = android.content.ContentValues().apply {
@@ -797,7 +797,7 @@ class MediaRepositoryImpl @Inject constructor(
                     resolver.update(mediaItem.uri, contentValues, null, null)
                 } catch (_: Exception) {}
 
-                // Update EXIF on disk if possible
+
                 val file = java.io.File(mediaItem.path)
                 if (file.exists() && file.canWrite()) {
                     try {

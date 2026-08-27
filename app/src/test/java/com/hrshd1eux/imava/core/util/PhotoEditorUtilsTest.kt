@@ -52,7 +52,6 @@ class PhotoEditorUtilsTest {
 
     @Test
     fun testFormatUtils_fileSizeFormatting() {
-        // Less than 1 MB -> formatted in KB
         val size500Kb = 512 * 1024L
         val formatted500Kb = FormatUtils.formatFileSize(size500Kb)
         org.junit.Assert.assertEquals("512 KB", formatted500Kb)
@@ -61,12 +60,10 @@ class PhotoEditorUtilsTest {
         val formatted84Kb = FormatUtils.formatFileSize(size84Kb)
         org.junit.Assert.assertTrue(formatted84Kb.contains("KB"))
 
-        // Between 1 MB and 1024 MB (1 GB) -> formatted in MB
         val size10Mb = 10 * 1024 * 1024L
         val formatted10Mb = FormatUtils.formatFileSize(size10Mb)
         org.junit.Assert.assertEquals("10.00 MB", formatted10Mb)
 
-        // Greater than or equal to 1024 MB (1 GB) -> formatted in GB
         val size2Gb = 2L * 1024 * 1024 * 1024L
         val formatted2Gb = FormatUtils.formatFileSize(size2Gb)
         org.junit.Assert.assertEquals("2.00 GB", formatted2Gb)
@@ -79,7 +76,6 @@ class PhotoEditorUtilsTest {
         every { mockContext.getSharedPreferences(any(), any()) } returns mockPrefs
         every { mockPrefs.getBoolean(any(), any()) } returns true
 
-        // Ensure performing vibrations does not throw exceptions even with mock context
         HapticUtil.performClick(mockContext)
         HapticUtil.performSelection(mockContext)
         HapticUtil.performLongPress(mockContext)

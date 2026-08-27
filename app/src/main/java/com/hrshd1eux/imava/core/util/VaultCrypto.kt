@@ -77,9 +77,6 @@ object VaultCrypto {
         return false
     }
 
-    /**
-     * Encrypts input stream content and writes IV (12 bytes) + AES-256-GCM ciphertext to output stream.
-     */
     fun encrypt(inputStream: InputStream, outputStream: OutputStream) {
         val secretKey = getSecretKey()
         val cipher = Cipher.getInstance(TRANSFORMATION)
@@ -103,9 +100,6 @@ object VaultCrypto {
         outputStream.flush()
     }
 
-    /**
-     * Decrypts stream containing IV (12 bytes) + AES-256-GCM ciphertext back to plaintext output stream.
-     */
     fun decrypt(inputStream: InputStream, outputStream: OutputStream) {
         val bufferedInput = if (inputStream.markSupported()) inputStream else java.io.BufferedInputStream(inputStream)
         bufferedInput.mark(16)
@@ -173,9 +167,6 @@ object VaultCrypto {
         }
     }
 
-    /**
-     * Hashes PIN with salt using PBKDF2WithHmacSHA256 (100,000 iterations) for brute-force resistant storage.
-     */
     fun hashPin(pin: String, salt: ByteArray): String {
         val spec = javax.crypto.spec.PBEKeySpec(
             pin.toCharArray(),
@@ -188,9 +179,7 @@ object VaultCrypto {
         return base64Encode(hash)
     }
 
-    /**
-     * Legacy single-round SHA-256 for backward-compatibility verification and transparent migration.
-     */
+    // legacy SHA-256 compat
     fun hashPinLegacySha256(pin: String, salt: ByteArray): String {
         val digest = MessageDigest.getInstance("SHA-256")
         digest.update(salt)
@@ -203,9 +192,6 @@ object VaultCrypto {
         val needsUpgrade: Boolean = false
     )
 
-    /**
-     * Verifies an input PIN against stored encrypted/raw hash, supporting transparent migration from legacy SHA-256.
-     */
     fun verifyPin(input: String, storedPinHash: String, salt: ByteArray): PinVerificationResult {
         val decryptedHash = try {
             decryptString(storedPinHash)
@@ -213,13 +199,13 @@ object VaultCrypto {
             storedPinHash
         }
 
-        // 1. Primary check: PBKDF2WithHmacSHA256
+        // PBKDF2 check
         val pbkdf2Hash = hashPin(input, salt)
         if (pbkdf2Hash == decryptedHash || pbkdf2Hash == storedPinHash) {
             return PinVerificationResult(isValid = true, needsUpgrade = false)
         }
 
-        // 2. Fallback check: Legacy SHA-256 for existing installs (flags needsUpgrade for auto-migration)
+        // legacy fallback
         val legacyHash = hashPinLegacySha256(input, salt)
         if (legacyHash == decryptedHash || legacyHash == storedPinHash) {
             return PinVerificationResult(isValid = true, needsUpgrade = true)
@@ -228,18 +214,12 @@ object VaultCrypto {
         return PinVerificationResult(isValid = false, needsUpgrade = false)
     }
 
-    /**
-     * Generates a cryptographically secure 16-byte salt.
-     */
     fun generateSalt(): ByteArray {
         val salt = ByteArray(16)
         SecureRandom().nextBytes(salt)
         return salt
     }
 
-    /**
-     * Encrypts plaintext string using AndroidKeyStore master key returning Base64 representation.
-     */
     fun encryptString(plaintext: String): String {
         val inStream = java.io.ByteArrayInputStream(plaintext.toByteArray(Charsets.UTF_8))
         val outStream = java.io.ByteArrayOutputStream()
@@ -247,9 +227,6 @@ object VaultCrypto {
         return base64Encode(outStream.toByteArray())
     }
 
-    /**
-     * Decrypts AndroidKeyStore master key encrypted Base64 string back to plaintext.
-     */
     fun decryptString(ciphertextBase64: String): String {
         val bytes = base64Decode(ciphertextBase64)
         val inStream = java.io.ByteArrayInputStream(bytes)

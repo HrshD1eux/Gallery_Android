@@ -89,7 +89,7 @@ object SharingUtils {
         try {
             val exif = ExifInterface(file.absolutePath)
             
-            // Critical privacy-leak EXIF tags to remove
+            // EXIF tags to strip
             val tagsToRemove = listOf(
                 ExifInterface.TAG_GPS_LATITUDE,
                 ExifInterface.TAG_GPS_LONGITUDE,

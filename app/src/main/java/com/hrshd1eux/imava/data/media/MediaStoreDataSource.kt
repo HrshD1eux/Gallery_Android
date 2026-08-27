@@ -42,7 +42,7 @@ class MediaStoreDataSource @Inject constructor(
                 trySend(Unit)
             }
         }
-        // Observe image, video, and file modifications for universal OEM compatibility
+        // observe media changes
         try {
             contentResolver.registerContentObserver(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, true, observer)
         } catch (_: Exception) {}
@@ -53,7 +53,7 @@ class MediaStoreDataSource @Inject constructor(
             contentResolver.registerContentObserver(MediaStore.Files.getContentUri("external"), true, observer)
         } catch (_: Exception) {}
         
-        // Emit initial value to fetch baseline
+
         trySend(Unit)
         
         awaitClose {
@@ -377,10 +377,7 @@ class MediaStoreDataSource @Inject constructor(
         mediaList
     }
 
-    /**
-     * Fetches only media IDs from MediaStore. Lightweight — no full MediaItem allocation.
-     * Used for orphan cleanup where we only need to know which IDs are still active.
-     */
+
     suspend fun fetchMediaIds(): List<Long> = withContext(Dispatchers.IO) {
         val ids = mutableListOf<Long>()
         val collection = MediaStore.Files.getContentUri("external")
@@ -420,11 +417,7 @@ class MediaStoreDataSource @Inject constructor(
         ids
     }
 
-    /**
-     * Fetches full MediaItem objects for a specific set of IDs.
-     * Uses _ID IN (...) query — efficient for small sets (favorites, trashed).
-     * Chunks large ID sets into batches of 500 to stay within SQLite variable limits.
-     */
+
     suspend fun fetchMediaByIds(ids: Set<Long>): List<MediaItem> = withContext(Dispatchers.IO) {
         if (ids.isEmpty()) return@withContext emptyList()
         
@@ -575,7 +568,7 @@ class MediaStoreDataSource @Inject constructor(
         val cursor = try {
             contentResolver.query(collection, projection, queryArgs, null)
         } catch (e: Exception) {
-            // Fallback query for OEM platforms restricting raw GROUP BY in selection
+            // OEM fallback
             try {
                 val fallbackSelection = "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}, ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO})"
                 contentResolver.query(
@@ -619,9 +612,7 @@ class MediaStoreDataSource @Inject constructor(
         buckets.sortedByDescending { it.count }
     }
 
-    /**
-     * Searches MediaStore for media items matching query across file path/name, bucket display name, and MIME type.
-     */
+
     suspend fun searchMedia(query: String): List<MediaItem> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext emptyList()
         val mediaList = mutableListOf<MediaItem>()
@@ -739,10 +730,7 @@ class MediaStoreDataSource @Inject constructor(
         mediaList
     }
 
-    /**
-     * Scans secondary media directories (e.g. WhatsApp, Telegram, Pictures, Download) for unindexed media files,
-     * triggering MediaScannerConnection scan for any unindexed files found.
-     */
+
     suspend fun scanSecondaryMediaDirectories(): Int = withContext(Dispatchers.IO) {
         var scannedCount = 0
         try {
@@ -787,10 +775,7 @@ class MediaStoreDataSource @Inject constructor(
         scannedCount
     }
 
-    /**
-     * Efficiently queries date boundaries across the entire MediaStore library to produce
-     * a pre-indexed date-to-position mapping for O(1) timeline fast scrubbing.
-     */
+
     suspend fun getDatePositionIndex(bucketId: Long? = null, isAscending: Boolean = false): List<com.hrshd1eux.imava.data.repository.DatePositionHeader> = withContext(Dispatchers.IO) {
         val result = mutableListOf<com.hrshd1eux.imava.data.repository.DatePositionHeader>()
         val collection = MediaStore.Files.getContentUri("external")
@@ -855,7 +840,7 @@ class MediaStoreDataSource @Inject constructor(
             val addedCol = it.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_ADDED)
             var currentHeader = ""
 
-            // For small collections evaluate all items; for large 100k libraries, sample ~50 points with moveToPosition
+
             val sampleStep = (count / 50).coerceAtLeast(1)
             var pos = 0
             while (pos < count) {

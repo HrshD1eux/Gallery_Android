@@ -24,10 +24,6 @@ object VideoTrimmer {
 
     private const val BUFFER_SIZE = 1024 * 1024 // 1 MB buffer
 
-    /**
-     * Losslessly trims a video from startMs to endMs using MediaExtractor and MediaMuxer.
-     * Returns the Uri of the saved trimmed video.
-     */
     suspend fun trimVideo(
         context: Context,
         inputUri: Uri,
@@ -114,9 +110,6 @@ object VideoTrimmer {
         }
     }
 
-    /**
-     * Converts a section of a video into an Animated GIF.
-     */
     suspend fun convertVideoToGif(
         context: Context,
         inputUri: Uri,
@@ -222,9 +215,6 @@ object VideoTrimmer {
         }
     }
 
-    /**
-     * Standard GIF89a encoder for writing animated GIFs.
-     */
     private fun encodeGif(bitmaps: List<Bitmap>, output: FileOutputStream, delayMs: Int) {
         if (bitmaps.isEmpty()) return
         val first = bitmaps.first()
@@ -275,7 +265,7 @@ object VideoTrimmer {
             writeShort(output, height)
             output.write(0)    // Local Color Table Flag (use global)
 
-            // Quantize bitmap pixels to palette indices & write uncompressed/LZW sub-blocks
+            // quantize and write pixel data
             val pixels = IntArray(width * height)
             bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
             val indexedPixels = ByteArray(pixels.size)

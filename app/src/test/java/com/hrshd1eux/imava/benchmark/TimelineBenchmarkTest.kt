@@ -20,7 +20,6 @@ class TimelineBenchmarkTest {
         val mockUri = mockk<Uri>(relaxed = true)
         val startTime = System.currentTimeMillis()
 
-        // Generate 10,000 synthetic media items spread across 30 days
         val items = (0 until 10_000).map { index ->
             MediaItem.Photo(
                 id = index.toLong(),
@@ -41,7 +40,6 @@ class TimelineBenchmarkTest {
         val today = LocalDate.now(zoneId)
         val yesterday = today.minusDays(1)
 
-        // Warmup JVM to prevent classloading/JIT spikes on 2-vCPU CI runners
         repeat(2) {
             items.groupBy { item ->
                 val localDate = Instant.ofEpochMilli(item.dateTaken).atZone(zoneId).toLocalDate()
@@ -53,7 +51,6 @@ class TimelineBenchmarkTest {
             }
         }
 
-        // Measure timeline grouping performance (O(n) test)
         val elapsedNano = measureNanoTime {
             val result = mutableListOf<TimelineItem>()
 
@@ -78,7 +75,6 @@ class TimelineBenchmarkTest {
         val elapsedMillis = elapsedNano / 1_000_000.0
         println("Benchmark: 10,000 items grouped in ${elapsedMillis}ms")
 
-        // Performance assertion: grouping 10,000 items off main thread must complete under 500ms even on virtualized CI
         assertTrue("Timeline grouping exceeded budget: ${elapsedMillis}ms", elapsedMillis < 500.0)
     }
 }

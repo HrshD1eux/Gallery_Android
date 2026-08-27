@@ -106,6 +106,10 @@ class MediaRepositoryImplTest {
             return dbMap.values.filter { it.tags.contains(tagQuery, ignoreCase = true) && !it.isHidden && !it.isTrashed }
         }
 
+        override suspend fun getHiddenMetadata(): List<MediaMetadataEntity> {
+            return dbMap.values.filter { it.isHidden }
+        }
+
         override suspend fun updateTags(mediaId: Long, tags: String) {
             val cur = dbMap[mediaId] ?: MediaMetadataEntity(mediaId = mediaId)
             dbMap[mediaId] = cur.copy(tags = tags)
@@ -116,15 +120,9 @@ class MediaRepositoryImplTest {
     fun testDeleteOrphanedMetadata_deletesOnlyOrphansInChunksOf500() = runBlocking {
         val fakeDao = FakeMetadataDao()
         
-        // Seed the fake DAO with 1200 IDs (0 to 1199)
         fakeDao.trackedIds = (0L until 1200L).toMutableList()
-
-        // Active IDs in MediaStore: only keep even IDs (0, 2, 4, ...), meaning odd IDs are orphaned
-        // Keep 0, 2, ..., 1198. (600 active IDs)
-        // This leaves 600 orphaned IDs (1, 3, 5, ..., 1199)
         val activeIds = (0L until 1200L).filter { it % 2 == 0L }
 
-        // Create repository instance with dummy/mock MediaStoreDataSource
         val mockContext = mockk<Context>(relaxed = true)
         val repository = MediaRepositoryImpl(
             context = mockContext,
@@ -132,21 +130,13 @@ class MediaRepositoryImplTest {
             metadataDao = fakeDao
         )
 
-        // Execute cleanup
         repository.deleteOrphanedMetadata(activeIds)
-
-        // Verify that exactly 600 IDs were deleted
         assertEquals(600, fakeDao.deletedIds.size)
 
-        // Verify that deleted IDs are indeed the odd IDs (the ones not present in activeIds)
         fakeDao.deletedIds.forEach { id ->
             assertTrue(id % 2 == 1L)
         }
 
-        // Verify that chunking was executed in size of 500
-        // 600 items should be chunked into:
-        // Chunk 1: 500 items
-        // Chunk 2: 100 items
         assertEquals(2, fakeDao.deletedChunks.size)
         assertEquals(500, fakeDao.deletedChunks[0].size)
         assertEquals(100, fakeDao.deletedChunks[1].size)
@@ -188,36 +178,29 @@ class MediaRepositoryImplTest {
             bucketName = "Camera"
         )
 
-        // 1. Hide the item
         repository.toggleHidden(mockContext, itemToHide)
 
-        // Verify sidecar was created
         val vaultDir = java.io.File(tempFolder, "vault")
         val vaultFile = java.io.File(vaultDir, "vault_123")
         val metaFile = java.io.File(vaultDir, "vault_123.meta")
         assertTrue(vaultFile.exists())
         assertTrue(metaFile.exists())
 
-        // Verify database entry exists
         var dbEntity = fakeDao.getMetadataForMedia(123L)
         assertTrue(dbEntity != null)
         assertEquals("/original/path.jpg", dbEntity?.originalPath)
 
-        // 2. Simulate database wipe (Room migration or data clear) by removing the entity from DAO
         fakeDao.dbMap.clear()
         assertTrue(fakeDao.getMetadataForMedia(123L) == null)
 
-        // 3. Collect from the hidden media flow (when vault is unlocked), which should trigger syncVaultMetadata()
         val flow = repository.getHiddenMediaFlow(isVaultUnlocked = true)
         val itemsList = flow.first()
 
-        // 4. Verify the database record has been self-healed and restored from sidecar!
         dbEntity = fakeDao.getMetadataForMedia(123L)
         assertTrue(dbEntity != null)
         assertEquals("/original/path.jpg", dbEntity?.originalPath)
         assertEquals(vaultFile.absolutePath, dbEntity?.vaultPath)
         
-        // Cleanup temp folder
         tempFolder.deleteRecursively()
         unmockkStatic(android.net.Uri::class)
         }
@@ -234,13 +217,9 @@ class MediaRepositoryImplTest {
         val item2 = MediaItem.Photo(2L, mockUri1, "/path2.jpg", "image/jpeg", 1000L, 100L, 100, 100, false, false, false, 1L, "Camera")
         val item3 = MediaItem.Photo(3L, mockUri1, "/path3.jpg", "image/jpeg", 1000L, 100L, 100, 100, false, false, false, 1L, "Camera")
         
-        // Mark item1 as hidden in the DB
         fakeDao.dbMap[1L] = MediaMetadataEntity(mediaId = 1L, isHidden = true)
         
-        // Mock datasource fetchMedia:
-        // First call with limit 2, offset 0: returns item1 and item2
         coEvery { mockDataSource.fetchMedia(2, 0, any(), any(), any(), any()) } returns listOf(item1, item2)
-        // Second call with limit 1, offset 2: returns item3
         coEvery { mockDataSource.fetchMedia(1, 2, any(), any(), any(), any()) } returns listOf(item3)
 
         val repository = MediaRepositoryImpl(
@@ -249,8 +228,6 @@ class MediaRepositoryImplTest {
             metadataDao = fakeDao
         )
         
-        // Request limit 2, starting at offset 0
-        // It should fetch 2 items (item1, item2), filter out item1 (hidden), and then loop to fetch 1 more item (item3)
         val result = repository.loadMediaPaged(limit = 2, offset = 0)
         
         assertEquals(2, result.size)
@@ -316,7 +293,6 @@ class MediaRepositoryImplTest {
                 metadataDao = fakeDao
             )
 
-            // Seed DB with a hidden metadata entry
             val vaultFile = java.io.File(tempFolder, "vault_999").apply { writeText("encrypted_data") }
             fakeDao.dbMap[999L] = MediaMetadataEntity(
                 mediaId = 999L,
@@ -325,12 +301,10 @@ class MediaRepositoryImplTest {
                 mimeType = "image/jpeg"
             )
 
-            // Collect getHiddenMediaFlow with isVaultUnlocked = false (default)
             val items = repository.getHiddenMediaFlow(isVaultUnlocked = false).first()
 
             assertEquals(0, items.size)
 
-            // Assert that NO vault_cache directory was created and NO decrypted file exists
             val cacheDir = java.io.File(tempFolder, "vault_cache")
             val decryptedFile = java.io.File(cacheDir, "decrypted_999")
             assertTrue(!decryptedFile.exists())
@@ -373,19 +347,16 @@ class MediaRepositoryImplTest {
                 mimeType = "image/jpeg"
             )
 
-            // Collect getHiddenMediaFlow with isVaultUnlocked = true
             val items = repository.getHiddenMediaFlow(isVaultUnlocked = true).first()
 
             assertEquals(1, items.size)
             assertEquals(888L, items[0].id)
 
-            // When unlocked, decrypted cache file is available for Coil/Viewer to load without corruption
             val cacheDir = java.io.File(tempFolder, "vault_cache")
             val decryptedFile = java.io.File(cacheDir, "decrypted_888.jpg")
             assertTrue("Decrypted cache file must exist while vault is unlocked", decryptedFile.exists())
             assertEquals("Test Photo Data", decryptedFile.readText())
 
-            // Assert that clearVaultCache wipes transient cache on lock
             repository.clearVaultCache(mockContext)
             assertTrue("vault_cache must be cleared on vault lock", !decryptedFile.exists())
 
@@ -467,7 +438,6 @@ class MediaRepositoryImplTest {
         val item2 = MediaItem.Photo(2L, mockUri, "/path/sunset2.jpg", "image/jpeg", 2000L, 200L, 100, 100, false, false, false, 1L, "Camera")
         
         coEvery { mockDataSource.searchMedia("sunset") } returns listOf(item1, item2)
-        // Mark item2 as hidden in DAO
         fakeDao.dbMap[2L] = MediaMetadataEntity(mediaId = 2L, isHidden = true)
 
         val repository = MediaRepositoryImpl(
@@ -478,7 +448,6 @@ class MediaRepositoryImplTest {
 
         val result = repository.searchMedia("sunset")
 
-        // Should return only non-hidden item1
         assertEquals(1, result.size)
         assertEquals(1L, result[0].id)
     }
@@ -549,29 +518,21 @@ class MediaRepositoryImplTest {
         val zoomState = com.hrshd1eux.imava.ui.viewer.ZoomState()
         zoomState.layoutSize = androidx.compose.ui.unit.IntSize(1000, 1000)
 
-        // At 1.0x (unzoomed), should yield pan events to HorizontalPager
         zoomState.scale = 1f
         org.junit.Assert.assertFalse(zoomState.canConsumePan(50f))
         org.junit.Assert.assertFalse(zoomState.canConsumePan(-50f))
 
-        // At 2.0x zoomed in, center position: can consume pan in either direction
         zoomState.scale = 2f
         zoomState.offsetX = 0f
         assertTrue(zoomState.canConsumePan(50f))
         assertTrue(zoomState.canConsumePan(-50f))
 
-        // At 2.0x zoomed in, at right boundary (offsetX == 500f):
-        // Panning right (panX > 0) is blocked by boundary, so should NOT consume (yield to pager)
         zoomState.offsetX = 500f
         org.junit.Assert.assertFalse(zoomState.canConsumePan(10f))
-        // Panning left away from boundary is allowed
         assertTrue(zoomState.canConsumePan(-10f))
 
-        // At 2.0x zoomed in, at left boundary (offsetX == -500f):
-        // Panning left (panX < 0) is blocked by boundary, so should NOT consume (yield to pager)
         zoomState.offsetX = -500f
         org.junit.Assert.assertFalse(zoomState.canConsumePan(-10f))
-        // Panning right away from boundary is allowed
         assertTrue(zoomState.canConsumePan(10f))
     }
 
@@ -587,11 +548,9 @@ class MediaRepositoryImplTest {
         )
 
         val ids = setOf(101L, 102L, 103L)
-        // Initially none favorited -> all become favorited
         repository.toggleFavoriteBatch(ids)
         assertTrue(ids.all { fakeDao.dbMap[it]?.isFavorite == true })
 
-        // When all favorited -> all become unfavorited
         repository.toggleFavoriteBatch(ids)
         assertTrue(ids.all { fakeDao.dbMap[it]?.isFavorite == false })
     }

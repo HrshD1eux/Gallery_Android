@@ -1,11 +1,13 @@
 package com.hrshd1eux.imava.ui.editor
 
 import android.graphics.Bitmap
+import android.graphics.PointF
 import android.graphics.RectF
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,11 +24,16 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.RotateRight
+import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Crop
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Rotate90DegreesCcw
@@ -44,14 +51,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -59,12 +66,18 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.hrshd1eux.imava.core.util.HapticUtil
 import com.hrshd1eux.imava.core.util.PhotoEditorUtils
+import com.hrshd1eux.imava.core.util.PhotoMarkupUtils
 import com.hrshd1eux.imava.data.model.MediaItem
 import com.hrshd1eux.imava.ui.MainViewModel
 import kotlinx.coroutines.Dispatchers
@@ -76,7 +89,8 @@ enum class EditorTab {
     ROTATE,
     FLIP,
     CROP,
-    TUNING
+    TUNING,
+    MARKUP
 }
 
 @Composable
@@ -98,29 +112,35 @@ fun PhotoEditorScreen(
     var flipHorizontal by remember { mutableStateOf(false) }
     var flipVertical by remember { mutableStateOf(false) }
     
-    // Tuning & Filters
+
     var brightnessOffset by remember { mutableFloatStateOf(0f) }
     var contrast by remember { mutableFloatStateOf(1.0f) }
     var saturation by remember { mutableFloatStateOf(1.0f) }
     var warmth by remember { mutableFloatStateOf(0f) }
     var selectedPreset by remember { mutableStateOf("none") }
-    var activeTuneSubTab by remember { mutableStateOf("presets") } // "presets", "brightness", "contrast", "saturation", "warmth"
+    var activeTuneSubTab by remember { mutableStateOf("presets") }
     
-    // Crop ratio preset: null = Freeform, 1.0f = 1:1, 1.333f = 4:3, 1.777f = 16:9
+
     var cropAspectRatio by remember { mutableStateOf<Float?>(null) }
-    
-    // Freeform crop margins (0f to 0.9f normalized offset for left/top/right/bottom)
     var freeCropLeft by remember { mutableFloatStateOf(0f) }
     var freeCropTop by remember { mutableFloatStateOf(0f) }
     var freeCropRight by remember { mutableFloatStateOf(0f) }
     var freeCropBottom by remember { mutableFloatStateOf(0f) }
     var isCropApplied by remember { mutableStateOf(false) }
 
+
+    var markupStrokes by remember { mutableStateOf(listOf<PhotoMarkupUtils.MarkupStroke>()) }
+    var inProgressStrokePoints by remember { mutableStateOf(listOf<PointF>()) }
+    var inProgressStartPoint by remember { mutableStateOf<PointF?>(null) }
+    var inProgressEndPoint by remember { mutableStateOf<PointF?>(null) }
+    var activeMarkupTool by remember { mutableStateOf(PhotoMarkupUtils.MarkupTool.PIXELATE_MOSAIC) }
+    var activeMarkupColor by remember { mutableIntStateOf(android.graphics.Color.RED) }
+    var activeMarkupWidth by remember { mutableFloatStateOf(24f) }
+
     val displayMetrics = context.resources.displayMetrics
     val reqWidth = displayMetrics.widthPixels.coerceAtLeast(1080)
     val reqHeight = displayMetrics.heightPixels.coerceAtLeast(1920)
 
-    // Load sub-sampled source bitmap for preview to prevent OOM
     LaunchedEffect(mediaItem) {
         withContext(Dispatchers.IO) {
             sourceBitmap = PhotoEditorUtils.decodeSubSampledBitmapFromUri(
@@ -132,7 +152,6 @@ fun PhotoEditorScreen(
         }
     }
 
-    // Recompute transformed preview bitmap whenever adjustments change
     LaunchedEffect(
         sourceBitmap, rotationDegrees, flipHorizontal, flipVertical,
         cropAspectRatio, freeCropLeft, freeCropTop, freeCropRight, freeCropBottom,
@@ -140,7 +159,6 @@ fun PhotoEditorScreen(
     ) {
         val src = sourceBitmap ?: return@LaunchedEffect
         withContext(Dispatchers.Default) {
-            // Uncropped base transformed bitmap (for live crop overlay editing)
             val baseBmp = PhotoEditorUtils.transformBitmap(
                 source = src,
                 rotationDegrees = rotationDegrees,
@@ -156,7 +174,6 @@ fun PhotoEditorScreen(
             uncroppedPreviewBitmap = baseBmp
 
             val cropRect = if (cropAspectRatio != null) {
-                // Preset aspect ratio center crop
                 val ratio = cropAspectRatio!!
                 val srcWidth = baseBmp.width.toFloat()
                 val srcHeight = baseBmp.height.toFloat()
@@ -174,7 +191,6 @@ fun PhotoEditorScreen(
                     RectF(0f, top, 1f, bottom)
                 }
             } else if (freeCropLeft > 0f || freeCropTop > 0f || freeCropRight > 0f || freeCropBottom > 0f) {
-                // Freeform custom crop boundaries
                 RectF(freeCropLeft, freeCropTop, 1f - freeCropRight, 1f - freeCropBottom)
             } else {
                 null
@@ -199,14 +215,14 @@ fun PhotoEditorScreen(
         }
     }
 
-    val hasModifications = rotationDegrees != 0f ||
-            flipHorizontal || flipVertical ||
+    val hasModifications = abs(rotationDegrees) > 0.05f || flipHorizontal || flipVertical ||
             brightnessOffset != 0f || contrast != 1.0f ||
             saturation != 1.0f || warmth != 0f ||
             selectedPreset != "none" ||
             freeCropLeft > 0.001f || freeCropTop > 0.001f ||
             freeCropRight > 0.001f || freeCropBottom > 0.001f ||
-            cropAspectRatio != null
+            cropAspectRatio != null ||
+            markupStrokes.isNotEmpty()
 
     var showDiscardConfirmDialog by remember { mutableStateOf(false) }
 
@@ -240,7 +256,7 @@ fun PhotoEditorScreen(
                         null
                     }
 
-                    val finalFullResBitmap = PhotoEditorUtils.transformBitmap(
+                    val transformedFullRes = PhotoEditorUtils.transformBitmap(
                         source = fullResSource,
                         rotationDegrees = rotationDegrees,
                         flipHorizontal = flipHorizontal,
@@ -253,15 +269,37 @@ fun PhotoEditorScreen(
                         preset = selectedPreset
                     )
 
+                    val previewBmp = transformedBitmap ?: uncroppedPreviewBitmap ?: sourceBitmap
+                    val finalFullResBitmap = if (markupStrokes.isNotEmpty() && previewBmp != null) {
+                        val scaleX = transformedFullRes.width.toFloat() / previewBmp.width.toFloat()
+                        val scaleY = transformedFullRes.height.toFloat() / previewBmp.height.toFloat()
+                        val scaledStrokes = markupStrokes.map { stroke ->
+                            stroke.copy(
+                                points = stroke.points.map { pt -> PointF(pt.x * scaleX, pt.y * scaleY) },
+                                strokeWidth = stroke.strokeWidth * scaleX,
+                                startPoint = stroke.startPoint?.let { PointF(it.x * scaleX, it.y * scaleY) },
+                                endPoint = stroke.endPoint?.let { PointF(it.x * scaleX, it.y * scaleY) }
+                            )
+                        }
+                        PhotoMarkupUtils.renderStrokesToBitmap(transformedFullRes, scaledStrokes)
+                    } else {
+                        transformedFullRes
+                    }
+
                     viewModel.saveEditedPhoto(context, mediaItem, finalFullResBitmap)
                 } else {
                     val fallbackBmp = transformedBitmap ?: uncroppedPreviewBitmap ?: sourceBitmap
                     if (fallbackBmp != null) {
-                        viewModel.saveEditedPhoto(context, mediaItem, fallbackBmp)
+                        val finalBmp = if (markupStrokes.isNotEmpty()) {
+                            PhotoMarkupUtils.renderStrokesToBitmap(fallbackBmp, markupStrokes)
+                        } else {
+                            fallbackBmp
+                        }
+                        viewModel.saveEditedPhoto(context, mediaItem, finalBmp)
                     }
                 }
             }
-            com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
+            HapticUtil.performSuccess(context)
             isSaving = false
             onDismiss()
         }
@@ -318,7 +356,7 @@ fun PhotoEditorScreen(
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        // Top Toolbar
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -348,35 +386,49 @@ fun PhotoEditorScreen(
 
             if (isSaving) {
                 CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp),
                     color = Color.White,
-                    strokeWidth = 2.dp
+                    strokeWidth = 2.dp,
+                    modifier = Modifier.size(24.dp)
                 )
             } else {
-                TextButton(
-                    onClick = { performSaveEditedPhoto() }
+                IconButton(
+                    onClick = { performSaveEditedPhoto() },
+                    enabled = hasModifications
                 ) {
-                    Text("Save as copy", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleMedium)
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "Save Changes",
+                        tint = if (hasModifications) MaterialTheme.colorScheme.primary else Color.Gray
+                    )
                 }
             }
         }
 
-        // Center Image Preview & Interactive 3x3 Crop Overlay
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = 64.dp, bottom = 200.dp),
+                .padding(top = 64.dp, bottom = 140.dp),
             contentAlignment = Alignment.Center
         ) {
-            // When in Crop tab and not applied, display uncropped preview for pointer manipulation
             val previewBitmap = if (selectedTab == EditorTab.CROP && !isCropApplied) {
-                uncroppedPreviewBitmap ?: sourceBitmap
+                uncroppedPreviewBitmap ?: transformedBitmap ?: sourceBitmap
             } else {
                 transformedBitmap ?: uncroppedPreviewBitmap ?: sourceBitmap
             }
 
             if (previewBitmap != null) {
-                val bitmapAspect = (previewBitmap.width.toFloat() / previewBitmap.height.toFloat()).coerceAtLeast(0.1f)
+                val bitmapAspect = previewBitmap.width.toFloat() / previewBitmap.height.toFloat()
+                
+
+                val displayBitmap = remember(previewBitmap, markupStrokes) {
+                    if (markupStrokes.isNotEmpty()) {
+                        PhotoMarkupUtils.renderStrokesToBitmap(previewBitmap, markupStrokes)
+                    } else {
+                        previewBitmap
+                    }
+                }
+
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -387,10 +439,11 @@ fun PhotoEditorScreen(
                         modifier = Modifier.aspectRatio(bitmapAspect)
                     ) {
                         Image(
-                            bitmap = previewBitmap.asImageBitmap(),
+                            bitmap = displayBitmap.asImageBitmap(),
                             contentDescription = "Edited Photo Preview",
                             modifier = Modifier.fillMaxSize()
                         )
+
 
                         if (selectedTab == EditorTab.CROP && !isCropApplied) {
                             CropGridOverlay(
@@ -407,6 +460,122 @@ fun PhotoEditorScreen(
                                 }
                             )
                         }
+
+
+                        if (selectedTab == EditorTab.MARKUP) {
+                            Canvas(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .pointerInput(activeMarkupTool, activeMarkupColor, activeMarkupWidth) {
+                                        detectDragGestures(
+                                            onDragStart = { startOffset ->
+                                                val bmpW = previewBitmap.width.toFloat()
+                                                val bmpH = previewBitmap.height.toFloat()
+                                                val normX = (startOffset.x / size.width) * bmpW
+                                                val normY = (startOffset.y / size.height) * bmpH
+                                                val pt = PointF(normX, normY)
+                                                inProgressStartPoint = pt
+                                                inProgressEndPoint = pt
+                                                inProgressStrokePoints = listOf(pt)
+                                            },
+                                            onDrag = { change, _ ->
+                                                change.consume()
+                                                val bmpW = previewBitmap.width.toFloat()
+                                                val bmpH = previewBitmap.height.toFloat()
+                                                val normX = (change.position.x / size.width) * bmpW
+                                                val normY = (change.position.y / size.height) * bmpH
+                                                val pt = PointF(normX, normY)
+                                                inProgressEndPoint = pt
+                                                inProgressStrokePoints = inProgressStrokePoints + pt
+                                            },
+                                            onDragEnd = {
+                                                if (inProgressStrokePoints.isNotEmpty()) {
+                                                    val newStroke = PhotoMarkupUtils.MarkupStroke(
+                                                        tool = activeMarkupTool,
+                                                        points = inProgressStrokePoints,
+                                                        color = activeMarkupColor,
+                                                        strokeWidth = activeMarkupWidth,
+                                                        startPoint = inProgressStartPoint,
+                                                        endPoint = inProgressEndPoint
+                                                    )
+                                                    markupStrokes = markupStrokes + newStroke
+                                                    inProgressStrokePoints = emptyList()
+                                                    inProgressStartPoint = null
+                                                    inProgressEndPoint = null
+                                                }
+                                            },
+                                            onDragCancel = {
+                                                inProgressStrokePoints = emptyList()
+                                                inProgressStartPoint = null
+                                                inProgressEndPoint = null
+                                            }
+                                        )
+                                    }
+                            ) {
+
+                                if (inProgressStrokePoints.size > 1) {
+                                    val scaleX = size.width / previewBitmap.width.toFloat()
+                                    val scaleY = size.height / previewBitmap.height.toFloat()
+                                    val strokeColor = Color(activeMarkupColor)
+
+                                    if (activeMarkupTool == PhotoMarkupUtils.MarkupTool.PEN || activeMarkupTool == PhotoMarkupUtils.MarkupTool.PIXELATE_MOSAIC) {
+                                        for (i in 0 until inProgressStrokePoints.size - 1) {
+                                            val p1 = inProgressStrokePoints[i]
+                                            val p2 = inProgressStrokePoints[i + 1]
+                                            drawLine(
+                                                color = if (activeMarkupTool == PhotoMarkupUtils.MarkupTool.PIXELATE_MOSAIC) Color.Black.copy(alpha = 0.5f) else strokeColor,
+                                                start = Offset(p1.x * scaleX, p1.y * scaleY),
+                                                end = Offset(p2.x * scaleX, p2.y * scaleY),
+                                                strokeWidth = activeMarkupWidth * scaleX,
+                                                cap = androidx.compose.ui.graphics.StrokeCap.Round
+                                            )
+                                        }
+                                    } else if (inProgressStartPoint != null && inProgressEndPoint != null) {
+                                        val p1 = inProgressStartPoint!!
+                                        val p2 = inProgressEndPoint!!
+                                        val startOffset = Offset(p1.x * scaleX, p1.y * scaleY)
+                                        val endOffset = Offset(p2.x * scaleX, p2.y * scaleY)
+
+                                        when (activeMarkupTool) {
+                                            PhotoMarkupUtils.MarkupTool.RECTANGLE -> {
+                                                val left = minOf(startOffset.x, endOffset.x)
+                                                val top = minOf(startOffset.y, endOffset.y)
+                                                val w = abs(endOffset.x - startOffset.x)
+                                                val h = abs(endOffset.y - startOffset.y)
+                                                drawRect(
+                                                    color = strokeColor,
+                                                    topLeft = Offset(left, top),
+                                                    size = Size(w, h),
+                                                    style = Stroke(width = activeMarkupWidth * scaleX)
+                                                )
+                                            }
+                                            PhotoMarkupUtils.MarkupTool.CIRCLE -> {
+                                                val left = minOf(startOffset.x, endOffset.x)
+                                                val top = minOf(startOffset.y, endOffset.y)
+                                                val w = abs(endOffset.x - startOffset.x)
+                                                val h = abs(endOffset.y - startOffset.y)
+                                                drawOval(
+                                                    color = strokeColor,
+                                                    topLeft = Offset(left, top),
+                                                    size = Size(w, h),
+                                                    style = Stroke(width = activeMarkupWidth * scaleX)
+                                                )
+                                            }
+                                            PhotoMarkupUtils.MarkupTool.ARROW -> {
+                                                drawLine(
+                                                    color = strokeColor,
+                                                    start = startOffset,
+                                                    end = endOffset,
+                                                    strokeWidth = activeMarkupWidth * scaleX,
+                                                    cap = androidx.compose.ui.graphics.StrokeCap.Round
+                                                )
+                                            }
+                                            else -> {}
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             } else {
@@ -414,14 +583,14 @@ fun PhotoEditorScreen(
             }
         }
 
-        // Bottom Controls Container
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .align(Alignment.BottomCenter)
                 .background(Color.Black.copy(alpha = 0.95f))
         ) {
-            // Contextual Control Panel for active tab
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -430,16 +599,162 @@ fun PhotoEditorScreen(
             ) {
                 when (selectedTab) {
                     EditorTab.ROTATE -> {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            IconButton(onClick = { rotationDegrees = (rotationDegrees - 90f + 360f) % 360f }) {
-                                Icon(imageVector = Icons.Default.Rotate90DegreesCcw, contentDescription = "Rotate Left", tint = Color.White)
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(
+                                        onClick = {
+                                            rotationDegrees = ((rotationDegrees - 90f + 360f) % 360f).let {
+                                                if (it > 180f) it - 360f else it
+                                            }
+                                            com.hrshd1eux.imava.core.util.HapticUtil.performSelection(context)
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Rotate90DegreesCcw,
+                                            contentDescription = "Rotate -90°",
+                                            tint = Color.White
+                                        )
+                                    }
+                                    Text(
+                                        text = "-90°",
+                                        color = Color.White.copy(alpha = 0.7f),
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                }
+
+
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (abs(rotationDegrees) > 0.05f) MaterialTheme.colorScheme.primaryContainer else Color.White.copy(alpha = 0.15f),
+                                    modifier = Modifier.padding(horizontal = 8.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    ) {
+                                        Text(
+                                            text = String.format(java.util.Locale.US, "%+.1f°", rotationDegrees),
+                                            color = if (abs(rotationDegrees) > 0.05f) MaterialTheme.colorScheme.onPrimaryContainer else Color.White,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        if (abs(rotationDegrees) > 0.05f) {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Icon(
+                                                imageVector = Icons.Default.Refresh,
+                                                contentDescription = "Reset Angle",
+                                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                modifier = Modifier
+                                                    .size(16.dp)
+                                                    .clickable {
+                                                        rotationDegrees = 0f
+                                                        com.hrshd1eux.imava.core.util.HapticUtil.performClick(context)
+                                                    }
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "+90°",
+                                        color = Color.White.copy(alpha = 0.7f),
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                    IconButton(
+                                        onClick = {
+                                            rotationDegrees = ((rotationDegrees + 90f + 360f) % 360f).let {
+                                                if (it > 180f) it - 360f else it
+                                            }
+                                            com.hrshd1eux.imava.core.util.HapticUtil.performSelection(context)
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Rotate90DegreesCw,
+                                            contentDescription = "Rotate +90°",
+                                            tint = Color.White
+                                        )
+                                    }
+                                }
                             }
-                            Text(text = "${rotationDegrees.toInt()}°", color = Color.White, style = MaterialTheme.typography.bodyMedium)
-                            IconButton(onClick = { rotationDegrees = (rotationDegrees + 90f) % 360f }) {
-                                Icon(imageVector = Icons.Default.Rotate90DegreesCw, contentDescription = "Rotate Right", tint = Color.White)
+
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                IconButton(
+                                    onClick = {
+                                        rotationDegrees = (rotationDegrees - 1f).coerceIn(-180f, 180f)
+                                        com.hrshd1eux.imava.core.util.HapticUtil.performSelection(context)
+                                    },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Text("-1°", color = Color.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                }
+
+                                Slider(
+                                    value = rotationDegrees,
+                                    onValueChange = { newValue ->
+                                        // Snap to 0 if within +/- 0.5 degrees
+                                        rotationDegrees = if (abs(newValue) < 0.5f) 0f else (Math.round(newValue * 2f) / 2f)
+                                    },
+                                    valueRange = -180f..180f,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(horizontal = 4.dp)
+                                )
+
+                                IconButton(
+                                    onClick = {
+                                        rotationDegrees = (rotationDegrees + 1f).coerceIn(-180f, 180f)
+                                        com.hrshd1eux.imava.core.util.HapticUtil.performSelection(context)
+                                    },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Text("+1°", color = Color.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                }
+                            }
+
+
+                            LazyRow(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val presets = listOf(
+                                    -45f to "-45°",
+                                    0f to "0° (Reset)",
+                                    45f to "+45°",
+                                    90f to "90°",
+                                    180f to "180°",
+                                    -90f to "270° (-90°)"
+                                )
+                                items(presets) { (presetDeg, label) ->
+                                    FilterChip(
+                                        selected = abs(rotationDegrees - presetDeg) < 0.2f,
+                                        onClick = {
+                                            rotationDegrees = presetDeg
+                                            com.hrshd1eux.imava.core.util.HapticUtil.performSelection(context)
+                                        },
+                                        label = { Text(label, style = MaterialTheme.typography.labelSmall) }
+                                    )
+                                }
                             }
                         }
                     }
@@ -451,51 +766,39 @@ fun PhotoEditorScreen(
                             FilterChip(
                                 selected = flipHorizontal,
                                 onClick = { flipHorizontal = !flipHorizontal },
-                                label = { Text("Flip Horizontal") }
+                                label = { Text("Horizontal") }
                             )
                             FilterChip(
                                 selected = flipVertical,
                                 onClick = { flipVertical = !flipVertical },
-                                label = { Text("Flip Vertical") }
+                                label = { Text("Vertical") }
                             )
                         }
                     }
                     EditorTab.CROP -> {
                         Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            // Apply / Reset Action Row
                             Row(
-                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
                             ) {
-                                TextButton(
-                                    onClick = {
-                                        freeCropLeft = 0f
-                                        freeCropTop = 0f
-                                        freeCropRight = 0f
-                                        freeCropBottom = 0f
-                                        cropAspectRatio = null
-                                        isCropApplied = false
+                                Text("Drag corners/edges to crop", color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.bodySmall)
+                                if (freeCropLeft > 0.001f || freeCropTop > 0.001f || freeCropRight > 0.001f || freeCropBottom > 0.001f || cropAspectRatio != null) {
+                                    TextButton(
+                                        onClick = {
+                                            freeCropLeft = 0f
+                                            freeCropTop = 0f
+                                            freeCropRight = 0f
+                                            freeCropBottom = 0f
+                                            cropAspectRatio = null
+                                            isCropApplied = false
+                                        }
+                                    ) {
+                                        Text("Reset", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
                                     }
-                                ) {
-                                    Icon(Icons.Default.Refresh, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Reset", color = Color.White)
-                                }
-
-                                Button(
-                                    onClick = {
-                                        isCropApplied = true
-                                        com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                                ) {
-                                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Apply Crop")
                                 }
                             }
 
@@ -540,7 +843,6 @@ fun PhotoEditorScreen(
                     }
                     EditorTab.TUNING -> {
                         Column(modifier = Modifier.fillMaxWidth()) {
-                            // Sub-tabs / Filters switcher
                             LazyRow(
                                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -668,10 +970,131 @@ fun PhotoEditorScreen(
                             }
                         }
                     }
+                    EditorTab.MARKUP -> {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+
+                            LazyRow(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                item {
+                                    FilterChip(
+                                        selected = activeMarkupTool == PhotoMarkupUtils.MarkupTool.PIXELATE_MOSAIC,
+                                        onClick = {
+                                            activeMarkupTool = PhotoMarkupUtils.MarkupTool.PIXELATE_MOSAIC
+                                            activeMarkupWidth = 32f
+                                        },
+                                        label = { Text("⬛ Redact/Mosaic") }
+                                    )
+                                }
+                                item {
+                                    FilterChip(
+                                        selected = activeMarkupTool == PhotoMarkupUtils.MarkupTool.PEN,
+                                        onClick = {
+                                            activeMarkupTool = PhotoMarkupUtils.MarkupTool.PEN
+                                            activeMarkupWidth = 14f
+                                        },
+                                        label = { Text("✏️ Pen") }
+                                    )
+                                }
+                                item {
+                                    FilterChip(
+                                        selected = activeMarkupTool == PhotoMarkupUtils.MarkupTool.ARROW,
+                                        onClick = {
+                                            activeMarkupTool = PhotoMarkupUtils.MarkupTool.ARROW
+                                            activeMarkupWidth = 12f
+                                        },
+                                        label = { Text("↗️ Arrow") }
+                                    )
+                                }
+                                item {
+                                    FilterChip(
+                                        selected = activeMarkupTool == PhotoMarkupUtils.MarkupTool.RECTANGLE,
+                                        onClick = {
+                                            activeMarkupTool = PhotoMarkupUtils.MarkupTool.RECTANGLE
+                                            activeMarkupWidth = 8f
+                                        },
+                                        label = { Text("⬜ Box") }
+                                    )
+                                }
+                                item {
+                                    FilterChip(
+                                        selected = activeMarkupTool == PhotoMarkupUtils.MarkupTool.CIRCLE,
+                                        onClick = {
+                                            activeMarkupTool = PhotoMarkupUtils.MarkupTool.CIRCLE
+                                            activeMarkupWidth = 8f
+                                        },
+                                        label = { Text("⭕ Oval") }
+                                    )
+                                }
+                            }
+
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    listOf(
+                                        android.graphics.Color.RED,
+                                        android.graphics.Color.YELLOW,
+                                        android.graphics.Color.GREEN,
+                                        android.graphics.Color.BLUE,
+                                        android.graphics.Color.WHITE,
+                                        android.graphics.Color.BLACK
+                                    ).forEach { colorInt ->
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = Color(colorInt),
+                                            border = if (activeMarkupColor == colorInt) androidx.compose.foundation.BorderStroke(2.dp, Color.White) else null,
+                                            modifier = Modifier
+                                                .size(26.dp)
+                                                .clickable {
+                                                    activeMarkupColor = colorInt
+                                                }
+                                        ) {}
+                                    }
+                                }
+
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    IconButton(
+                                        enabled = markupStrokes.isNotEmpty(),
+                                        onClick = {
+                                            if (markupStrokes.isNotEmpty()) {
+                                                markupStrokes = markupStrokes.dropLast(1)
+                                            }
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.Undo,
+                                            contentDescription = "Undo",
+                                            tint = if (markupStrokes.isNotEmpty()) Color.White else Color.Gray
+                                        )
+                                    }
+                                    IconButton(
+                                        enabled = markupStrokes.isNotEmpty(),
+                                        onClick = {
+                                            markupStrokes = emptyList()
+                                        }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Clear All",
+                                            tint = if (markupStrokes.isNotEmpty()) MaterialTheme.colorScheme.error else Color.Gray
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
-            // Bottom Navigation Tabs
+
             NavigationBar(
                 containerColor = Color.Black,
                 contentColor = Color.White
@@ -702,6 +1125,12 @@ fun PhotoEditorScreen(
                     onClick = { selectedTab = EditorTab.TUNING },
                     icon = { Icon(Icons.Default.Tune, contentDescription = "Tune") },
                     label = { Text("Tuning") }
+                )
+                NavigationBarItem(
+                    selected = selectedTab == EditorTab.MARKUP,
+                    onClick = { selectedTab = EditorTab.MARKUP },
+                    icon = { Icon(Icons.Default.Brush, contentDescription = "Markup") },
+                    label = { Text("Markup") }
                 )
             }
         }
@@ -759,13 +1188,6 @@ fun CropGridOverlay(
                     onDragStart = { startOffset ->
                         val width = size.width.toFloat()
                         val height = size.height.toFloat()
-                        if (width <= 0f || height <= 0f) return@detectDragGestures
-
-                        dragLeft = currentLeft
-                        dragTop = currentTop
-                        dragRight = currentRight
-                        dragBottom = currentBottom
-
                         val touchX = startOffset.x
                         val touchY = startOffset.y
 
@@ -801,7 +1223,7 @@ fun CropGridOverlay(
 
                         val dx = dragAmount.x / width
                         val dy = dragAmount.y / height
-                        val minSize = 0.08f // Minimum 8% crop box
+                        val minSize = 0.08f
 
                         when (activeHandle) {
                             CropHandle.TOP_LEFT -> {
@@ -869,25 +1291,18 @@ fun CropGridOverlay(
 
         val dimColor = Color.Black.copy(alpha = 0.55f)
 
-        // 1. Draw outer dim overlays
-        // Top rect
         drawRect(dimColor, topLeft = Offset(0f, 0f), size = Size(width, curTopPx))
-        // Bottom rect
         drawRect(dimColor, topLeft = Offset(0f, curBottomPx), size = Size(width, height - curBottomPx))
-        // Left rect
         drawRect(dimColor, topLeft = Offset(0f, curTopPx), size = Size(curLeftPx, cropHeight))
-        // Right rect
         drawRect(dimColor, topLeft = Offset(curRightPx, curTopPx), size = Size(width - curRightPx, cropHeight))
 
-        // 2. Draw border
         drawRect(
             color = Color.White.copy(alpha = 0.85f),
             topLeft = Offset(curLeftPx, curTopPx),
             size = Size(cropWidth, cropHeight),
-            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx())
+            style = Stroke(width = 1.5.dp.toPx())
         )
 
-        // 3. Draw 3x3 Rule-of-Thirds Grid
         val oneThirdW = cropWidth / 3f
         val twoThirdsW = cropWidth * 2f / 3f
         val oneThirdH = cropHeight / 3f
@@ -900,7 +1315,6 @@ fun CropGridOverlay(
         drawLine(gridColor, Offset(curLeftPx, curTopPx + oneThirdH), Offset(curRightPx, curTopPx + oneThirdH), strokeWidth = gridStroke)
         drawLine(gridColor, Offset(curLeftPx, curTopPx + twoThirdsH), Offset(curRightPx, curTopPx + twoThirdsH), strokeWidth = gridStroke)
 
-        // 4. Draw Corner Brackets (Pointers) with subtle shadow
         val bracketLen = 24.dp.toPx().coerceAtMost(cropWidth / 3f).coerceAtMost(cropHeight / 3f)
         val bracketThickness = 4.dp.toPx()
         val bracketColor = Color.White
@@ -914,45 +1328,36 @@ fun CropGridOverlay(
             drawLine(bracketColor, p2, p3, strokeWidth = bracketThickness)
         }
 
-        // Top-Left corner L-bracket
         drawBracketWithShadow(
             Offset(curLeftPx + bracketLen, curTopPx),
             Offset(curLeftPx, curTopPx),
             Offset(curLeftPx, curTopPx + bracketLen)
         )
 
-        // Top-Right corner L-bracket
         drawBracketWithShadow(
             Offset(curRightPx - bracketLen, curTopPx),
             Offset(curRightPx, curTopPx),
             Offset(curRightPx, curTopPx + bracketLen)
         )
 
-        // Bottom-Left corner L-bracket
         drawBracketWithShadow(
             Offset(curLeftPx, curBottomPx - bracketLen),
             Offset(curLeftPx, curBottomPx),
             Offset(curLeftPx + bracketLen, curBottomPx)
         )
 
-        // Bottom-Right corner L-bracket
         drawBracketWithShadow(
             Offset(curRightPx - bracketLen, curBottomPx),
             Offset(curRightPx, curBottomPx),
             Offset(curRightPx, curBottomPx - bracketLen)
         )
 
-        // 5. Draw Edge Midpoint Handles (Pill Bars)
         val edgeLen = 18.dp.toPx().coerceAtMost(cropWidth / 4f)
         val edgeThickness = 3.dp.toPx()
 
-        // Top edge handle
         drawLine(bracketColor, Offset(curLeftPx + cropWidth / 2f - edgeLen / 2f, curTopPx), Offset(curLeftPx + cropWidth / 2f + edgeLen / 2f, curTopPx), strokeWidth = edgeThickness)
-        // Bottom edge handle
         drawLine(bracketColor, Offset(curLeftPx + cropWidth / 2f - edgeLen / 2f, curBottomPx), Offset(curLeftPx + cropWidth / 2f + edgeLen / 2f, curBottomPx), strokeWidth = edgeThickness)
-        // Left edge handle
         drawLine(bracketColor, Offset(curLeftPx, curTopPx + cropHeight / 2f - edgeLen / 2f), Offset(curLeftPx, curTopPx + cropHeight / 2f + edgeLen / 2f), strokeWidth = edgeThickness)
-        // Right edge handle
         drawLine(bracketColor, Offset(curRightPx, curTopPx + cropHeight / 2f - edgeLen / 2f), Offset(curRightPx, curTopPx + cropHeight / 2f + edgeLen / 2f), strokeWidth = edgeThickness)
     }
 }

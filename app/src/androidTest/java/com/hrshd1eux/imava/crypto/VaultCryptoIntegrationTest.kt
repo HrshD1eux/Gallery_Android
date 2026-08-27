@@ -23,7 +23,6 @@ class VaultCryptoIntegrationTest {
         VaultCrypto.encrypt(ByteArrayInputStream(originalBytes), encryptedStream)
         val encryptedBytes = encryptedStream.toByteArray()
 
-        // Verify encrypted content is not plaintext
         assertFalse(String(encryptedBytes, Charsets.UTF_8).contains(originalText))
 
         val decryptedStream = ByteArrayOutputStream()

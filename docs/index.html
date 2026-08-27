@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Imava | Fast, Offline & Privacy-First Android Gallery</title>
+  
+  <!-- SEO & Social Meta Tags -->
+  <meta name="description" content="Imava is a modern, high-performance, 100% offline Android gallery app with hardware-backed AES-256 encrypted vault, photo collage maker, throwback stories, and zero telemetry.">
+  <meta name="keywords" content="Android Gallery, Private Gallery, Offline Gallery, AES-256 Vault, FOSS Gallery, Jetpack Compose, Photo Manager, Imava">
+  <meta name="author" content="HrshD1eux">
+  
+  <!-- OpenGraph / Facebook -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://hrshd1eux.github.io/Imava/">
+  <meta property="og:title" content="Imava | Fast, Offline & Privacy-First Android Gallery">
+  <meta property="og:description" content="Private by design. 100% offline photo & video gallery with hardware AES-256 vault, collage creator, and zero cloud tracking.">
+  <meta property="og:image" content="assets/icon.png">
+
+  <!-- Twitter -->
+  <meta property="twitter:card" content="summary_large_image">
+  <meta property="twitter:url" content="https://hrshd1eux.github.io/Imava/">
+  <meta property="twitter:title" content="Imava | Fast, Offline & Privacy-First Android Gallery">
+  <meta property="twitter:description" content="Private by design. Your moments, yours alone. 100% offline Android gallery.">
+  <meta property="twitter:image" content="assets/icon.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="assets/icon.png">
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <!-- JSON-LD Structured Data for AEO / Google SGE -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Imava",
+    "operatingSystem": "Android",
+    "applicationCategory": "MultimediaApplication",
+    "license": "https://www.gnu.org/licenses/old-licenses/gpl-2.0.html",
+    "description": "Fast, offline, and privacy-first Android photo and video gallery featuring hardware-backed AES-256-GCM vault encryption, photo collage maker, throwback stories, and zero telemetry.",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
+    "author": {
+      "@type": "Person",
+      "name": "HrshD1eux",
+      "url": "https://github.com/HrshD1eux"
+    }
+  }
+  </script>
+
+  <style>
+    :root {
+      --bg-dark: #07080D;
+      --bg-card: #0F111A;
+      --bg-card-hover: #161926;
+      --primary: #6366F1;
+      --primary-glow: rgba(99, 102, 241, 0.35);
+      --accent: #A855F7;
+      --accent-pink: #EC4899;
+      --text-main: #F8FAFC;
+      --text-muted: #94A3B8;
+      --text-dim: #64748B;
+      --border: rgba(255, 255, 255, 0.08);
+      --border-focus: rgba(99, 102, 241, 0.5);
+      --success: #10B981;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    h1, h2, h3, h4, h5, .brand-font {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-weight: 700;
+    }
+
+    /* Top Glow */
+    .ambient-glow {
+      position: absolute;
+      top: -150px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 900px;
+      height: 500px;
+      background: radial-gradient(circle, rgba(99, 102, 241, 0.18) 0%, rgba(168, 85, 247, 0.12) 40%, rgba(7, 8, 13, 0) 70%);
+      filter: blur(80px);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Navbar */
+    header {
+      padding: 24px 0;
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(7, 8, 13, 0.85);
+    }
+
+    .nav-wrapper {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .logo-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: var(--text-main);
+    }
+
+    .logo-group img {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      box-shadow: 0 4px 12px var(--primary-glow);
+    }
+
+    .logo-text {
+      font-size: 1.4rem;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, #FFF 0%, #CBD5E1 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 28px;
+    }
+
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.95rem;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+
+    .nav-links a:hover {
+      color: #FFF;
+    }
+
+    .btn-header {
+      padding: 8px 18px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border);
+      color: #FFF !important;
+      font-weight: 600 !important;
+      transition: all 0.2s !important;
+    }
+
+    .btn-header:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Hero Section */
+    .hero {
+      padding: 80px 0 60px;
+      text-align: center;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      background: rgba(99, 102, 241, 0.12);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      border-radius: 100px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #A5B4FC;
+      margin-bottom: 24px;
+    }
+
+    .hero-title {
+      font-size: 3.5rem;
+      font-weight: 800;
+      letter-spacing: -1.5px;
+      line-height: 1.15;
+      margin-bottom: 20px;
+      background: linear-gradient(135deg, #FFFFFF 0%, #CBD5E1 50%, #94A3B8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero-title span {
+      background: linear-gradient(135deg, #818CF8 0%, #C084FC 50%, #F472B6 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .hero-subtitle {
+      max-width: 680px;
+      margin: 0 auto 36px;
+      font-size: 1.15rem;
+      color: var(--text-muted);
+      line-height: 1.7;
+    }
+
+    .hero-cta-group {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 48px;
+    }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%);
+      color: #FFF;
+      padding: 14px 28px;
+      border-radius: 12px;
+      font-weight: 600;
+      font-size: 1.05rem;
+      text-decoration: none;
+      box-shadow: 0 8px 24px var(--primary-glow);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 30px rgba(99, 102, 241, 0.5);
+    }
+
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--bg-card);
+      color: var(--text-main);
+      padding: 14px 28px;
+      border-radius: 12px;
+      font-weight: 600;
+      font-size: 1.05rem;
+      text-decoration: none;
+      border: 1px solid var(--border);
+      transition: background 0.2s, border-color 0.2s, transform 0.2s;
+    }
+
+    .btn-secondary:hover {
+      background: var(--bg-card-hover);
+      border-color: rgba(255, 255, 255, 0.2);
+      transform: translateY(-2px);
+    }
+
+    .stats-strip {
+      display: flex;
+      justify-content: center;
+      gap: 32px;
+      flex-wrap: wrap;
+      margin-top: 20px;
+    }
+
+    .stat-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.9rem;
+      color: var(--text-dim);
+    }
+
+    .stat-pill span {
+      color: #FFF;
+      font-weight: 600;
+    }
+
+    /* Screenshots Grid */
+    .showcase-section {
+      padding: 40px 0 80px;
+    }
+
+    .section-header {
+      text-align: center;
+      margin-bottom: 48px;
+    }
+
+    .section-tag {
+      font-size: 0.85rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--primary);
+      margin-bottom: 8px;
+      display: block;
+    }
+
+    .section-title {
+      font-size: 2.3rem;
+      margin-bottom: 12px;
+      letter-spacing: -0.5px;
+    }
+
+    .section-desc {
+      color: var(--text-muted);
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    .screenshots-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 20px;
+    }
+
+    .phone-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.4);
+      transition: transform 0.3s, border-color 0.3s;
+    }
+
+    .phone-card:hover {
+      transform: translateY(-6px);
+      border-color: var(--border-focus);
+    }
+
+    .phone-card img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .phone-caption {
+      padding: 14px;
+      text-align: center;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      border-top: 1px solid var(--border);
+      background: rgba(15, 17, 26, 0.8);
+    }
+
+    /* Features Grid */
+    .features-section {
+      padding: 80px 0;
+      border-top: 1px solid var(--border);
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+    }
+
+    .feature-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px;
+      transition: all 0.25s ease;
+      position: relative;
+    }
+
+    .feature-card:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--border-focus);
+      transform: translateY(-4px);
+    }
+
+    .feature-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      background: rgba(99, 102, 241, 0.15);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      margin-bottom: 20px;
+      border: 1px solid rgba(99, 102, 241, 0.25);
+    }
+
+    .feature-title {
+      font-size: 1.25rem;
+      margin-bottom: 10px;
+    }
+
+    .feature-text {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      line-height: 1.6;
+    }
+
+    /* Comparison Table */
+    .comparison-section {
+      padding: 80px 0;
+      border-top: 1px solid var(--border);
+    }
+
+    .table-wrapper {
+      overflow-x: auto;
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      background: var(--bg-card);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.95rem;
+    }
+
+    th, td {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    th {
+      background: rgba(255, 255, 255, 0.03);
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    th:first-child, td:first-child {
+      font-weight: 600;
+    }
+
+    .highlight-col {
+      background: rgba(99, 102, 241, 0.08);
+      font-weight: 600;
+      color: #A5B4FC;
+    }
+
+    /* FAQ Section */
+    .faq-section {
+      padding: 80px 0;
+      border-top: 1px solid var(--border);
+    }
+
+    .faq-grid {
+      max-width: 800px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .faq-item {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 24px;
+    }
+
+    .faq-question {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: var(--text-main);
+    }
+
+    .faq-answer {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      line-height: 1.6;
+    }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 48px 0;
+      text-align: center;
+      color: var(--text-dim);
+      font-size: 0.9rem;
+    }
+
+    .footer-links {
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+      margin-bottom: 16px;
+    }
+
+    .footer-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    .footer-links a:hover {
+      color: #FFF;
+    }
+
+    /* Responsive */
+    @media (max-width: 992px) {
+      .hero-title { font-size: 2.75rem; }
+      .features-grid { grid-template-columns: repeat(2, 1fr); }
+      .screenshots-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    @media (max-width: 640px) {
+      .hero-title { font-size: 2.1rem; }
+      .hero-subtitle { font-size: 1rem; }
+      .features-grid { grid-template-columns: 1fr; }
+      .screenshots-grid { grid-template-columns: 1fr; max-width: 320px; margin: 0 auto; }
+      .nav-links { display: none; }
+      .stats-strip { flex-direction: column; gap: 12px; align-items: center; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="ambient-glow"></div>
+
+  <!-- Header -->
+  <header>
+    <div class="container nav-wrapper">
+      <a href="#" class="logo-group">
+        <img src="assets/icon.png" alt="Imava Logo">
+        <span class="logo-text">Imava</span>
+      </a>
+      <nav class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#compare">Compare</a>
+        <a href="#security">Security</a>
+        <a href="#faq">FAQ</a>
+        <a href="https://github.com/HrshD1eux/Imava" target="_blank" class="btn-header">⭐ Star on GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="container">
+      <div class="badge">
+        <span>🛡️ 100% Offline · Zero Telemetry · GPL-2.0 FOSS</span>
+      </div>
+      <h1 class="hero-title">
+        Private by design.<br>
+        <span>Your moments, yours alone.</span>
+      </h1>
+      <p class="hero-subtitle">
+        A high-performance, fluid Android gallery built with Jetpack Compose. Enjoy hardware-encrypted private vaults, offline throwback stories, built-in collage maker, and zero cloud tracking.
+      </p>
+
+      <div class="hero-cta-group">
+        <a href="https://github.com/HrshD1eux/Imava/releases/latest" target="_blank" class="btn-primary">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download APK (Latest Release)
+        </a>
+        <a href="https://github.com/HrshD1eux/Imava" target="_blank" class="btn-secondary">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+          View Source Code
+        </a>
+      </div>
+
+      <div class="stats-strip">
+        <div class="stat-pill">⚡ <span>120Hz Fluid Grid</span></div>
+        <div class="stat-pill">🔒 <span>AES-256-GCM Vault</span></div>
+        <div class="stat-pill">📦 <span>O(1) Memory Footprint</span></div>
+        <div class="stat-pill">🚫 <span>0 KB Data Sent</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Showcase / Screenshots -->
+  <section class="showcase-section" id="showcase">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">Interface</span>
+        <h2 class="section-title">Built with Material 3 & Jetpack Compose</h2>
+        <p class="section-desc">Designed for modern Android with fluid gestures, AMOLED pure black mode, and clean navigation.</p>
+      </div>
+
+      <div class="screenshots-grid">
+        <div class="phone-card">
+          <img src="screenshots/photos.png" alt="Photos Timeline">
+          <div class="phone-caption">120Hz Photos Timeline</div>
+        </div>
+        <div class="phone-card">
+          <img src="screenshots/album.png" alt="Albums & Folders">
+          <div class="phone-caption">Albums & Storage Breakdown</div>
+        </div>
+        <div class="phone-card">
+          <img src="screenshots/vault.png" alt="AES-256 Encrypted Vault">
+          <div class="phone-caption">Hardware-Encrypted Vault</div>
+        </div>
+        <div class="phone-card">
+          <img src="screenshots/setting.png" alt="Settings & Privacy">
+          <div class="phone-caption">Settings & Preferences</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Feature Matrix -->
+  <section class="features-section" id="features">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">Capabilities</span>
+        <h2 class="section-title">Everything you need. Zero bloat.</h2>
+        <p class="section-desc">Engineered from scratch for speed, security, and offline independence.</p>
+      </div>
+
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon">🔐</div>
+          <h3 class="feature-title">AES-256-GCM Vault</h3>
+          <p class="feature-text">Hardware-backed AndroidKeyStore encryption with 250,000 PBKDF2 rounds, Decoy PIN plausible deniability, and dynamic FLAG_SECURE screenshot protection.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">🎨</div>
+          <h3 class="feature-title">Native Collage Maker</h3>
+          <p class="feature-text">Stitch 2 to 9 photos across 1:1, 4:5, 9:16, and 16:9 aspect ratios with real-time padding, corner radius, and lossless 2048px export.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">🖌️</div>
+          <h3 class="feature-title">Destructive Redaction</h3>
+          <p class="feature-text">Irreversible downsampled mosaic pixelation to permanently redact faces, credit cards, or license plates against AI de-blurring or OCR recovery.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">📸</div>
+          <h3 class="feature-title">1-Tap Frame Grabber</h3>
+          <p class="feature-text">Extract full-sensor uncompressed still photos at the exact millisecond from any video playback with instant MediaStore indexing.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">📅</div>
+          <h3 class="feature-title">Throwback Story Player</h3>
+          <p class="feature-text">100% offline "On This Day" memories in a WhatsApp/Instagram story player with auto-advance and persistent 24h dismissal.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">🩺</div>
+          <h3 class="feature-title">Storage Doctor Assistant</h3>
+          <p class="feature-text">Smart scanner for large videos (>50MB), stale screenshots (>30 days), and burst duplicate shots with a 1-tap "Keep Best" cleaner.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">🎬</div>
+          <h3 class="feature-title">Ken-Burns Slideshow</h3>
+          <p class="feature-text">Cinematic ambient pan-and-zoom motion transitions with 3s/5s/8s pacing presets, shuffle toggle, and fullscreen playback.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">🔍</div>
+          <h3 class="feature-title">Comparison Loupe</h3>
+          <p class="feature-text">Compare any two photos side-by-side with synchronized dual-pane zoom & pan and split horizontal/vertical switcher.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">🏷️</div>
+          <h3 class="feature-title">Offline Tags & Hashtags</h3>
+          <p class="feature-text">Add custom tags (#Receipt, #Travel) to any photo, indexed locally in SQLite Room for instant offline search.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Comparison Table -->
+  <section class="comparison-section" id="compare">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">Comparison</span>
+        <h2 class="section-title">How Imava Stacks Up</h2>
+        <p class="section-desc">Compare Imava against traditional and cloud-based gallery applications.</p>
+      </div>
+
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Feature</th>
+              <th class="highlight-col">Imava</th>
+              <th>Simple Gallery (Legacy)</th>
+              <th>Google Photos</th>
+              <th>Stock OEM Gallery</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>100% Offline / Zero Telemetry</td>
+              <td class="highlight-col">✅ Yes</td>
+              <td>✅ Yes</td>
+              <td>❌ Cloud Required</td>
+              <td>❌ Telemetry</td>
+            </tr>
+            <tr>
+              <td>Hardware AES-256-GCM Vault</td>
+              <td class="highlight-col">✅ StrongBox/TEE</td>
+              <td>❌ Simple File Hide</td>
+              <td>❌ Cloud Synced</td>
+              <td>❌ None</td>
+            </tr>
+            <tr>
+              <td>Decoy PIN (Plausible Deniability)</td>
+              <td class="highlight-col">✅ Yes</td>
+              <td>❌ No</td>
+              <td>❌ No</td>
+              <td>❌ No</td>
+            </tr>
+            <tr>
+              <td>Encrypted Backup Container (.imava)</td>
+              <td class="highlight-col">✅ Yes (250k PBKDF2)</td>
+              <td>❌ No</td>
+              <td>❌ Cloud Takeout</td>
+              <td>❌ No</td>
+            </tr>
+            <tr>
+              <td>120Hz Jetpack Compose UI</td>
+              <td class="highlight-col">✅ Modern Compose</td>
+              <td>❌ Legacy XML</td>
+              <td>✅ Yes</td>
+              <td>✅ Yes</td>
+            </tr>
+            <tr>
+              <td>Offline Throwback Stories</td>
+              <td class="highlight-col">✅ 100% Local</td>
+              <td>❌ No</td>
+              <td>❌ Cloud AI only</td>
+              <td>⚠️ Varies</td>
+            </tr>
+            <tr>
+              <td>Photo Collage Maker (2–9 Photos)</td>
+              <td class="highlight-col">✅ Built-in</td>
+              <td>❌ No</td>
+              <td>✅ Yes</td>
+              <td>⚠️ Basic</td>
+            </tr>
+            <tr>
+              <td>Destructive Privacy Redaction</td>
+              <td class="highlight-col">✅ Irreversible Mosaic</td>
+              <td>❌ Basic Brush</td>
+              <td>❌ No</td>
+              <td>❌ Basic</td>
+            </tr>
+            <tr>
+              <td>Lossless Video Frame Grabber</td>
+              <td class="highlight-col">✅ 1-Tap Uncompressed</td>
+              <td>❌ No</td>
+              <td>❌ Screen Capture</td>
+              <td>⚠️ Varies</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ Section -->
+  <section class="faq-section" id="faq">
+    <div class="container">
+      <div class="section-header">
+        <span class="section-tag">FAQ</span>
+        <h2 class="section-title">Frequently Asked Questions</h2>
+        <p class="section-desc">Direct answers to common questions about Imava.</p>
+      </div>
+
+      <div class="faq-grid">
+        <div class="faq-item">
+          <h3 class="faq-question">Is Imava completely offline? Does it upload anything to the cloud?</h3>
+          <p class="faq-answer">Yes, Imava is 100% offline. Not a single photo, video, tag, or telemetry byte ever leaves your device. The only optional network socket check is to notify you of new GitHub release APKs.</p>
+        </div>
+
+        <div class="faq-item">
+          <h3 class="faq-question">How does the Hidden Vault encryption work?</h3>
+          <p class="faq-answer">Media moved to the vault is encrypted at rest using AES-256-GCM via the AndroidKeyStore hardware module (TEE/StrongBox). Encryption keys are protected by PBKDF2 with 250,000 iterations and 16-byte cryptographic salts.</p>
+        </div>
+
+        <div class="faq-item">
+          <h3 class="faq-question">What is the Decoy PIN mode?</h3>
+          <p class="faq-answer">Decoy PIN provides plausible deniability. If someone compels you to unlock your vault, entering your alternate Decoy PIN silently opens a fake, empty gallery instead of your real vault.</p>
+        </div>
+
+        <div class="faq-item">
+          <h3 class="faq-question">How do I back up my encrypted vault?</h3>
+          <p class="faq-answer">Go to Vault Security Settings and tap "Export Backup 💾". This packages all encrypted ciphertexts and metadata into a standalone .imava container encrypted with a custom passphrase that can be restored on any device.</p>
+        </div>
+
+        <div class="faq-item">
+          <h3 class="faq-question">Does Imava work on de-Googled custom ROMs?</h3>
+          <p class="faq-answer">Yes! Imava has zero dependencies on Google Play Services or Firebase and runs natively on GrapheneOS, CalyxOS, LineageOS, and vanilla AOSP.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container">
+      <div class="footer-links">
+        <a href="https://github.com/HrshD1eux/Imava" target="_blank">GitHub Repository</a>
+        <a href="https://github.com/HrshD1eux/Imava/releases" target="_blank">Releases & APKs</a>
+        <a href="https://github.com/HrshD1eux/Imava/blob/main/LICENSE" target="_blank">GPL-2.0 License</a>
+      </div>
+      <p>© 2026 Imava. Built with ❤️ for privacy and performance by <a href="https://github.com/HrshD1eux" target="_blank" style="color: var(--text-muted);">HrshD1eux</a>.</p>
+    </div>
+  </footer>
+
+</body>
+</html>

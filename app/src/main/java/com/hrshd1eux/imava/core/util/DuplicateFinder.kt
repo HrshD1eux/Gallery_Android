@@ -25,13 +25,6 @@ private data class PhotoSignature(
 
 object DuplicateFinder {
 
-    /**
-     * Multi-stage, high-performance duplicate engine:
-     * Stage 1: O(N) Exact attribute grouping (size, dimension, duration) - 0 bitmap decode.
-     * Stage 2: Temporal & aspect-ratio window clustering (burst shots, duplicate downloads).
-     * Stage 3: Low-memory parallel perceptual hashing (Semaphore bounded, 32x32 thumbnails).
-     * Stage 4: Calibrated Hamming distance evaluation.
-     */
     suspend fun findDuplicates(
         context: Context,
         items: List<MediaItem>,
@@ -42,9 +35,6 @@ object DuplicateFinder {
         val resultGroups = mutableListOf<DuplicateGroup>()
         val groupedIds = mutableSetOf<Long>()
 
-        // ==========================================
-        // STAGE 1: Exact File & Metadata Matches (Instant O(N))
-        // ==========================================
         val exactBuckets = items.groupBy { "${it.size}_${it.width}_${it.height}_${if (it is MediaItem.Video) it.durationMs else 0}" }
         for ((_, bucket) in exactBuckets) {
             if (bucket.size > 1 && bucket.first().size > 0L) {
@@ -65,9 +55,6 @@ object DuplicateFinder {
             }
         }
 
-        // ==========================================
-        // STAGE 2: Temporal & Perceptual Clustering for Photos
-        // ==========================================
         val remainingPhotos = items.filterIsInstance<MediaItem.Photo>()
             .filter { !groupedIds.contains(it.id) }
 
@@ -78,7 +65,6 @@ object DuplicateFinder {
         val totalPhotos = remainingPhotos.size
         var scannedCount = 0
 
-        // Bounded concurrency to guarantee zero OOM
         val semaphore = Semaphore(4)
         val signatures = mutableListOf<PhotoSignature>()
         val resolver = context.contentResolver
@@ -102,9 +88,6 @@ object DuplicateFinder {
             }
         }
 
-        // ==========================================
-        // STAGE 3: Compare Signatures & Build Groups
-        // ==========================================
         val visitedSignatures = mutableSetOf<Long>()
 
         for (i in signatures.indices) {
@@ -157,7 +140,7 @@ object DuplicateFinder {
             }
         }
 
-        // 1. Try MediaStore stream
+        // try MediaStore
         try {
             resolver.openInputStream(item.uri)?.use { stream ->
                 val bmp = BitmapFactory.decodeStream(stream, null, options)
@@ -165,7 +148,7 @@ object DuplicateFinder {
             }
         } catch (_: Exception) {}
 
-        // 2. Direct file fallback
+        // file fallback
         if (item.path.isNotBlank()) {
             try {
                 val file = File(item.path)
@@ -179,12 +162,10 @@ object DuplicateFinder {
     }
 
     private fun arePerceptualDuplicates(a: PhotoSignature, b: PhotoSignature): Boolean {
-        // Temporal proximity check: if taken within 5s and near-identical
         val timeDiffMs = abs(a.item.dateTaken - b.item.dateTaken)
         val dDist = java.lang.Long.bitCount(a.dHash xor b.dHash)
         val aDist = java.lang.Long.bitCount(a.aHash xor b.aHash)
 
-        // Strict calibrated thresholds to prevent false positives
         if (timeDiffMs <= 5000L && (dDist <= 6 && aDist <= 6)) {
             return true
         }
@@ -192,9 +173,6 @@ object DuplicateFinder {
         return dDist <= 4 || (dDist <= 6 && aDist <= 4)
     }
 
-    /**
-     * Computes 64-bit dHash (difference hash) by resizing to 9x8.
-     */
     fun computeDHash(src: Bitmap): Long {
         val softwareSrc = if (src.config == Bitmap.Config.HARDWARE) {
             src.copy(Bitmap.Config.ARGB_8888, false) ?: src
@@ -221,9 +199,6 @@ object DuplicateFinder {
         return hash
     }
 
-    /**
-     * Computes 64-bit aHash (average hash) by resizing to 8x8.
-     */
     fun computeAHash(src: Bitmap): Long {
         val softwareSrc = if (src.config == Bitmap.Config.HARDWARE) {
             src.copy(Bitmap.Config.ARGB_8888, false) ?: src

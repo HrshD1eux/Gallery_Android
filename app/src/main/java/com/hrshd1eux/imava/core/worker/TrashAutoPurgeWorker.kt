@@ -16,7 +16,6 @@ class TrashAutoPurgeWorker(
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
             val db = GalleryDatabase.getInstance(applicationContext)
-            // 30 days retention window
             val cutoff = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000L)
             val expiredItems = db.metadataDao().getExpiredTrashItems(cutoff)
 
@@ -28,7 +27,6 @@ class TrashAutoPurgeWorker(
                         file.delete()
                     }
                 }
-                // Wipe metadata entity from Room
                 db.metadataDao().deleteByMediaId(entity.mediaId)
             }
 

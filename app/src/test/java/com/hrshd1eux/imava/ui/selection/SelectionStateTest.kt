@@ -37,7 +37,6 @@ class SelectionStateTest {
     @Test
     fun testSelectRangeForward() {
         val state = SelectionState()
-        // Select range from 2L to 4L
         state.selectRange(2L, 4L, items)
 
         assertEquals(3, state.selectedIds.size)
@@ -49,7 +48,6 @@ class SelectionStateTest {
     @Test
     fun testSelectRangeBackward() {
         val state = SelectionState()
-        // Select range from 4L to 2L (drag backward)
         state.selectRange(4L, 2L, items)
 
         assertEquals(3, state.selectedIds.size)

@@ -56,8 +56,7 @@ class VaultFetcher(
             if (path.contains("/vault/") || path.contains("vault_") || data.scheme == "vault") {
                 val file = File(path)
                 if (file.exists()) {
-                    // Disable BOTH disk caching and memory caching for decrypted vault media
-                    // so sensitive decrypted bytes are NEVER written to disk OR retained in Coil's global memory cache!
+                    // no caching for vault media
                     val vaultOptions = options.copy(
                         diskCachePolicy = CachePolicy.DISABLED,
                         memoryCachePolicy = CachePolicy.DISABLED

@@ -27,10 +27,6 @@ object PdfConverter {
     private const val PAGE_HEIGHT = 842 // Standard A4 height in points (72 dpi)
     private const val MARGIN = 36f // 0.5 inch margin
 
-    /**
-     * Converts a list of media items (photos) into a multi-page PDF document.
-     * Returns the Uri of the created PDF file.
-     */
     suspend fun createPdfFromImages(
         context: Context,
         items: List<MediaItem>,

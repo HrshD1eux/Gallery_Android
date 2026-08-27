@@ -120,7 +120,7 @@ fun BatchRenameDialog(
                     .verticalScroll(scrollState)
                     .imePadding()
             ) {
-                // Mode Selector Chips
+
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -164,7 +164,7 @@ fun BatchRenameDialog(
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        // Quick Template Chips
+
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier.fillMaxWidth()
@@ -236,7 +236,7 @@ fun BatchRenameDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Live Preview Card
+
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
                     shape = RoundedCornerShape(10.dp),

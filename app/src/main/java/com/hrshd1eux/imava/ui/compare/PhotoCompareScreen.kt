@@ -189,7 +189,7 @@ fun PhotoCompareScreen(
             }
         }
 
-        // Top Navigation Bar
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -249,7 +249,7 @@ fun PhotoCompareScreen(
             }
         }
 
-        // Bottom Controls Bar
+
         Surface(
             color = Color.Black.copy(alpha = 0.7f),
             shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),

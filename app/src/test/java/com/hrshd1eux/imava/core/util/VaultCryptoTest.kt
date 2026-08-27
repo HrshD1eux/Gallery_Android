@@ -28,14 +28,14 @@ class VaultCryptoTest {
 
     @Test
     fun testEncryptDecrypt_byteForByteIntegrity() {
-        val randomBytes = ByteArray(1024 * 64) // 64 KB of random data
+        val randomBytes = ByteArray(1024 * 64)
         Random(42).nextBytes(randomBytes)
 
         val encryptedStream = ByteArrayOutputStream()
         VaultCrypto.encrypt(ByteArrayInputStream(randomBytes), encryptedStream)
 
         val ciphertext = encryptedStream.toByteArray()
-        assertTrue(ciphertext.size > randomBytes.size) // IV (12) + Tag (16) overhead
+        assertTrue(ciphertext.size > randomBytes.size)
 
         val decryptedStream = ByteArrayOutputStream()
         VaultCrypto.decrypt(ByteArrayInputStream(ciphertext), decryptedStream)
@@ -72,7 +72,6 @@ class VaultCryptoTest {
 
     @Test
     fun testDecrypt_unencryptedMediaBypass() {
-        // Plaintext JPEG data fed directly into decrypt should safely pass through without crashing
         val rawJpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte(), 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46)
 
         val outStream = ByteArrayOutputStream()

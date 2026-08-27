@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
@@ -75,7 +76,7 @@ fun SettingsScreen(
             .padding(horizontal = 16.dp),
         contentPadding = PaddingValues(top = 16.dp, bottom = 100.dp)
     ) {
-        // --- Appearance & Theme Section ---
+
         item {
             SettingsCategoryHeader(title = "Appearance & Theme", icon = Icons.Default.Palette)
             
@@ -113,7 +114,7 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(24.dp))
         }
 
-        // --- Grid & Display Size Section ---
+
         item {
             SettingsCategoryHeader(title = "Grid & Display Size", icon = Icons.Default.GridView)
 
@@ -190,7 +191,7 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(24.dp))
         }
 
-        // --- Interaction & Feedback Section ---
+
         item {
             val galleryPrefs = remember(context) { context.getSharedPreferences("gallery_prefs", Context.MODE_PRIVATE) }
             var hapticsEnabled by remember { mutableStateOf(galleryPrefs.getBoolean("haptics_enabled", true)) }
@@ -234,7 +235,7 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(24.dp))
         }
 
-        // --- Excluded Folders Section ---
+
         item {
             val excludedSet by viewModel.excludedBucketIds.collectAsState()
             val allBuckets by viewModel.buckets.collectAsState()
@@ -316,7 +317,7 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(24.dp))
         }
 
-        // --- About Section ---
+
         item {
             SettingsCategoryHeader(title = "About", icon = Icons.Default.Info)
 
@@ -428,7 +429,7 @@ fun SettingsScreen(
                         }
                     }
 
-                    // Update Available Dialog
+
                     val currentInfo = updateInfoResult
                     if (currentInfo != null && currentInfo.hasUpdate) {
                         AlertDialog(
@@ -494,7 +495,7 @@ fun SettingsScreen(
                         )
                     }
 
-                    // Download Progress Dialog
+
                     if (isDownloadingUpdate) {
                         AlertDialog(
                             onDismissRequest = {},
@@ -513,13 +514,29 @@ fun SettingsScreen(
                         )
                     }
 
-                    // Already Up-to-Date Dialog
-                    if (showNoUpdateDialog && (currentInfo == null || !currentInfo.hasUpdate)) {
+
+                    if (showNoUpdateDialog && currentInfo != null && !currentInfo.hasUpdate) {
                         AlertDialog(
                             onDismissRequest = { showNoUpdateDialog = false },
-                            title = { Text("App Up-to-Date") },
+                            icon = { Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                            title = { Text("App Up-to-Date (v${currentInfo.currentVersion})") },
                             text = {
-                                Text("You are using the latest version (${currentInfo?.currentVersion ?: "v1.0.0"}). No updates available right now.")
+                                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                                    Text("You are using the latest version of Imava! 🎉")
+                                    if (currentInfo.releaseNotes.isNotBlank() && !currentInfo.releaseNotes.startsWith("Could not check") && !currentInfo.releaseNotes.startsWith("Error")) {
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Text("Current Release Highlights:", style = MaterialTheme.typography.titleSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        val cleanedNotes = remember(currentInfo.releaseNotes) {
+                                            com.hrshd1eux.imava.core.util.AppUpdateManager.formatCleanReleaseNotes(currentInfo.releaseNotes)
+                                        }
+                                        Text(
+                                            text = cleanedNotes,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
                             },
                             confirmButton = {
                                 Button(onClick = { showNoUpdateDialog = false }) {

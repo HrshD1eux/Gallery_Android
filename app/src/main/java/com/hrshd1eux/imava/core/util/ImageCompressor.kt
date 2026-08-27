@@ -13,10 +13,6 @@ import java.io.ByteArrayOutputStream
 
 object ImageCompressor {
 
-    /**
-     * Compresses a photo to a specific target size in kilobytes (e.g. 15 KB, 500 KB).
-     * Uses binary search on JPEG quality and optional resolution scale downsampling.
-     */
     suspend fun compressToTargetKb(
         context: Context,
         item: MediaItem,
@@ -30,7 +26,7 @@ object ImageCompressor {
             }
             if (boundsOptions.outWidth <= 0 || boundsOptions.outHeight <= 0) return@withContext null
 
-            // Determine safe inSampleSize to prevent OOM on 50MP-200MP images (max dimension 4096px)
+            // safe inSampleSize for large images
             val maxDim = maxOf(boundsOptions.outWidth, boundsOptions.outHeight)
             var sampleSize = 1
             while (maxDim / sampleSize > 4096) {

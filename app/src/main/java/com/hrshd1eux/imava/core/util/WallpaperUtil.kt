@@ -13,9 +13,6 @@ import kotlinx.coroutines.withContext
 
 object WallpaperUtil {
 
-    /**
-     * Launches the system Wallpaper Cropper intent for the given image URI.
-     */
     fun openSystemWallpaperCropper(activity: Activity, uri: Uri): Boolean {
         return try {
             val wallpaperManager = WallpaperManager.getInstance(activity)
@@ -39,9 +36,6 @@ object WallpaperUtil {
         }
     }
 
-    /**
-     * Directly sets wallpaper to Home Screen, Lock Screen, or Both without leaving the app.
-     */
     suspend fun setWallpaperDirect(context: Context, uri: Uri, which: Int): Boolean = withContext(Dispatchers.IO) {
         try {
             val wallpaperManager = WallpaperManager.getInstance(context)
@@ -63,9 +57,6 @@ object WallpaperUtil {
         }
     }
 
-    /**
-     * Sets image as a contact photo via ACTION_ATTACH_DATA.
-     */
     fun setAsContactPhoto(activity: Activity, uri: Uri): Boolean {
         return try {
             val intent = Intent(Intent.ACTION_ATTACH_DATA).apply {
