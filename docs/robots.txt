@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://hrshd1eux.github.io/Imava/sitemap.xml

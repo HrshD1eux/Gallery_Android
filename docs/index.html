@@ -5,17 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Imava | Fast, Offline & Privacy-First Android Gallery</title>
   
+  <!-- Canonical URL -->
+  <link rel="canonical" href="https://hrshd1eux.github.io/Imava/">
+  <meta name="theme-color" content="#FFFFFF">
+  
   <!-- SEO & Social Meta Tags -->
   <meta name="description" content="Imava is a modern, high-performance, 100% offline Android gallery app with hardware-backed AES-256 encrypted vault, photo collage maker, throwback stories, and zero telemetry.">
   <meta name="keywords" content="Android Gallery, Private Gallery, Offline Gallery, AES-256 Vault, FOSS Gallery, Jetpack Compose, Photo Manager, Imava">
   <meta name="author" content="HrshD1eux">
+  <meta name="robots" content="index, follow">
   
   <!-- OpenGraph / Facebook -->
   <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Imava Android Gallery">
   <meta property="og:url" content="https://hrshd1eux.github.io/Imava/">
   <meta property="og:title" content="Imava | Fast, Offline & Privacy-First Android Gallery">
   <meta property="og:description" content="Private by design. 100% offline photo & video gallery with hardware AES-256 vault, collage creator, and zero cloud tracking.">
   <meta property="og:image" content="assets/icon.png">
+  <meta property="og:image:width" content="512">
+  <meta property="og:image:height" content="512">
 
   <!-- Twitter -->
   <meta property="twitter:card" content="summary_large_image">
@@ -32,13 +40,13 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
-  <!-- JSON-LD Structured Data for AEO / Google SGE -->
+  <!-- JSON-LD 1: SoftwareApplication Structured Data (SEO / Google SGE) -->
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     "name": "Imava",
-    "operatingSystem": "Android",
+    "operatingSystem": "Android 8.0+",
     "applicationCategory": "MultimediaApplication",
     "license": "https://www.gnu.org/licenses/old-licenses/gpl-2.0.html",
     "description": "Fast, offline, and privacy-first Android photo and video gallery featuring hardware-backed AES-256-GCM vault encryption, photo collage maker, throwback stories, and zero telemetry.",
@@ -47,11 +55,73 @@
       "price": "0",
       "priceCurrency": "USD"
     },
+    "featureList": [
+      "100% Offline with Zero Telemetry",
+      "Hardware-backed AES-256-GCM Vault",
+      "Decoy PIN for Plausible Deniability",
+      "Native 2-9 Photo Collage Maker",
+      "Destructive Privacy Redaction Brush",
+      "Lossless 1-Tap Video Frame Grabber",
+      "On This Day Offline Throwback Memories",
+      "Storage Doctor Assistant",
+      "Ken-Burns Slideshow Player",
+      "Split-Screen Comparison Loupe"
+    ],
     "author": {
       "@type": "Person",
       "name": "HrshD1eux",
       "url": "https://github.com/HrshD1eux"
     }
+  }
+  </script>
+
+  <!-- JSON-LD 2: FAQPage Structured Data (AEO / Answer Engines / Perplexity) -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "Is Imava completely offline? Does it upload anything to the cloud?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes, Imava is 100% offline. Not a single photo, video, tag, or telemetry byte ever leaves your device. The only optional network check is for GitHub release APK update notifications."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How does the Hidden Vault encryption work?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Media moved to the vault is encrypted at rest using AES-256-GCM via the AndroidKeyStore hardware module (TEE/StrongBox). Encryption keys are derived via PBKDF2 with 250,000 rounds and 16-byte cryptographic salts."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What is the Decoy PIN mode?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Decoy PIN provides plausible deniability. If someone compels you to unlock your vault, entering your alternate Decoy PIN silently opens a fake, empty gallery instead of your real vault."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I back up my encrypted vault?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Go to Vault Security Settings and tap 'Export Backup'. This packages all encrypted ciphertexts and metadata into a standalone .imava container encrypted with a custom passphrase that can be restored on any device."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does Imava work on de-Googled custom ROMs?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes! Imava has zero dependencies on Google Play Services or Firebase and runs natively on GrapheneOS, CalyxOS, LineageOS, and vanilla AOSP."
+        }
+      }
+    ]
   }
   </script>
 
@@ -263,6 +333,7 @@
       text-decoration: none;
       box-shadow: 0 8px 20px var(--primary-glow);
       transition: transform 0.2s, box-shadow 0.2s;
+      cursor: pointer;
     }
 
     .btn-primary:hover {
@@ -326,13 +397,14 @@
       background: #ECFDF5;
       border: 1px solid #A7F3D0;
       color: #047857;
-      padding: 6px 14px;
+      padding: 8px 16px;
       border-radius: 8px;
       font-size: 0.85rem;
       font-weight: 600;
       text-decoration: none;
       white-space: nowrap;
       transition: background 0.2s;
+      cursor: pointer;
     }
 
     .test-banner-badge:hover {
@@ -530,7 +602,7 @@
       color: var(--primary);
     }
 
-    /* FAQ Section */
+    /* Interactive FAQ Section */
     .faq-section {
       padding: 80px 0;
       border-top: 1px solid var(--border);
@@ -550,24 +622,78 @@
       border: 1px solid var(--border);
       border-radius: 12px;
       padding: 20px 24px;
-      transition: border-color 0.2s;
+      cursor: pointer;
+      transition: all 0.2s ease;
     }
 
     .faq-item:hover {
       border-color: #CBD5E1;
+      background: #FFFFFF;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .faq-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      user-select: none;
     }
 
     .faq-question {
       font-size: 1.1rem;
       font-weight: 700;
-      margin-bottom: 8px;
       color: var(--text-main);
+      margin: 0;
+    }
+
+    .faq-icon {
+      font-size: 1.2rem;
+      color: var(--primary);
+      transition: transform 0.25s ease;
+    }
+
+    .faq-item.active .faq-icon {
+      transform: rotate(180deg);
     }
 
     .faq-answer {
       color: var(--text-muted);
       font-size: 0.95rem;
       line-height: 1.6;
+      margin-top: 12px;
+      display: block;
+    }
+
+    /* Back to Top Button */
+    .back-to-top {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #FFFFFF;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-lg);
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--primary);
+      cursor: pointer;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.3s ease;
+      z-index: 99;
+    }
+
+    .back-to-top.visible {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .back-to-top:hover {
+      background: var(--primary-subtle);
+      transform: translateY(-2px);
     }
 
     /* Footer */
@@ -656,15 +782,15 @@
           <h4>📱 Hiring Managers & Testers:</h4>
           <p>Download the pre-compiled APK directly from GitHub Releases and install in 10 seconds.</p>
         </div>
-        <a href="https://github.com/HrshD1eux/Imava/releases/latest" target="_blank" class="test-banner-badge">
-          <span>⬇️ Get Release APK</span>
+        <a href="https://github.com/HrshD1eux/Imava/releases/download/v1.1.14/Imava-v1.1.14.apk" id="recruiterDownloadBtn" class="test-banner-badge apk-download-trigger">
+          <span id="recruiterBtnText">⬇️ Get Release APK (v1.1.14)</span>
         </a>
       </div>
 
       <div class="hero-cta-group">
-        <a href="https://github.com/HrshD1eux/Imava/releases/latest" target="_blank" class="btn-primary">
+        <a href="https://github.com/HrshD1eux/Imava/releases/download/v1.1.14/Imava-v1.1.14.apk" id="mainDownloadBtn" class="btn-primary apk-download-trigger">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Download APK (Latest Release)
+          <span id="mainBtnText">Download APK (v1.1.14)</span>
         </a>
         <a href="https://github.com/HrshD1eux/Imava" target="_blank" class="btn-secondary">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
@@ -879,32 +1005,52 @@
 
       <div class="faq-grid">
         <div class="faq-item">
-          <h3 class="faq-question">Is Imava completely offline? Does it upload anything to the cloud?</h3>
+          <div class="faq-header">
+            <h3 class="faq-question">Is Imava completely offline? Does it upload anything to the cloud?</h3>
+            <span class="faq-icon">▾</span>
+          </div>
           <p class="faq-answer">Yes, Imava is 100% offline. Not a single photo, video, tag, or telemetry byte ever leaves your device. The only optional network socket check is to notify you of new GitHub release APKs.</p>
         </div>
 
         <div class="faq-item">
-          <h3 class="faq-question">How does the Hidden Vault encryption work?</h3>
+          <div class="faq-header">
+            <h3 class="faq-question">How does the Hidden Vault encryption work?</h3>
+            <span class="faq-icon">▾</span>
+          </div>
           <p class="faq-answer">Media moved to the vault is encrypted at rest using AES-256-GCM via the AndroidKeyStore hardware module (TEE/StrongBox). Encryption keys are protected by PBKDF2 with 250,000 iterations and 16-byte cryptographic salts.</p>
         </div>
 
         <div class="faq-item">
-          <h3 class="faq-question">What is the Decoy PIN mode?</h3>
+          <div class="faq-header">
+            <h3 class="faq-question">What is the Decoy PIN mode?</h3>
+            <span class="faq-icon">▾</span>
+          </div>
           <p class="faq-answer">Decoy PIN provides plausible deniability. If someone compels you to unlock your vault, entering your alternate Decoy PIN silently opens a fake, empty gallery instead of your real vault.</p>
         </div>
 
         <div class="faq-item">
-          <h3 class="faq-question">How do I back up my encrypted vault?</h3>
+          <div class="faq-header">
+            <h3 class="faq-question">How do I back up my encrypted vault?</h3>
+            <span class="faq-icon">▾</span>
+          </div>
           <p class="faq-answer">Go to Vault Security Settings and tap "Export Backup 💾". This packages all encrypted ciphertexts and metadata into a standalone .imava container encrypted with a custom passphrase that can be restored on any device.</p>
         </div>
 
         <div class="faq-item">
-          <h3 class="faq-question">Does Imava work on de-Googled custom ROMs?</h3>
+          <div class="faq-header">
+            <h3 class="faq-question">Does Imava work on de-Googled custom ROMs?</h3>
+            <span class="faq-icon">▾</span>
+          </div>
           <p class="faq-answer">Yes! Imava has zero dependencies on Google Play Services or Firebase and runs natively on GrapheneOS, CalyxOS, LineageOS, and vanilla AOSP.</p>
         </div>
       </div>
     </div>
   </section>
+
+  <!-- Floating Back to Top Button -->
+  <button class="back-to-top" id="backToTop" aria-label="Back to Top">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg>
+  </button>
 
   <!-- Footer -->
   <footer>
@@ -917,6 +1063,67 @@
       <p>© 2026 Imava. Built with ❤️ for privacy and performance by <a href="https://github.com/HrshD1eux" target="_blank" style="color: var(--primary); text-decoration: none; font-weight: 600;">HrshD1eux</a>.</p>
     </div>
   </footer>
+
+  <script>
+    // 1. Dynamic Latest Release APK Resolver
+    const FALLBACK_APK_URL = "https://github.com/HrshD1eux/Imava/releases/download/v1.1.14/Imava-v1.1.14.apk";
+    let latestApkUrl = FALLBACK_APK_URL;
+
+    async function fetchLatestRelease() {
+      try {
+        const response = await fetch("https://api.github.com/repos/HrshD1eux/Imava/releases/latest");
+        if (!response.ok) throw new Error("GitHub API status: " + response.status);
+        const data = await response.json();
+        
+        const tagName = data.tag_name || "v1.1.14";
+        const apkAsset = data.assets && data.assets.find(a => a.name && a.name.endsWith(".apk"));
+        
+        if (apkAsset && apkAsset.browser_download_url) {
+          latestApkUrl = apkAsset.browser_download_url;
+        } else {
+          latestApkUrl = `https://github.com/HrshD1eux/Imava/releases/download/${tagName}/Imava-${tagName}.apk`;
+        }
+
+        // Update button labels dynamically
+        const mainBtnText = document.getElementById("mainBtnText");
+        const recruiterBtnText = document.getElementById("recruiterBtnText");
+        const mainDownloadBtn = document.getElementById("mainDownloadBtn");
+        const recruiterDownloadBtn = document.getElementById("recruiterDownloadBtn");
+
+        if (mainBtnText) mainBtnText.textContent = `Download APK (${tagName})`;
+        if (recruiterBtnText) recruiterBtnText.textContent = `⬇️ Get Release APK (${tagName})`;
+        if (mainDownloadBtn) mainDownloadBtn.href = latestApkUrl;
+        if (recruiterDownloadBtn) recruiterDownloadBtn.href = latestApkUrl;
+      } catch (err) {
+        console.log("Using fallback APK URL due to:", err);
+      }
+    }
+
+    // Attach immediate click handler to start direct APK download
+    document.querySelectorAll(".apk-download-trigger").forEach(btn => {
+      btn.addEventListener("click", async (e) => {
+        e.preventDefault();
+        window.location.href = latestApkUrl;
+      });
+    });
+
+    // Run fetch on page load
+    fetchLatestRelease();
+
+    // 2. Back to Top Button Behavior
+    const backToTopBtn = document.getElementById('backToTop');
+    window.addEventListener('scroll', () => {
+      if (window.scrollY > 400) {
+        backToTopBtn.classList.add('visible');
+      } else {
+        backToTopBtn.classList.remove('visible');
+      }
+    });
+
+    backToTopBtn.addEventListener('click', () => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  </script>
 
 </body>
 </html>
