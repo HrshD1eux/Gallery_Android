@@ -4,13 +4,12 @@ import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -27,7 +27,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.Button
@@ -43,7 +42,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -55,10 +53,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import com.hrshd1eux.imava.core.util.CollageMakerUtil
 import com.hrshd1eux.imava.core.util.HapticUtil
 import kotlinx.coroutines.Dispatchers
@@ -82,34 +83,14 @@ fun CollageMakerScreen(
     var cornerRadiusDp by remember { mutableFloatStateOf(16f) }
     var isDarkBackground by remember { mutableStateOf(true) }
 
-    var previewBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
-    var isGeneratingPreview by remember { mutableStateOf(false) }
+    var cellTransforms by remember(imageUris.size, layoutVariant) {
+        mutableStateOf(List(imageUris.size) { CollageMakerUtil.CellTransform() })
+    }
+
     var isSaving by remember { mutableStateOf(false) }
 
     BackHandler {
         onDismiss()
-    }
-
-
-    LaunchedEffect(imageUris, selectedAspect, layoutVariant, spacingDp, cornerRadiusDp, isDarkBackground) {
-        if (imageUris.isEmpty()) return@LaunchedEffect
-        isGeneratingPreview = true
-        withContext(Dispatchers.IO) {
-            val bmp = CollageMakerUtil.generateCollageBitmap(
-                context = context,
-                imageUris = imageUris,
-                aspectRatio = selectedAspect,
-                layoutVariant = layoutVariant,
-                spacingPx = spacingDp * 2.5f,
-                cornerRadiusPx = cornerRadiusDp * 2.5f,
-                backgroundColor = if (isDarkBackground) AndroidColor.BLACK else AndroidColor.WHITE,
-                outputDimension = 1080
-            )
-            withContext(Dispatchers.Main) {
-                previewBitmap = bmp
-                isGeneratingPreview = false
-            }
-        }
     }
 
     Box(
@@ -123,7 +104,7 @@ fun CollageMakerScreen(
                 .statusBarsPadding()
                 .navigationBarsPadding()
         ) {
-
+            // Clean Top Bar with Back, Title, and Save
             TopAppBar(
                 title = { Text("Collage Maker (${imageUris.size} Photos)") },
                 navigationIcon = {
@@ -133,7 +114,7 @@ fun CollageMakerScreen(
                 },
                 actions = {
                     Button(
-                        enabled = !isSaving && previewBitmap != null,
+                        enabled = !isSaving,
                         onClick = {
                             isSaving = true
                             scope.launch {
@@ -144,10 +125,11 @@ fun CollageMakerScreen(
                                         imageUris = imageUris,
                                         aspectRatio = selectedAspect,
                                         layoutVariant = layoutVariant,
-                                        spacingPx = spacingDp * 5f,
-                                        cornerRadiusPx = cornerRadiusDp * 5f,
+                                        spacingPx = spacingDp * 4f,
+                                        cornerRadiusPx = cornerRadiusDp * 4f,
                                         backgroundColor = if (isDarkBackground) AndroidColor.BLACK else AndroidColor.WHITE,
-                                        outputDimension = 2048
+                                        outputDimension = 2048,
+                                        transforms = cellTransforms
                                     )
                                 }
                                 val savedUri = CollageMakerUtil.saveCollage(context, highResBmp)
@@ -174,7 +156,7 @@ fun CollageMakerScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
 
-
+            // Interactive Collage Preview Area with per-cell pinch-to-zoom & pan
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -183,44 +165,84 @@ fun CollageMakerScreen(
                 contentAlignment = Alignment.Center
             ) {
                 val previewRatio = selectedAspect.widthRatio / selectedAspect.heightRatio
-                Box(
+
+                BoxWithConstraints(
                     modifier = Modifier
                         .fillMaxSize()
                         .aspectRatio(previewRatio, matchHeightConstraintsFirst = true)
-                        .clip(RoundedCornerShape(8.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (previewBitmap != null) {
-                        androidx.compose.foundation.Image(
-                            bitmap = previewBitmap!!.asImageBitmap(),
-                            contentDescription = "Collage Preview",
-                            modifier = Modifier.fillMaxSize()
+                        .background(
+                            if (isDarkBackground) Color.Black else Color.White,
+                            RoundedCornerShape(8.dp)
                         )
+                        .clip(RoundedCornerShape(8.dp))
+                ) {
+                    val containerWidth = maxWidth
+                    val containerHeight = maxHeight
+                    val cells = remember(imageUris.size, layoutVariant) {
+                        CollageMakerUtil.computeCellLayouts(imageUris.size, layoutVariant)
                     }
-                    if (isGeneratingPreview) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(Color.Black.copy(alpha = 0.3f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator(color = Color.White)
+
+                    cells.forEachIndexed { index, cell ->
+                        if (index < imageUris.size) {
+                            val uri = imageUris[index]
+                            val transform = cellTransforms.getOrElse(index) { CollageMakerUtil.CellTransform() }
+
+                            val cellLeft = (containerWidth * cell.leftFraction) + (spacingDp.dp / 2f)
+                            val cellTop = (containerHeight * cell.topFraction) + (spacingDp.dp / 2f)
+                            val cellWidth = (containerWidth * (cell.rightFraction - cell.leftFraction)) - spacingDp.dp
+                            val cellHeight = (containerHeight * (cell.bottomFraction - cell.topFraction)) - spacingDp.dp
+
+                            Box(
+                                modifier = Modifier
+                                    .offset(x = cellLeft, y = cellTop)
+                                    .size(width = cellWidth.coerceAtLeast(1.dp), height = cellHeight.coerceAtLeast(1.dp))
+                                    .clip(RoundedCornerShape(cornerRadiusDp.dp))
+                                    .background(Color.DarkGray)
+                                    .pointerInput(index) {
+                                        detectTransformGestures { _, pan, zoom, _ ->
+                                            val current = cellTransforms.getOrElse(index) { CollageMakerUtil.CellTransform() }
+                                            val newScale = (current.scale * zoom).coerceIn(1f, 4f)
+                                            val newPanX = (current.panX + pan.x / 150f).coerceIn(-1f, 1f)
+                                            val newPanY = (current.panY + pan.y / 150f).coerceIn(-1f, 1f)
+                                            val updated = cellTransforms.toMutableList()
+                                            while (updated.size <= index) {
+                                                updated.add(CollageMakerUtil.CellTransform())
+                                            }
+                                            updated[index] = CollageMakerUtil.CellTransform(newScale, newPanX, newPanY)
+                                            cellTransforms = updated
+                                        }
+                                    }
+                            ) {
+                                AsyncImage(
+                                    model = uri,
+                                    contentDescription = "Collage Photo $index",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .graphicsLayer(
+                                            scaleX = transform.scale,
+                                            scaleY = transform.scale,
+                                            translationX = transform.panX * 120f,
+                                            translationY = transform.panY * 120f
+                                        )
+                                )
+                            }
                         }
                     }
                 }
             }
 
-
+            // Bottom Styling Controls
             Surface(
                 tonalElevation = 6.dp,
                 shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         listOf(
                             "1:1" to CollageMakerUtil.CollageAspectRatio.SQUARE_1_1,
@@ -238,6 +260,18 @@ fun CollageMakerScreen(
                             )
                         }
 
+                        Spacer(modifier = Modifier.weight(1f))
+
+                        if (imageUris.size in 2..4) {
+                            IconButton(
+                                onClick = {
+                                    layoutVariant = (layoutVariant + 1) % 2
+                                    HapticUtil.performSelection(context)
+                                }
+                            ) {
+                                Icon(Icons.Default.Dashboard, contentDescription = "Change Layout Variant")
+                            }
+                        }
 
                         Surface(
                             shape = CircleShape,
@@ -253,7 +287,6 @@ fun CollageMakerScreen(
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
-
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),

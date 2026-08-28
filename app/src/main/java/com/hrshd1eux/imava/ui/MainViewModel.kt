@@ -844,91 +844,9 @@ class MainViewModel @Inject constructor(
     }
 
     fun moveMediaToFolder(context: Context, items: List<MediaItem>, folderName: String) {
-        viewModelScope.launch {
-            val sourceUris = mutableListOf<android.net.Uri>()
-            val resolver = context.contentResolver
-            
-            // Cleanup any empty album placeholder image in target folder
-            try {
-                val placeholderSelection = "${android.provider.MediaStore.MediaColumns.RELATIVE_PATH} LIKE ? AND ${android.provider.MediaStore.MediaColumns.DISPLAY_NAME} = ?"
-                val placeholderArgs = arrayOf("Pictures/$folderName%", ".placeholder.jpg")
-                resolver.delete(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, placeholderSelection, placeholderArgs)
-            } catch (_: Exception) {}
-
-            items.forEach { item ->
-                try {
-                    val contentValues = android.content.ContentValues().apply {
-                        put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, java.io.File(item.path).name)
-                        put(android.provider.MediaStore.MediaColumns.MIME_TYPE, item.mimeType)
-                        put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/$folderName")
-                    }
-                    
-                    val collectionUri = if (item.isVideo) {
-                        android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-                    } else {
-                        android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI
-                    }
-                    
-                    val targetUri = resolver.insert(collectionUri, contentValues)
-                    if (targetUri != null) {
-                        resolver.openInputStream(item.uri)?.use { input ->
-                            resolver.openOutputStream(targetUri)?.use { output ->
-                                input.copyTo(output)
-                            }
-                        }
-                        sourceUris.add(item.uri)
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-            
-            if (sourceUris.isNotEmpty()) {
-                try {
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                        val activity = context as? android.app.Activity
-                        if (activity != null) {
-                            val pendingIntent = android.provider.MediaStore.createDeleteRequest(resolver, sourceUris)
-                            activity.startIntentSenderForResult(
-                                pendingIntent.intentSender,
-                                1003,
-                                null,
-                                0,
-                                0,
-                                0
-                            )
-                        }
-                    } else {
-                        sourceUris.forEach { uri ->
-                            try {
-                                resolver.delete(uri, null, null)
-                            } catch (e: Exception) {
-                                val recoverable = e as? android.app.RecoverableSecurityException
-                                    ?: e.cause as? android.app.RecoverableSecurityException
-                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q && recoverable != null) {
-                                    val activity = context as? android.app.Activity
-                                    activity?.startIntentSenderForResult(
-                                        recoverable.userAction.actionIntent.intentSender,
-                                        1003,
-                                        null,
-                                        0,
-                                        0,
-                                        0
-                                    )
-                                } else {
-                                    e.printStackTrace()
-                                }
-                            }
-                        }
-                        refreshAll()
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            } else {
-                refreshAll()
-            }
-        }
+        val picturesDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES)
+        val targetDir = java.io.File(picturesDir, folderName)
+        moveOrCopyMedia(context, items, targetDir, isCopy = false) {}
     }
 
     fun createEmptyAlbum(context: Context, albumName: String) {
@@ -1046,19 +964,17 @@ class MainViewModel @Inject constructor(
         }
     }
 
-    fun moveOrCopySelectedMedia(
+    fun moveOrCopyMedia(
         context: Context,
+        items: List<MediaItem>,
         targetDirectory: java.io.File,
         isCopy: Boolean,
         onComplete: (Int) -> Unit
     ) {
-        val selectedIds = selectionState.selectedIds.toSet()
-        if (selectedIds.isEmpty()) return
+        if (items.isEmpty()) return
         viewModelScope.launch {
-            val items = getSelectedMediaItems(selectedIds)
             val result = repository.moveOrCopyMedia(context, items, targetDirectory, isCopy)
             val count = result.getOrDefault(0)
-            selectionState.clear()
             loadBuckets()
             refreshAll()
             if (count > 0) {
@@ -1070,22 +986,40 @@ class MainViewModel @Inject constructor(
         }
     }
 
-    fun shiftSelectedMediaTimestamp(
+    fun moveOrCopySelectedMedia(
         context: Context,
-        offsetMillis: Long,
+        targetDirectory: java.io.File,
+        isCopy: Boolean,
         onComplete: (Int) -> Unit
     ) {
         val selectedIds = selectionState.selectedIds.toSet()
         if (selectedIds.isEmpty()) return
         viewModelScope.launch {
             val items = getSelectedMediaItems(selectedIds)
-            val result = repository.shiftMediaTimestamps(context, items, offsetMillis)
+            moveOrCopyMedia(context, items, targetDirectory, isCopy) { count ->
+                selectionState.clear()
+                onComplete(count)
+            }
+        }
+    }
+
+    fun shiftSelectedMediaTimestamp(
+        context: Context,
+        offsetMillis: Long,
+        exactTimestamp: Long? = null,
+        onComplete: (Int) -> Unit
+    ) {
+        val selectedIds = selectionState.selectedIds.toSet()
+        if (selectedIds.isEmpty()) return
+        viewModelScope.launch {
+            val items = getSelectedMediaItems(selectedIds)
+            val result = repository.shiftMediaTimestamps(context, items, offsetMillis, exactTimestamp)
             val count = result.getOrDefault(0)
             selectionState.clear()
             refreshAll()
             if (count > 0) {
                 com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
-                android.widget.Toast.makeText(context, "Adjusted time for $count items", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(context, "Adjusted date/time for $count items", android.widget.Toast.LENGTH_SHORT).show()
             }
             onComplete(count)
         }

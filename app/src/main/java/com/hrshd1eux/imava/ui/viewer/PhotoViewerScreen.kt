@@ -1035,80 +1035,22 @@ fun PhotoViewerScreen(
 
         if (showMoveToAlbumDialog) {
             val item = mediaItems.getOrNull(pagerState.currentPage) ?: activeItem
-            var createNewAlbumInMove by remember { mutableStateOf(false) }
-            var tempNewAlbumName by remember { mutableStateOf("") }
             val bucketList by viewModel.buckets.collectAsState()
-            
-            AlertDialog(
-                onDismissRequest = { 
-                    showMoveToAlbumDialog = false 
-                    createNewAlbumInMove = false
-                    tempNewAlbumName = ""
-                },
-                title = { Text("Move to Album") },
-                text = {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        if (createNewAlbumInMove) {
-                            OutlinedTextField(
-                                value = tempNewAlbumName,
-                                onValueChange = { tempNewAlbumName = it },
-                                label = { Text("New Album Name") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        } else {
-                            LazyColumn(modifier = Modifier.heightIn(max = 250.dp)) {
-                                item {
-                                    TextButton(
-                                        onClick = { createNewAlbumInMove = true },
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Text("+ Create New Album")
-                                    }
-                                }
-                                items(bucketList) { bucket ->
-                                    TextButton(
-                                        onClick = {
-                                            viewModel.moveMediaToFolder(context, listOf(item), bucket.name)
-                                            showMoveToAlbumDialog = false
-                                        },
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Text(bucket.name)
-                                    }
-                                }
+            if (item != null) {
+                com.hrshd1eux.imava.ui.common.MoveCopyAlbumDialog(
+                    buckets = bucketList,
+                    isCopy = false,
+                    onDismiss = { showMoveToAlbumDialog = false },
+                    onConfirm = { targetDir, isCopy ->
+                        showMoveToAlbumDialog = false
+                        viewModel.moveOrCopyMedia(context, listOf(item), targetDir, isCopy) { count ->
+                            if (!isCopy && count > 0) {
+                                viewModel.activeMediaItem = null
                             }
                         }
                     }
-                },
-                confirmButton = {
-                    if (createNewAlbumInMove) {
-                        Button(
-                            onClick = {
-                                if (tempNewAlbumName.isNotBlank()) {
-                                    viewModel.moveMediaToFolder(context, listOf(item), tempNewAlbumName.trim())
-                                    showMoveToAlbumDialog = false
-                                    createNewAlbumInMove = false
-                                    tempNewAlbumName = ""
-                                }
-                            }
-                        ) {
-                            Text("Move")
-                        }
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            showMoveToAlbumDialog = false
-                            createNewAlbumInMove = false
-                            tempNewAlbumName = ""
-                        }
-                    ) {
-                        Text("Cancel")
-                    }
-                }
-            )
+                )
+            }
         }
 
         if (showVaultConfirmDialog) {

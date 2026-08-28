@@ -943,7 +943,9 @@ class MediaRepositoryImpl @Inject constructor(
                     count++
 
                     if (!isCopy) {
+                        val oldPath = sourceFile.absolutePath
                         sourceFile.delete()
+                        scannedPaths.add(oldPath)
                         try {
                             context.contentResolver.delete(item.uri, null, null)
                         } catch (_: Exception) {}
@@ -970,11 +972,12 @@ class MediaRepositoryImpl @Inject constructor(
     override suspend fun shiftMediaTimestamps(
         context: Context,
         items: List<MediaItem>,
-        offsetMillis: Long
+        offsetMillis: Long,
+        exactTimestamp: Long?
     ): Result<Int> = withContext(Dispatchers.IO) {
         var count = 0
         for (item in items) {
-            val newDate = (item.dateTaken + offsetMillis).coerceAtLeast(0L)
+            val newDate = exactTimestamp ?: (item.dateTaken + offsetMillis).coerceAtLeast(0L)
             val success = updateMediaDateTaken(context, item, newDate)
             if (success) count++
         }

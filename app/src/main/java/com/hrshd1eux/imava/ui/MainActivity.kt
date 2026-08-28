@@ -372,9 +372,18 @@ fun MainScreenLayout(viewModel: MainViewModel) {
         }
     }
 
+    val isFullScreenOverlayActive = viewModel.activeMemoryStory != null ||
+            viewModel.activeMediaItem != null ||
+            compareItems != null ||
+            collageImageUris != null ||
+            slideshowItems != null ||
+            showStorageDoctor ||
+            currentScreen == Screen.DuplicateFinder ||
+            currentScreen == Screen.Search
+
     Scaffold(
         topBar = {
-            if (viewModel.activeMemoryStory == null && viewModel.activeMediaItem == null && compareItems == null && currentScreen != Screen.DuplicateFinder && currentScreen != Screen.Search) {
+            if (!isFullScreenOverlayActive) {
                 TopAppBar(
                 title = {
                     Text(
@@ -593,20 +602,6 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                                 )
                             } else {
                                 SelectionActionButton(
-                                    icon = Icons.Default.PlayArrow,
-                                    label = "Slideshow",
-                                    onClick = {
-                                        val selectedIdsSet = selectionState.selectedIds.toSet()
-                                        scope.launch {
-                                            val itemsToPlay = viewModel.getSelectedMediaItems(selectedIdsSet)
-                                            if (itemsToPlay.isNotEmpty()) {
-                                                viewModel.activeMediaItem = itemsToPlay.first()
-                                            }
-                                        }
-                                    }
-                                )
-
-                                SelectionActionButton(
                                     icon = Icons.Default.Favorite,
                                     label = "Favorite",
                                     onClick = {
@@ -755,7 +750,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                             }
                         }
                     }
-                } else if (viewModel.currentCategoryName != "Hidden Vault") {
+                } else if (!isFullScreenOverlayActive && viewModel.currentCategoryName != "Hidden Vault") {
                     NavigationBar(
                         containerColor = MaterialTheme.colorScheme.surface,
                         tonalElevation = 8.dp
@@ -1006,9 +1001,9 @@ fun MainScreenLayout(viewModel: MainViewModel) {
         com.hrshd1eux.imava.ui.common.ExifTimeShiftDialog(
             selectedCount = selectionState.selectedIds.size,
             onDismiss = { showTimeShiftDialog = false },
-            onConfirm = { offsetMs ->
+            onConfirm = { offsetMs, exactTimestamp ->
                 showTimeShiftDialog = false
-                viewModel.shiftSelectedMediaTimestamp(context, offsetMs) {}
+                viewModel.shiftSelectedMediaTimestamp(context, offsetMs, exactTimestamp) {}
             }
         )
     }

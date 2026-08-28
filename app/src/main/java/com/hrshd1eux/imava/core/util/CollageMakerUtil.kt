@@ -39,6 +39,12 @@ object CollageMakerUtil {
         val bottomFraction: Float
     )
 
+    data class CellTransform(
+        val scale: Float = 1f,
+        val panX: Float = 0f,
+        val panY: Float = 0f
+    )
+
     fun computeCellLayouts(photoCount: Int, layoutVariant: Int = 0): List<CollageCell> {
         val count = photoCount.coerceIn(2, 9)
         return when (count) {
@@ -164,7 +170,8 @@ object CollageMakerUtil {
         spacingPx: Float = 16f,
         cornerRadiusPx: Float = 24f,
         backgroundColor: Int = Color.BLACK,
-        outputDimension: Int = 2048
+        outputDimension: Int = 2048,
+        transforms: List<CellTransform> = emptyList()
     ): Bitmap = withContext(Dispatchers.IO) {
         val totalWidth = outputDimension
         val totalHeight = (outputDimension * (aspectRatio.heightRatio / aspectRatio.widthRatio)).toInt()
@@ -181,12 +188,12 @@ object CollageMakerUtil {
             if (i >= cells.size) break
             val cell = cells[i]
             val uri = imageUris[i]
+            val transform = transforms.getOrNull(i) ?: CellTransform()
 
-            // Request loaded bitmap with Coil
             val request = ImageRequest.Builder(context)
                 .data(uri)
                 .allowHardware(false)
-                .size(outputDimension / 2)
+                .size(outputDimension)
                 .build()
 
             val result = (imageLoader.execute(request) as? SuccessResult)?.drawable?.toBitmap()
@@ -198,21 +205,32 @@ object CollageMakerUtil {
 
                 val destRect = RectF(cellLeft, cellTop, cellRight, cellBottom)
 
-                // Calculate center-crop source rect
                 val cellAspect = destRect.width() / destRect.height()
                 val bitmapAspect = result.width.toFloat() / result.height.toFloat()
 
-                val srcRect = if (bitmapAspect > cellAspect) {
-                    val cropWidth = (result.height * cellAspect).toInt()
-                    val leftOffset = (result.width - cropWidth) / 2
-                    Rect(leftOffset, 0, leftOffset + cropWidth, result.height)
-                } else {
-                    val cropHeight = (result.width / cellAspect).toInt()
-                    val topOffset = (result.height - cropHeight) / 2
-                    Rect(0, topOffset, result.width, topOffset + cropHeight)
-                }
+                val baseCropWidth = if (bitmapAspect > cellAspect) (result.height * cellAspect).toInt() else result.width
+                val baseCropHeight = if (bitmapAspect > cellAspect) result.height else (result.width / cellAspect).toInt()
 
-                // Draw clipped rounded rect
+                val userScale = transform.scale.coerceIn(1f, 4f)
+                val finalCropWidth = (baseCropWidth / userScale).toInt().coerceIn(1, result.width)
+                val finalCropHeight = (baseCropHeight / userScale).toInt().coerceIn(1, result.height)
+
+                val maxOffsetX = (result.width - finalCropWidth) / 2
+                val maxOffsetY = (result.height - finalCropHeight) / 2
+
+                val userOffsetX = (transform.panX * maxOffsetX).toInt().coerceIn(-maxOffsetX, maxOffsetX)
+                val userOffsetY = (transform.panY * maxOffsetY).toInt().coerceIn(-maxOffsetY, maxOffsetY)
+
+                val leftOffset = ((result.width - finalCropWidth) / 2) + userOffsetX
+                val topOffset = ((result.height - finalCropHeight) / 2) + userOffsetY
+
+                val srcRect = Rect(
+                    leftOffset.coerceIn(0, result.width - finalCropWidth),
+                    topOffset.coerceIn(0, result.height - finalCropHeight),
+                    (leftOffset + finalCropWidth).coerceIn(finalCropWidth, result.width),
+                    (topOffset + finalCropHeight).coerceIn(finalCropHeight, result.height)
+                )
+
                 val path = Path().apply {
                     addRoundRect(destRect, cornerRadiusPx, cornerRadiusPx, Path.Direction.CW)
                 }
