@@ -534,15 +534,15 @@ fun MainScreenLayout(viewModel: MainViewModel) {
         }
     },
         bottomBar = {
-            if (viewModel.activeMemoryStory == null && viewModel.activeMediaItem == null && compareItems == null && currentScreen != Screen.DuplicateFinder && currentScreen != Screen.Search) {
+            if (!isFullScreenOverlayActive) {
                 AnimatedContent(
-                targetState = selectionState.inSelectionMode,
-                transitionSpec = {
-                    slideInVertically { it } togetherWith slideOutVertically { it }
-                },
-                label = "BottomBarTransition"
-            ) { inSelection ->
-                if (inSelection) {
+                    targetState = selectionState.inSelectionMode,
+                    transitionSpec = {
+                        slideInVertically { it } togetherWith slideOutVertically { it }
+                    },
+                    label = "BottomBarTransition"
+                ) { inSelection ->
+                    if (inSelection) {
                     BottomAppBar(
                         containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp),
                         contentColor = MaterialTheme.colorScheme.onSurface,
@@ -666,6 +666,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                                                     val items = viewModel.getSelectedMediaItems(selectedIdsSet)
                                                     val photoUris = items.filterIsInstance<com.hrshd1eux.imava.data.model.MediaItem.Photo>().map { it.uri }
                                                     if (photoUris.size in 2..9) {
+                                                        selectionState.clear()
                                                         collageImageUris = photoUris
                                                     } else {
                                                         android.widget.Toast.makeText(context, "Select 2 to 9 photos for collage", android.widget.Toast.LENGTH_SHORT).show()
@@ -683,6 +684,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                                             scope.launch {
                                                 val items = viewModel.getSelectedMediaItems(selectedIdsSet)
                                                 if (items.isNotEmpty()) {
+                                                    selectionState.clear()
                                                     slideshowItems = items
                                                 }
                                             }
@@ -750,7 +752,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                             }
                         }
                     }
-                } else if (!isFullScreenOverlayActive && viewModel.currentCategoryName != "Hidden Vault") {
+                } else if (viewModel.currentCategoryName != "Hidden Vault") {
                     NavigationBar(
                         containerColor = MaterialTheme.colorScheme.surface,
                         tonalElevation = 8.dp

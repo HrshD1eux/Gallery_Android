@@ -964,6 +964,9 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    private var pendingMoveSourceItems: List<MediaItem>? = null
+    private var pendingMoveRollbackTargets: List<java.io.File>? = null
+
     fun moveOrCopyMedia(
         context: Context,
         items: List<MediaItem>,
@@ -974,15 +977,51 @@ class MainViewModel @Inject constructor(
         if (items.isEmpty()) return
         viewModelScope.launch {
             val result = repository.moveOrCopyMedia(context, items, targetDirectory, isCopy)
-            val count = result.getOrDefault(0)
-            loadBuckets()
-            refreshAll()
-            if (count > 0) {
-                com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
-                val actionName = if (isCopy) "Copied" else "Moved"
-                android.widget.Toast.makeText(context, "$actionName $count items to ${targetDirectory.name}", android.widget.Toast.LENGTH_SHORT).show()
+            val moveResult = result.getOrNull()
+            val count = moveResult?.successCount ?: 0
+
+            if (moveResult != null && moveResult.failedDeleteItems.isNotEmpty()) {
+                pendingMoveSourceItems = moveResult.failedDeleteItems
+                pendingMoveRollbackTargets = moveResult.createdTargetsForFailedDeletes
+
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    val activity = context as? android.app.Activity
+                    if (activity != null) {
+                        try {
+                            val uris = moveResult.failedDeleteItems.map { it.uri }
+                            val pendingIntent = android.provider.MediaStore.createDeleteRequest(
+                                context.contentResolver,
+                                uris
+                            )
+                            activity.startIntentSenderForResult(
+                                pendingIntent.intentSender,
+                                1007,
+                                null,
+                                0,
+                                0,
+                                0
+                            )
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                            moveResult.createdTargetsForFailedDeletes.forEach { it.delete() }
+                            pendingMoveSourceItems = null
+                            pendingMoveRollbackTargets = null
+                        }
+                    }
+                } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    loadBuckets()
+                    refreshAll()
+                }
+            } else {
+                loadBuckets()
+                refreshAll()
+                if (count > 0) {
+                    com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
+                    val actionName = if (isCopy) "Copied" else "Moved"
+                    android.widget.Toast.makeText(context, "$actionName $count items to ${targetDirectory.name}", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                onComplete(count)
             }
-            onComplete(count)
         }
     }
 
@@ -1539,6 +1578,38 @@ class MainViewModel @Inject constructor(
                         pendingRenameName = null
                     }
                 }
+                1007 -> {
+                    val sourceItems = pendingMoveSourceItems
+                    val rollbackTargets = pendingMoveRollbackTargets
+                    if (sourceItems != null) {
+                        viewModelScope.launch {
+                            val scanned = mutableListOf<String>()
+                            sourceItems.forEach { src ->
+                                repository.deleteMetadataPermanently(src.id)
+                                scanned.add(src.path)
+                            }
+                            rollbackTargets?.forEach { tgt ->
+                                scanned.add(tgt.absolutePath)
+                            }
+                            if (context != null && scanned.isNotEmpty()) {
+                                android.media.MediaScannerConnection.scanFile(
+                                    context,
+                                    scanned.toTypedArray(),
+                                    null,
+                                    null
+                                )
+                            }
+                            pendingMoveSourceItems = null
+                            pendingMoveRollbackTargets = null
+                            loadBuckets()
+                            refreshAll()
+                            if (context != null) {
+                                com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
+                                android.widget.Toast.makeText(context, "Moved ${sourceItems.size} items successfully", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                }
             }
         } else {
             // Cancelled flow
@@ -1547,6 +1618,17 @@ class MainViewModel @Inject constructor(
                 viewModelScope.launch {
                     repository.deleteMetadataPermanently(item.id)
                     pendingActionItem = null
+                    refreshAll()
+                }
+            } else if (requestCode == 1007) {
+                // Rollback: delete newly copied target files so no duplicate is created
+                viewModelScope.launch {
+                    pendingMoveRollbackTargets?.forEach { tgt ->
+                        try { tgt.delete() } catch (_: Exception) {}
+                    }
+                    pendingMoveSourceItems = null
+                    pendingMoveRollbackTargets = null
+                    loadBuckets()
                     refreshAll()
                 }
             } else {

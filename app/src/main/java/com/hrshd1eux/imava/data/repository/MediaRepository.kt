@@ -10,6 +10,12 @@ data class DatePositionHeader(
     val positionIndex: Int
 )
 
+data class MoveCopyResult(
+    val successCount: Int,
+    val failedDeleteItems: List<MediaItem> = emptyList(),
+    val createdTargetsForFailedDeletes: List<java.io.File> = emptyList()
+)
+
 interface MediaRepository {
     fun getMediaFlow(bucketId: Long? = null, sortOrder: com.hrshd1eux.imava.ui.SortOrder = com.hrshd1eux.imava.ui.SortOrder.NEWEST_FIRST, mediaType: MediaTypeFilter = MediaTypeFilter.ALL): Flow<List<MediaItem>>
     suspend fun loadMediaPaged(limit: Int, offset: Int, bucketId: Long? = null, sortOrder: com.hrshd1eux.imava.ui.SortOrder = com.hrshd1eux.imava.ui.SortOrder.NEWEST_FIRST, mediaType: MediaTypeFilter = MediaTypeFilter.ALL): List<MediaItem>
@@ -39,7 +45,7 @@ interface MediaRepository {
     suspend fun clearVaultCache(context: android.content.Context)
     suspend fun restoreAllVaultMedia(context: android.content.Context): Int
     suspend fun deleteAllVaultData(context: android.content.Context): Int
-    suspend fun moveOrCopyMedia(context: android.content.Context, items: List<MediaItem>, targetDirectory: java.io.File, isCopy: Boolean): Result<Int>
+    suspend fun moveOrCopyMedia(context: android.content.Context, items: List<MediaItem>, targetDirectory: java.io.File, isCopy: Boolean): Result<MoveCopyResult>
     suspend fun shiftMediaTimestamps(context: android.content.Context, items: List<MediaItem>, offsetMillis: Long, exactTimestamp: Long? = null): Result<Int>
     suspend fun updateMediaTags(mediaId: Long, tags: List<String>)
     fun observeMediaChanges(): Flow<Unit>

@@ -22,6 +22,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
+import kotlin.math.cos
+import kotlin.math.min
+import kotlin.math.sin
 
 object CollageMakerUtil {
 
@@ -30,6 +33,15 @@ object CollageMakerUtil {
         PORTRAIT_4_5(4f, 5f),
         STORY_9_16(9f, 16f),
         LANDSCAPE_16_9(16f, 9f)
+    }
+
+    enum class CollageShape {
+        ROUNDED,
+        CIRCLE,
+        DIAMOND,
+        HEXAGON,
+        HEART,
+        STAR
     }
 
     data class CollageCell(
@@ -49,76 +61,117 @@ object CollageMakerUtil {
         val count = photoCount.coerceIn(2, 9)
         return when (count) {
             2 -> {
-                if (layoutVariant == 0) {
-                    // Side-by-Side (Vertical split)
-                    listOf(
+                when (layoutVariant % 3) {
+                    0 -> listOf( // Vertical split
                         CollageCell(0f, 0f, 0.5f, 1f),
                         CollageCell(0.5f, 0f, 1f, 1f)
                     )
-                } else {
-                    // Top-Bottom (Horizontal split)
-                    listOf(
+                    1 -> listOf( // Horizontal split
                         CollageCell(0f, 0f, 1f, 0.5f),
                         CollageCell(0f, 0.5f, 1f, 1f)
+                    )
+                    else -> listOf( // Picture in picture / Overlay style
+                        CollageCell(0f, 0f, 1f, 1f),
+                        CollageCell(0.55f, 0.55f, 0.95f, 0.95f)
                     )
                 }
             }
             3 -> {
-                if (layoutVariant == 0) {
-                    // 1 Top Hero + 2 Bottom
-                    listOf(
+                when (layoutVariant % 4) {
+                    0 -> listOf( // 1 Top Hero + 2 Bottom
                         CollageCell(0f, 0f, 1f, 0.5f),
                         CollageCell(0f, 0.5f, 0.5f, 1f),
                         CollageCell(0.5f, 0.5f, 1f, 1f)
                     )
-                } else {
-                    // 1 Left Hero + 2 Right
-                    listOf(
+                    1 -> listOf( // 1 Left Hero + 2 Right
                         CollageCell(0f, 0f, 0.5f, 1f),
                         CollageCell(0.5f, 0f, 1f, 0.5f),
                         CollageCell(0.5f, 0.5f, 1f, 1f)
                     )
+                    2 -> listOf( // 3 Columns
+                        CollageCell(0f, 0f, 0.333f, 1f),
+                        CollageCell(0.333f, 0f, 0.666f, 1f),
+                        CollageCell(0.666f, 0f, 1f, 1f)
+                    )
+                    else -> listOf( // 3 Rows
+                        CollageCell(0f, 0f, 1f, 0.333f),
+                        CollageCell(0f, 0.333f, 1f, 0.666f),
+                        CollageCell(0f, 0.666f, 1f, 1f)
+                    )
                 }
             }
             4 -> {
-                if (layoutVariant == 0) {
-                    // 2x2 Grid
-                    listOf(
+                when (layoutVariant % 4) {
+                    0 -> listOf( // 2x2 Grid
                         CollageCell(0f, 0f, 0.5f, 0.5f),
                         CollageCell(0.5f, 0f, 1f, 0.5f),
                         CollageCell(0f, 0.5f, 0.5f, 1f),
                         CollageCell(0.5f, 0.5f, 1f, 1f)
                     )
-                } else {
-                    // 1 Left Hero + 3 Right Stack
-                    listOf(
+                    1 -> listOf( // 1 Left Hero + 3 Right Stack
                         CollageCell(0f, 0f, 0.6f, 1f),
                         CollageCell(0.6f, 0f, 1f, 0.333f),
                         CollageCell(0.6f, 0.333f, 1f, 0.666f),
                         CollageCell(0.6f, 0.666f, 1f, 1f)
                     )
+                    2 -> listOf( // 1 Top Hero + 3 Bottom Columns
+                        CollageCell(0f, 0f, 1f, 0.6f),
+                        CollageCell(0f, 0.6f, 0.333f, 1f),
+                        CollageCell(0.333f, 0.6f, 0.666f, 1f),
+                        CollageCell(0.666f, 0.6f, 1f, 1f)
+                    )
+                    else -> listOf( // 4 Vertical Strips
+                        CollageCell(0f, 0f, 0.25f, 1f),
+                        CollageCell(0.25f, 0f, 0.5f, 1f),
+                        CollageCell(0.5f, 0f, 0.75f, 1f),
+                        CollageCell(0.75f, 0f, 1f, 1f)
+                    )
                 }
             }
             5 -> {
-                // 2 Top + 3 Bottom
-                listOf(
-                    CollageCell(0f, 0f, 0.5f, 0.5f),
-                    CollageCell(0.5f, 0f, 1f, 0.5f),
-                    CollageCell(0f, 0.5f, 0.333f, 1f),
-                    CollageCell(0.333f, 0.5f, 0.666f, 1f),
-                    CollageCell(0.666f, 0.5f, 1f, 1f)
-                )
+                when (layoutVariant % 3) {
+                    0 -> listOf( // 2 Top + 3 Bottom
+                        CollageCell(0f, 0f, 0.5f, 0.5f),
+                        CollageCell(0.5f, 0f, 1f, 0.5f),
+                        CollageCell(0f, 0.5f, 0.333f, 1f),
+                        CollageCell(0.333f, 0.5f, 0.666f, 1f),
+                        CollageCell(0.666f, 0.5f, 1f, 1f)
+                    )
+                    1 -> listOf( // 1 Top Hero + 4 Bottom
+                        CollageCell(0f, 0f, 1f, 0.6f),
+                        CollageCell(0f, 0.6f, 0.25f, 1f),
+                        CollageCell(0.25f, 0.6f, 0.5f, 1f),
+                        CollageCell(0.5f, 0.6f, 0.75f, 1f),
+                        CollageCell(0.75f, 0.6f, 1f, 1f)
+                    )
+                    else -> listOf( // 1 Left Hero + 4 Right Grid
+                        CollageCell(0f, 0f, 0.5f, 1f),
+                        CollageCell(0.5f, 0f, 0.75f, 0.5f),
+                        CollageCell(0.75f, 0f, 1f, 0.5f),
+                        CollageCell(0.5f, 0.5f, 0.75f, 1f),
+                        CollageCell(0.75f, 0.5f, 1f, 1f)
+                    )
+                }
             }
             6 -> {
-                // 2x3 Grid
-                listOf(
-                    CollageCell(0f, 0f, 0.333f, 0.5f),
-                    CollageCell(0.333f, 0f, 0.666f, 0.5f),
-                    CollageCell(0.666f, 0f, 1f, 0.5f),
-                    CollageCell(0f, 0.5f, 0.333f, 1f),
-                    CollageCell(0.333f, 0.5f, 0.666f, 1f),
-                    CollageCell(0.666f, 0.5f, 1f, 1f)
-                )
+                when (layoutVariant % 2) {
+                    0 -> listOf( // 2x3 Grid
+                        CollageCell(0f, 0f, 0.333f, 0.5f),
+                        CollageCell(0.333f, 0f, 0.666f, 0.5f),
+                        CollageCell(0.666f, 0f, 1f, 0.5f),
+                        CollageCell(0f, 0.5f, 0.333f, 1f),
+                        CollageCell(0.333f, 0.5f, 0.666f, 1f),
+                        CollageCell(0.666f, 0.5f, 1f, 1f)
+                    )
+                    else -> listOf( // 1 Big Left (spanning 2 rows) + 5 Tiles
+                        CollageCell(0f, 0f, 0.5f, 1f),
+                        CollageCell(0.5f, 0f, 0.75f, 0.333f),
+                        CollageCell(0.75f, 0f, 1f, 0.333f),
+                        CollageCell(0.5f, 0.333f, 1f, 0.666f),
+                        CollageCell(0.5f, 0.666f, 0.75f, 1f),
+                        CollageCell(0.75f, 0.666f, 1f, 1f)
+                    )
+                }
             }
             7 -> {
                 // 3 Top + 4 Bottom
@@ -162,10 +215,103 @@ object CollageMakerUtil {
         }
     }
 
+    fun createShapePath(destRect: RectF, shape: CollageShape, cornerRadiusPx: Float): Path {
+        val path = Path()
+        val cx = destRect.centerX()
+        val cy = destRect.centerY()
+        val width = destRect.width()
+        val height = destRect.height()
+        val radius = min(width, height) / 2f
+
+        when (shape) {
+            CollageShape.ROUNDED -> {
+                path.addRoundRect(destRect, cornerRadiusPx, cornerRadiusPx, Path.Direction.CW)
+            }
+            CollageShape.CIRCLE -> {
+                path.addOval(destRect, Path.Direction.CW)
+            }
+            CollageShape.DIAMOND -> {
+                path.moveTo(cx, destRect.top)
+                path.lineTo(destRect.right, cy)
+                path.lineTo(cx, destRect.bottom)
+                path.lineTo(destRect.left, cy)
+                path.close()
+            }
+            CollageShape.HEXAGON -> {
+                val w = width / 2f
+                val h = height / 2f
+                path.moveTo(cx, cy - h)
+                path.lineTo(cx + w, cy - h / 2f)
+                path.lineTo(cx + w, cy + h / 2f)
+                path.lineTo(cx, cy + h)
+                path.lineTo(cx - w, cy + h / 2f)
+                path.lineTo(cx - w, cy - h / 2f)
+                path.close()
+            }
+            CollageShape.HEART -> {
+                val l = destRect.left
+                val t = destRect.top
+                val r = destRect.right
+                val b = destRect.bottom
+                val w = width
+                val h = height
+
+                path.moveTo(cx, t + h * 0.3f)
+                path.cubicTo(
+                    cx, t + h * 0.08f,
+                    l + w * 0.05f, t,
+                    l + w * 0.05f, t + h * 0.35f
+                )
+                path.cubicTo(
+                    l + w * 0.05f, t + h * 0.6f,
+                    cx - w * 0.2f, t + h * 0.8f,
+                    cx, b - h * 0.02f
+                )
+                path.cubicTo(
+                    cx + w * 0.2f, t + h * 0.8f,
+                    r - w * 0.05f, t + h * 0.6f,
+                    r - w * 0.05f, t + h * 0.35f
+                )
+                path.cubicTo(
+                    r - w * 0.05f, t,
+                    cx, t + h * 0.08f,
+                    cx, t + h * 0.3f
+                )
+                path.close()
+            }
+            CollageShape.STAR -> {
+                val outerRadius = radius
+                val innerRadius = radius * 0.45f
+                val step = (Math.PI / 5.0).toFloat()
+                var angle = -Math.PI.toFloat() / 2f
+
+                path.moveTo(
+                    cx + outerRadius * cos(angle),
+                    cy + outerRadius * sin(angle)
+                )
+                for (k in 1..5) {
+                    angle += step
+                    path.lineTo(
+                        cx + innerRadius * cos(angle),
+                        cy + innerRadius * sin(angle)
+                    )
+                    angle += step
+                    path.lineTo(
+                        cx + outerRadius * cos(angle),
+                        cy + outerRadius * sin(angle)
+                    )
+                }
+                path.close()
+            }
+        }
+        return path
+    }
+
     suspend fun generateCollageBitmap(
         context: Context,
         imageUris: List<Uri>,
         aspectRatio: CollageAspectRatio = CollageAspectRatio.SQUARE_1_1,
+        shape: CollageShape = CollageShape.ROUNDED,
         layoutVariant: Int = 0,
         spacingPx: Float = 16f,
         cornerRadiusPx: Float = 24f,
@@ -231,9 +377,7 @@ object CollageMakerUtil {
                     (topOffset + finalCropHeight).coerceIn(finalCropHeight, result.height)
                 )
 
-                val path = Path().apply {
-                    addRoundRect(destRect, cornerRadiusPx, cornerRadiusPx, Path.Direction.CW)
-                }
+                val path = createShapePath(destRect, shape, cornerRadiusPx)
 
                 canvas.save()
                 canvas.clipPath(path)

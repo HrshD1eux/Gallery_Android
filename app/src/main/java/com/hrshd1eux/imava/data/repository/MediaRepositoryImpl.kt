@@ -909,12 +909,14 @@ class MediaRepositoryImpl @Inject constructor(
         items: List<MediaItem>,
         targetDirectory: java.io.File,
         isCopy: Boolean
-    ): Result<Int> = withContext(Dispatchers.IO) {
+    ): Result<MoveCopyResult> = withContext(Dispatchers.IO) {
         if (!targetDirectory.exists()) {
             targetDirectory.mkdirs()
         }
         var count = 0
         val scannedPaths = mutableListOf<String>()
+        val failedDeleteItems = mutableListOf<MediaItem>()
+        val createdTargetsForFailed = mutableListOf<java.io.File>()
 
         for (item in items) {
             try {
@@ -944,12 +946,22 @@ class MediaRepositoryImpl @Inject constructor(
 
                     if (!isCopy) {
                         val oldPath = sourceFile.absolutePath
-                        sourceFile.delete()
-                        scannedPaths.add(oldPath)
-                        try {
-                            context.contentResolver.delete(item.uri, null, null)
-                        } catch (_: Exception) {}
-                        deleteMetadataPermanently(item.id)
+                        val directDeleted = sourceFile.delete()
+                        var resolverDeleted = false
+                        if (!directDeleted) {
+                            try {
+                                val rows = context.contentResolver.delete(item.uri, null, null)
+                                if (rows > 0) resolverDeleted = true
+                            } catch (_: Exception) {}
+                        }
+
+                        if (directDeleted || resolverDeleted) {
+                            scannedPaths.add(oldPath)
+                            deleteMetadataPermanently(item.id)
+                        } else {
+                            failedDeleteItems.add(item)
+                            createdTargetsForFailed.add(finalTarget)
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -966,7 +978,7 @@ class MediaRepositoryImpl @Inject constructor(
             )
         }
 
-        Result.success(count)
+        Result.success(MoveCopyResult(count, failedDeleteItems, createdTargetsForFailed))
     }
 
     override suspend fun shiftMediaTimestamps(
