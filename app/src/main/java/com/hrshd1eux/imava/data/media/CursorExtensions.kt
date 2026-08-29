@@ -6,41 +6,41 @@ import android.provider.MediaStore
 import com.hrshd1eux.imava.data.model.MediaItem
 
 class MediaCursorIndices(cursor: Cursor) {
-    val idCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
-    val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATA)
-    val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE)
-    val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_TAKEN)
-    val addedCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_ADDED)
-    val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
-    val widthCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.WIDTH)
-    val heightCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.HEIGHT)
-    val durCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DURATION)
-    val bucketIdCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.BUCKET_ID)
-    val bucketNameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME)
-    val mediaTypeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MEDIA_TYPE)
+    val idCol = cursor.getColumnIndex(MediaStore.Files.FileColumns._ID)
+    val dataCol = cursor.getColumnIndex(MediaStore.Files.FileColumns.DATA)
+    val mimeCol = cursor.getColumnIndex(MediaStore.Files.FileColumns.MIME_TYPE)
+    val dateCol = cursor.getColumnIndex(MediaStore.Files.FileColumns.DATE_TAKEN)
+    val addedCol = cursor.getColumnIndex(MediaStore.Files.FileColumns.DATE_ADDED)
+    val sizeCol = cursor.getColumnIndex(MediaStore.Files.FileColumns.SIZE)
+    val widthCol = cursor.getColumnIndex(MediaStore.Files.FileColumns.WIDTH)
+    val heightCol = cursor.getColumnIndex(MediaStore.Files.FileColumns.HEIGHT)
+    val durCol = cursor.getColumnIndex(MediaStore.Files.FileColumns.DURATION)
+    val bucketIdCol = cursor.getColumnIndex(MediaStore.Files.FileColumns.BUCKET_ID)
+    val bucketNameCol = cursor.getColumnIndex(MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME)
+    val mediaTypeCol = cursor.getColumnIndex(MediaStore.Files.FileColumns.MEDIA_TYPE)
     val trashedCol = cursor.getColumnIndex("is_trashed")
 }
 
 fun Cursor.extractMediaItem(indices: MediaCursorIndices): MediaItem {
-    val id = getLong(indices.idCol)
-    val path = getString(indices.dataCol) ?: ""
-    val mimeType = getString(indices.mimeCol) ?: "image/jpeg"
+    val id = if (indices.idCol != -1) getLong(indices.idCol) else 0L
+    val path = if (indices.dataCol != -1) (getString(indices.dataCol) ?: "") else ""
+    val mimeType = if (indices.mimeCol != -1) (getString(indices.mimeCol) ?: "image/jpeg") else "image/jpeg"
 
-    val rawDateTaken = getLong(indices.dateCol)
-    val addedSecs = getLong(indices.addedCol)
+    val rawDateTaken = if (indices.dateCol != -1) getLong(indices.dateCol) else 0L
+    val addedSecs = if (indices.addedCol != -1) getLong(indices.addedCol) else 0L
     val addedMs = if (addedSecs > 0) addedSecs * 1000L else 0L
-    val dateTaken = if (rawDateTaken > 100000000000L) rawDateTaken else addedMs
+    val dateTaken = if (rawDateTaken > 100000000000L) rawDateTaken else if (addedMs > 0) addedMs else System.currentTimeMillis()
 
-    val size = getLong(indices.sizeCol)
-    val width = getInt(indices.widthCol)
-    val height = getInt(indices.heightCol)
-    val bucketIdVal = getLong(indices.bucketIdCol)
-    val bucketName = getString(indices.bucketNameCol) ?: "Unknown"
-    val mediaType = getInt(indices.mediaTypeCol)
+    val size = if (indices.sizeCol != -1) getLong(indices.sizeCol) else 0L
+    val width = if (indices.widthCol != -1) getInt(indices.widthCol) else 0
+    val height = if (indices.heightCol != -1) getInt(indices.heightCol) else 0
+    val bucketIdVal = if (indices.bucketIdCol != -1) getLong(indices.bucketIdCol) else 0L
+    val bucketName = if (indices.bucketNameCol != -1) (getString(indices.bucketNameCol) ?: "Unknown") else "Unknown"
+    val mediaType = if (indices.mediaTypeCol != -1) getInt(indices.mediaTypeCol) else MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE
 
     val isTrashedSystem = if (indices.trashedCol != -1) getInt(indices.trashedCol) == 1 else false
 
-    val isVideo = mediaType == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
+    val isVideo = mediaType == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO || mimeType.startsWith("video/")
     val uri = if (isVideo) {
         ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, id)
     } else {
@@ -48,7 +48,7 @@ fun Cursor.extractMediaItem(indices: MediaCursorIndices): MediaItem {
     }
 
     return if (isVideo) {
-        val duration = getLong(indices.durCol)
+        val duration = if (indices.durCol != -1) getLong(indices.durCol) else 0L
         MediaItem.Video(
             id = id,
             uri = uri,

@@ -27,6 +27,22 @@ class MediaRepositoryImpl @Inject constructor(
     private val metadataDao: MetadataDao
 ) : MediaRepository {
 
+    private suspend fun getMetadataForMediaIdsChunked(ids: List<Long>): List<MediaMetadataEntity> {
+        if (ids.isEmpty()) return emptyList()
+        val result = mutableListOf<MediaMetadataEntity>()
+        ids.chunked(500).forEach { chunk ->
+            result.addAll(metadataDao.getMetadataForMediaIds(chunk))
+        }
+        return result
+    }
+
+    private suspend fun deleteMetadataByIdsChunked(ids: List<Long>) {
+        if (ids.isEmpty()) return
+        ids.chunked(500).forEach { chunk ->
+            metadataDao.deleteMetadataByIds(chunk)
+        }
+    }
+
     override fun getMediaFlow(bucketId: Long?, sortOrder: com.hrshd1eux.imava.ui.SortOrder, mediaType: MediaTypeFilter): Flow<List<MediaItem>> {
         return combine(
             mediaStoreDataSource.observeMediaStore().onStart { emit(Unit) },
@@ -50,7 +66,7 @@ class MediaRepositoryImpl @Inject constructor(
                 break
             }
             val ids = rawMedia.map { it.id }
-            val metadataList = metadataDao.getMetadataForMediaIds(ids)
+            val metadataList = getMetadataForMediaIdsChunked(ids)
             val metadataMap = metadataList.associateBy { it.mediaId }
 
             val filtered = rawMedia.map { item ->
@@ -129,7 +145,7 @@ class MediaRepositoryImpl @Inject constructor(
     override suspend fun toggleFavoriteBatch(mediaIds: Set<Long>) {
         if (mediaIds.isEmpty()) return
         val idList = mediaIds.toList()
-        val metas = metadataDao.getMetadataForMediaIds(idList).associateBy { it.mediaId }
+        val metas = getMetadataForMediaIdsChunked(idList).associateBy { it.mediaId }
         val allFavorited = idList.all { metas[it]?.isFavorite == true }
         val newFavoriteState = !allFavorited
 
@@ -313,7 +329,7 @@ class MediaRepositoryImpl @Inject constructor(
             .map { favoriteIds ->
                 if (favoriteIds.isEmpty()) return@map emptyList<MediaItem>()
                 val items = mediaStoreDataSource.fetchMediaByIds(favoriteIds.toSet())
-                val metadataList = metadataDao.getMetadataForMediaIds(favoriteIds)
+                val metadataList = getMetadataForMediaIdsChunked(favoriteIds)
                 val metadataMap = metadataList.associateBy { it.mediaId }
                 items.map { item ->
                     val meta = metadataMap[item.id]
@@ -333,7 +349,7 @@ class MediaRepositoryImpl @Inject constructor(
                 } else {
                     emptyList()
                 }
-                val metadataList = metadataDao.getMetadataForMediaIds(trashedIds)
+                val metadataList = getMetadataForMediaIdsChunked(trashedIds)
                 val metadataMap = metadataList.associateBy { it.mediaId }
                 
                 val combined = (storeTrashed + dbItems).map { item ->
@@ -502,18 +518,16 @@ class MediaRepositoryImpl @Inject constructor(
         val orphanedIds = trackedIds.filter { it !in activeIdSet }
         
         if (orphanedIds.isNotEmpty()) {
-            orphanedIds.chunked(500).forEach { chunk ->
-                metadataDao.deleteMetadataByIds(chunk)
-            }
+            deleteMetadataByIdsChunked(orphanedIds)
         }
     }
 
-    override suspend fun getActiveMediaIds(): List<Long> = mediaStoreDataSource.fetchMediaIds()
+    override suspend fun getActiveMediaIds(): List<Long> = mediaStoreDataSource.fetchActiveMediaIds()
 
     override suspend fun getMediaByIds(ids: Set<Long>): List<MediaItem> = withContext(Dispatchers.IO) {
         if (ids.isEmpty()) return@withContext emptyList()
         val items = mediaStoreDataSource.fetchMediaByIds(ids)
-        val metadataList = metadataDao.getMetadataForMediaIds(ids.toList())
+        val metadataList = getMetadataForMediaIdsChunked(ids.toList())
         val metadataMap = metadataList.associateBy { it.mediaId }
         val mappedStoreItems = items.map { item ->
             val meta = metadataMap[item.id]
@@ -587,7 +601,7 @@ class MediaRepositoryImpl @Inject constructor(
         val allIds = (rawResults.map { it.id } + tagMatchedIds).toList()
         if (allIds.isEmpty()) return@withContext emptyList()
 
-        val metadataList = metadataDao.getMetadataForMediaIds(allIds)
+        val metadataList = getMetadataForMediaIdsChunked(allIds)
         val metadataMap = metadataList.associateBy { it.mediaId }
 
         val extraItems = if (tagMatchedIds.isNotEmpty()) {

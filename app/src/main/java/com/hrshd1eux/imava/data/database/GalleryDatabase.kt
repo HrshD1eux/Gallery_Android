@@ -22,6 +22,7 @@ abstract class GalleryDatabase : RoomDatabase() {
                     "private_gallery.db"
                 )
                 .addMigrations(DatabaseModule.MIGRATION_2_3, DatabaseModule.MIGRATION_3_4)
+                .fallbackToDestructiveMigration()
                 .build()
                 .also { INSTANCE = it }
             }
