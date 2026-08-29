@@ -1,0 +1,52 @@
+GNU General Public License v2.0 (GPLv2)
+with Non-Commercial & Mandatory Author Attribution Clause
+
+Copyright (c) 2026 HrshD1eux
+Repository: https://github.com/HrshD1eux/Imava
+
+==============================================================================
+TERMS AND CONDITIONS FOR COPYING, DISTRIBUTION, AND MODIFICATION
+==============================================================================
+
+1. GRANT OF RIGHTS & PERMISSIONS:
+   You are free to:
+   - Use, run, and execute the Software for personal, private, and non-commercial educational purposes.
+   - Study, inspect, and modify the source code.
+   - Compile, build, fork, and distribute modified or unmodified versions of the Software,
+     subject to the mandatory conditions and restrictions set forth below.
+
+2. NON-COMMERCIAL RESTRICTION (NO MONETIZATION):
+   - You may NOT sell, resell, lease, rent, license, sub-license, or charge money/fees for this Software,
+     its source code, APK/AAB builds, compiled binaries, assets, or derivative works in any form.
+   - You may NOT include this Software, in whole or in part, as part of any commercial software,
+     paid service, closed-source product, subscription model, or ad-monetized platform.
+   - The Software must remain 100% free of charge (gratis) for all end-users.
+
+3. MANDATORY AUTHOR ATTRIBUTION & CREDIT:
+   - Any redistribution, fork, modification, reproduction, public repository, or publication of this
+     Software (or any part thereof) MUST prominently credit the original author:
+     "Originally created and developed by HrshD1eux"
+   - You MUST include a visible, direct, and functional link back to the original repository:
+     https://github.com/HrshD1eux/Imava
+   - You must retain all copyright notices, license headers, and author credits in all source files.
+
+4. COPYLEFT / SHARE-ALIKE:
+   - If you modify or create derivative works based on this Software, you must release and distribute
+     your modifications under these exact same license terms (GPLv2 with Non-Commercial & Attribution Clause).
+   - You may not apply additional legal terms or technological measures that legally or practically
+     restrict others from doing anything this license permits.
+
+==============================================================================
+NO WARRANTY / DISCLAIMER
+==============================================================================
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF
+USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+THE POSSIBILITY OF SUCH DAMAGE.
