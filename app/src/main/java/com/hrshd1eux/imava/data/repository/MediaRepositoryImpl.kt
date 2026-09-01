@@ -481,8 +481,10 @@ class MediaRepositoryImpl @Inject constructor(
     private fun applyMetadata(item: MediaItem, meta: MediaMetadataEntity?): MediaItem {
         if (meta == null) return item
         val tagList = if (meta.tags.isNotBlank()) meta.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() } else emptyList()
+        val customDate = if (meta.dateTaken > 0) meta.dateTaken else item.dateTaken
         return when (item) {
             is MediaItem.Photo -> item.copy(
+                dateTaken = customDate,
                 isFavorite = meta.isFavorite,
                 isHidden = meta.isHidden,
                 isTrashed = meta.isTrashed || item.isTrashed,
@@ -490,6 +492,7 @@ class MediaRepositoryImpl @Inject constructor(
                 tags = tagList
             )
             is MediaItem.Video -> item.copy(
+                dateTaken = customDate,
                 isFavorite = meta.isFavorite,
                 isHidden = meta.isHidden,
                 isTrashed = meta.isTrashed || item.isTrashed,

@@ -948,18 +948,59 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    private var pendingBatchRenames: List<Pair<MediaItem, String>>? = null
+
     fun batchRenameSelectedMedia(
         context: Context,
         renames: List<Pair<MediaItem, String>>
     ) {
         if (renames.isEmpty()) return
         viewModelScope.launch {
-            val count = repository.batchRenameMedia(context, renames)
-            selectionState.clear()
-            refreshAll()
-            if (count > 0) {
-                com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
-                android.widget.Toast.makeText(context, "Renamed $count items", android.widget.Toast.LENGTH_SHORT).show()
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                val activity = context as? android.app.Activity
+                if (activity != null) {
+                    try {
+                        pendingBatchRenames = renames
+                        val uris = renames.map { it.first.uri }
+                        val pendingIntent = android.provider.MediaStore.createWriteRequest(
+                            context.contentResolver,
+                            uris
+                        )
+                        activity.startIntentSenderForResult(
+                            pendingIntent.intentSender,
+                            1008,
+                            null,
+                            0,
+                            0,
+                            0
+                        )
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        val count = repository.batchRenameMedia(context, renames)
+                        selectionState.clear()
+                        refreshAll()
+                        if (count > 0) {
+                            com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
+                            android.widget.Toast.makeText(context, "Renamed $count items", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } else {
+                    val count = repository.batchRenameMedia(context, renames)
+                    selectionState.clear()
+                    refreshAll()
+                    if (count > 0) {
+                        com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
+                        android.widget.Toast.makeText(context, "Renamed $count items", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+            } else {
+                val count = repository.batchRenameMedia(context, renames)
+                selectionState.clear()
+                refreshAll()
+                if (count > 0) {
+                    com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
+                    android.widget.Toast.makeText(context, "Renamed $count items", android.widget.Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
@@ -1414,16 +1455,44 @@ class MainViewModel @Inject constructor(
         }
     }
 
-    fun restoreSelectedMedia() {
+    fun restoreSelectedMedia(context: Context) {
         val selectedIds = selectionState.selectedIds.toSet()
         if (selectedIds.isEmpty()) return
+        val trashedItems = trashed.value.filter { selectedIds.contains(it.id) }
+        if (trashedItems.isEmpty()) return
         viewModelScope.launch {
-            val trashedItems = trashed.value.filter { selectedIds.contains(it.id) }
-            trashedItems.forEach { item ->
-                repository.toggleTrashed(item)
+            try {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    val activity = context as? android.app.Activity
+                    if (activity != null) {
+                        pendingBatchActionItems = trashedItems
+                        val uris = trashedItems.map { it.uri }
+                        val pendingIntent = android.provider.MediaStore.createTrashRequest(
+                            context.contentResolver,
+                            uris,
+                            false
+                        )
+                        activity.startIntentSenderForResult(
+                            pendingIntent.intentSender,
+                            1005,
+                            null,
+                            0,
+                            0,
+                            0
+                        )
+                    }
+                } else {
+                    trashedItems.forEach { item ->
+                        repository.toggleTrashed(item)
+                    }
+                    selectionState.clear()
+                    refreshAll()
+                    com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
+                    android.widget.Toast.makeText(context, "Restored ${trashedItems.size} items", android.widget.Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-            selectionState.clear()
-            refreshAll()
         }
     }
 
@@ -1545,12 +1614,19 @@ class MainViewModel @Inject constructor(
                 1005 -> {
                     if (batchItems != null) {
                         viewModelScope.launch {
+                            val count = batchItems.size
+                            val isCurrentlyTrashed = batchItems.firstOrNull()?.isTrashed == true
                             batchItems.forEach { batchItem ->
                                 repository.toggleTrashed(batchItem)
                             }
                             selectionState.clear()
                             pendingBatchActionItems = null
                             refreshAll()
+                            if (context != null) {
+                                com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
+                                val msg = if (isCurrentlyTrashed) "Restored $count items" else "Moved $count items to Trash"
+                                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                            }
                         }
                     } else {
                         refreshAll()
@@ -1610,6 +1686,25 @@ class MainViewModel @Inject constructor(
                         }
                     }
                 }
+                1008 -> {
+                    val renames = pendingBatchRenames
+                    if (renames != null && context != null) {
+                        viewModelScope.launch {
+                            val count = repository.batchRenameMedia(context, renames)
+                            selectionState.clear()
+                            pendingBatchRenames = null
+                            refreshAll()
+                            if (count > 0) {
+                                com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
+                                android.widget.Toast.makeText(context, "Renamed $count items", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } else {
+                        pendingBatchRenames = null
+                        selectionState.clear()
+                        refreshAll()
+                    }
+                }
             }
         } else {
             // Cancelled flow
@@ -1636,6 +1731,7 @@ class MainViewModel @Inject constructor(
                 pendingBatchActionItems = null
                 pendingRenameItem = null
                 pendingRenameName = null
+                pendingBatchRenames = null
                 refreshAll()
             }
         }

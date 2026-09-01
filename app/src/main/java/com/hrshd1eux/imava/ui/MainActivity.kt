@@ -592,7 +592,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                                 SelectionActionButton(
                                     icon = Icons.Default.RestoreFromTrash,
                                     label = "Restore",
-                                    onClick = { viewModel.restoreSelectedMedia() }
+                                    onClick = { viewModel.restoreSelectedMedia(context) }
                                 )
                                 SelectionActionButton(
                                     icon = Icons.Default.DeleteForever,

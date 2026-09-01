@@ -153,7 +153,7 @@ class MediaStoreDataSource @Inject constructor(
                     putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
                     putStringArray(
                         ContentResolver.QUERY_ARG_SORT_COLUMNS,
-                        arrayOf(MediaStore.Files.FileColumns.DATE_ADDED, MediaStore.Files.FileColumns.DATE_TAKEN)
+                        arrayOf(MediaStore.Files.FileColumns.DATE_TAKEN, MediaStore.Files.FileColumns.DATE_ADDED)
                     )
                     putInt(
                         ContentResolver.QUERY_ARG_SORT_DIRECTION,
@@ -168,7 +168,7 @@ class MediaStoreDataSource @Inject constructor(
                 contentResolver.query(collection, projection, queryArgs, null)
             } else {
                 val dir = if (isAscending) "ASC" else "DESC"
-                val sortOrder = "${MediaStore.Files.FileColumns.DATE_ADDED} $dir, ${MediaStore.Files.FileColumns.DATE_TAKEN} $dir${if (limit > 0) " LIMIT $limit OFFSET $offset" else ""}"
+                val sortOrder = "${MediaStore.Files.FileColumns.DATE_TAKEN} $dir, ${MediaStore.Files.FileColumns.DATE_ADDED} $dir${if (limit > 0) " LIMIT $limit OFFSET $offset" else ""}"
                 contentResolver.query(collection, projection, selection, selectionArgs, sortOrder)
             }
         } catch (e: Exception) {
@@ -516,7 +516,7 @@ class MediaStoreDataSource @Inject constructor(
                     putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, selectionArgs)
                     putStringArray(
                         ContentResolver.QUERY_ARG_SORT_COLUMNS,
-                        arrayOf(MediaStore.Files.FileColumns.DATE_ADDED, MediaStore.Files.FileColumns.DATE_TAKEN)
+                        arrayOf(MediaStore.Files.FileColumns.DATE_TAKEN, MediaStore.Files.FileColumns.DATE_ADDED)
                     )
                     putInt(
                         ContentResolver.QUERY_ARG_SORT_DIRECTION,
@@ -527,7 +527,7 @@ class MediaStoreDataSource @Inject constructor(
                 contentResolver.query(collection, projection, queryArgs, null)
             } else {
                 val dir = if (isAscending) "ASC" else "DESC"
-                val sortOrder = "${MediaStore.Files.FileColumns.DATE_ADDED} $dir, ${MediaStore.Files.FileColumns.DATE_TAKEN} $dir"
+                val sortOrder = "${MediaStore.Files.FileColumns.DATE_TAKEN} $dir, ${MediaStore.Files.FileColumns.DATE_ADDED} $dir"
                 contentResolver.query(collection, projection, selection, selectionArgs, sortOrder)
             }
         } catch (e: Exception) {

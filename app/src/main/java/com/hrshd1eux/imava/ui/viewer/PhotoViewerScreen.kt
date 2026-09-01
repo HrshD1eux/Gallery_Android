@@ -71,6 +71,11 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Print
 import androidx.media3.ui.AspectRatioFrameLayout
 import com.hrshd1eux.imava.core.util.FormatUtils
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Crop
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.foundation.lazy.LazyColumn
@@ -195,6 +200,7 @@ fun PhotoViewerScreen(
     }
 
     var isSlideshowActive by remember { mutableStateOf(false) }
+    var showWallpaperDialog by remember { mutableStateOf(false) }
     var showCompressDialog by remember { mutableStateOf(false) }
     var targetKbInput by remember { mutableStateOf("15") }
     var videoResizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
@@ -497,10 +503,7 @@ fun PhotoViewerScreen(
                             leadingIcon = { Icon(Icons.Default.Wallpaper, contentDescription = null) },
                             onClick = {
                                 showMoreMenu = false
-                                val activity = context as? android.app.Activity
-                                if (activity != null) {
-                                    com.hrshd1eux.imava.core.util.WallpaperUtil.openSystemWallpaperCropper(activity, item.uri)
-                                }
+                                showWallpaperDialog = true
                             }
                         )
 
@@ -1293,9 +1296,7 @@ fun PhotoViewerScreen(
                         TextButton(
                             onClick = {
                                 showSetAsDialog = false
-                                if (activity != null) {
-                                    com.hrshd1eux.imava.core.util.WallpaperUtil.openSystemWallpaperCropper(activity, item.uri)
-                                }
+                                showWallpaperDialog = true
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -1327,6 +1328,148 @@ fun PhotoViewerScreen(
                 dismissButton = {
                     TextButton(onClick = { showSetAsDialog = false }) {
                         Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        if (showWallpaperDialog) {
+            val item = mediaItems.getOrNull(pagerState.currentPage) ?: activeItem
+            val activity = context as? android.app.Activity
+            var isSettingWallpaper by remember { mutableStateOf(false) }
+
+            AlertDialog(
+                onDismissRequest = { if (!isSettingWallpaper) showWallpaperDialog = false },
+                icon = {
+                    Icon(
+                        Icons.Default.Wallpaper,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(32.dp)
+                    )
+                },
+                title = { Text("Set Wallpaper 🎨", fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold) },
+                text = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (isSettingWallpaper) {
+                            Box(
+                                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator()
+                            }
+                        } else {
+                            FilledTonalButton(
+                                onClick = {
+                                    isSettingWallpaper = true
+                                    scope.launch {
+                                        val success = com.hrshd1eux.imava.core.util.WallpaperUtil.setWallpaperDirect(
+                                            context,
+                                            item.uri,
+                                            com.hrshd1eux.imava.core.util.WallpaperUtil.WALLPAPER_HOME
+                                        )
+                                        isSettingWallpaper = false
+                                        showWallpaperDialog = false
+                                        if (success) {
+                                            com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
+                                            android.widget.Toast.makeText(context, "Home screen wallpaper applied! 🏠", android.widget.Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            android.widget.Toast.makeText(context, "Failed to apply wallpaper", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                    Icon(Icons.Default.Home, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text("Home Screen 🏠")
+                                }
+                            }
+
+                            FilledTonalButton(
+                                onClick = {
+                                    isSettingWallpaper = true
+                                    scope.launch {
+                                        val success = com.hrshd1eux.imava.core.util.WallpaperUtil.setWallpaperDirect(
+                                            context,
+                                            item.uri,
+                                            com.hrshd1eux.imava.core.util.WallpaperUtil.WALLPAPER_LOCK
+                                        )
+                                        isSettingWallpaper = false
+                                        showWallpaperDialog = false
+                                        if (success) {
+                                            com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
+                                            android.widget.Toast.makeText(context, "Lock screen wallpaper applied! 🔒", android.widget.Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            android.widget.Toast.makeText(context, "Failed to apply wallpaper", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                    Icon(Icons.Default.Lock, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text("Lock Screen 🔒")
+                                }
+                            }
+
+                            Button(
+                                onClick = {
+                                    isSettingWallpaper = true
+                                    scope.launch {
+                                        val success = com.hrshd1eux.imava.core.util.WallpaperUtil.setWallpaperDirect(
+                                            context,
+                                            item.uri,
+                                            com.hrshd1eux.imava.core.util.WallpaperUtil.WALLPAPER_BOTH
+                                        )
+                                        isSettingWallpaper = false
+                                        showWallpaperDialog = false
+                                        if (success) {
+                                            com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
+                                            android.widget.Toast.makeText(context, "Home & Lock wallpaper applied! 📱", android.widget.Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            android.widget.Toast.makeText(context, "Failed to apply wallpaper", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                    Icon(Icons.Default.PhoneAndroid, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text("Both (Home & Lock Screen) 📱")
+                                }
+                            }
+
+                            OutlinedButton(
+                                onClick = {
+                                    showWallpaperDialog = false
+                                    if (activity != null) {
+                                        com.hrshd1eux.imava.core.util.WallpaperUtil.launchPixelOrSystemWallpaperPicker(activity, item.uri)
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                    Icon(Icons.Default.Crop, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text("Pixel / System Wallpaper Picker ⚙️")
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    if (!isSettingWallpaper) {
+                        TextButton(onClick = { showWallpaperDialog = false }) {
+                            Text("Cancel")
+                        }
                     }
                 }
             )
