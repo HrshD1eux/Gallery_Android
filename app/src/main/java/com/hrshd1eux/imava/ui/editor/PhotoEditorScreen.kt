@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -351,7 +352,7 @@ fun PhotoEditorScreen(
         )
     }
 
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
@@ -404,11 +405,10 @@ fun PhotoEditorScreen(
             }
         }
 
-
         Box(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(top = 64.dp, bottom = 140.dp),
+                .weight(1f)
+                .fillMaxWidth(),
             contentAlignment = Alignment.Center
         ) {
             val previewBitmap = if (selectedTab == EditorTab.CROP && !isCropApplied) {
@@ -587,8 +587,8 @@ fun PhotoEditorScreen(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .align(Alignment.BottomCenter)
                 .background(Color.Black.copy(alpha = 0.95f))
+                .navigationBarsPadding()
         ) {
 
             Box(
