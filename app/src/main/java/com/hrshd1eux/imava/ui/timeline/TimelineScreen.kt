@@ -373,8 +373,8 @@ fun MediaGridCell(
         // Trash days remaining indicator
         if (item.isTrashed) {
             val thirtyDaysMs = 30L * 24L * 60L * 60L * 1000L
-            val trashBaseTime = if (item.trashTime > 0L) item.trashTime else item.dateTaken
-            val daysRemaining = maxOf(1L, (thirtyDaysMs - (System.currentTimeMillis() - trashBaseTime)) / (24L * 60L * 60L * 1000L))
+            val trashBaseTime = if (item.trashTime > 0L) item.trashTime else System.currentTimeMillis()
+            val daysRemaining = ((thirtyDaysMs - (System.currentTimeMillis() - trashBaseTime)) / (24L * 60L * 60L * 1000L)).coerceIn(1L, 30L)
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomStart)

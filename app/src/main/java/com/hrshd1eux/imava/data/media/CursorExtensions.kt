@@ -19,6 +19,7 @@ class MediaCursorIndices(cursor: Cursor) {
     val bucketNameCol = cursor.getColumnIndex(MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME)
     val mediaTypeCol = cursor.getColumnIndex(MediaStore.Files.FileColumns.MEDIA_TYPE)
     val trashedCol = cursor.getColumnIndex("is_trashed")
+    val expiresCol = cursor.getColumnIndex("date_expires")
 }
 
 fun Cursor.extractMediaItem(indices: MediaCursorIndices): MediaItem {
@@ -39,6 +40,15 @@ fun Cursor.extractMediaItem(indices: MediaCursorIndices): MediaItem {
     val mediaType = if (indices.mediaTypeCol != -1) getInt(indices.mediaTypeCol) else MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE
 
     val isTrashedSystem = if (indices.trashedCol != -1) getInt(indices.trashedCol) == 1 else false
+    val expiresSec = if (indices.expiresCol != -1) getLong(indices.expiresCol) else 0L
+    val expiresMs = expiresSec * 1000L
+    val computedTrashTime = if (expiresMs > 0L) {
+        (expiresMs - 30L * 24L * 60L * 60L * 1000L).coerceAtLeast(0L)
+    } else if (isTrashedSystem) {
+        System.currentTimeMillis()
+    } else {
+        0L
+    }
 
     val isVideo = mediaType == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO || mimeType.startsWith("video/")
     val uri = if (isVideo) {
@@ -61,7 +71,8 @@ fun Cursor.extractMediaItem(indices: MediaCursorIndices): MediaItem {
             durationMs = duration,
             bucketId = bucketIdVal,
             bucketName = bucketName,
-            isTrashed = isTrashedSystem
+            isTrashed = isTrashedSystem,
+            trashTime = computedTrashTime
         )
     } else {
         MediaItem.Photo(
@@ -75,7 +86,8 @@ fun Cursor.extractMediaItem(indices: MediaCursorIndices): MediaItem {
             height = height,
             bucketId = bucketIdVal,
             bucketName = bucketName,
-            isTrashed = isTrashedSystem
+            isTrashed = isTrashedSystem,
+            trashTime = computedTrashTime
         )
     }
 }

@@ -22,6 +22,10 @@
     <!-- Haptic Feedback Vibration Permission -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- Wallpaper Permissions -->
+    <uses-permission android:name="android.permission.SET_WALLPAPER" />
+    <uses-permission android:name="android.permission.SET_WALLPAPER_HINTS" />
+
     <application
         android:name=".ImavaApplication"
         android:allowBackup="true"

@@ -203,7 +203,8 @@ class MediaStoreDataSource @Inject constructor(
             MediaStore.Files.FileColumns.BUCKET_ID,
             MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME,
             MediaStore.Files.FileColumns.MEDIA_TYPE,
-            "is_trashed"
+            "is_trashed",
+            "date_expires"
         )
 
         val queryArgs = Bundle().apply {

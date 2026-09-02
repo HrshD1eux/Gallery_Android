@@ -349,7 +349,8 @@ class MediaRepositoryImpl @Inject constructor(
                 } else {
                     emptyList()
                 }
-                val metadataList = getMetadataForMediaIdsChunked(trashedIds)
+                val allIds = (trashedIds + storeTrashed.map { it.id }).distinct()
+                val metadataList = getMetadataForMediaIdsChunked(allIds)
                 val metadataMap = metadataList.associateBy { it.mediaId }
                 
                 val combined = (storeTrashed + dbItems).map { item ->
@@ -482,13 +483,14 @@ class MediaRepositoryImpl @Inject constructor(
         if (meta == null) return item
         val tagList = if (meta.tags.isNotBlank()) meta.tags.split(",").map { it.trim() }.filter { it.isNotEmpty() } else emptyList()
         val customDate = if (meta.dateTaken > 0) meta.dateTaken else item.dateTaken
+        val finalTrashTime = if (meta.trashTime > 0L) meta.trashTime else item.trashTime
         return when (item) {
             is MediaItem.Photo -> item.copy(
                 dateTaken = customDate,
                 isFavorite = meta.isFavorite,
                 isHidden = meta.isHidden,
                 isTrashed = meta.isTrashed || item.isTrashed,
-                trashTime = meta.trashTime,
+                trashTime = finalTrashTime,
                 tags = tagList
             )
             is MediaItem.Video -> item.copy(
@@ -496,7 +498,7 @@ class MediaRepositoryImpl @Inject constructor(
                 isFavorite = meta.isFavorite,
                 isHidden = meta.isHidden,
                 isTrashed = meta.isTrashed || item.isTrashed,
-                trashTime = meta.trashTime,
+                trashTime = finalTrashTime,
                 tags = tagList
             )
         }

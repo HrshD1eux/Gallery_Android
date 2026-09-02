@@ -20,6 +20,16 @@ object WallpaperUtil {
     suspend fun setWallpaperDirect(context: Context, uri: Uri, which: Int): Boolean = withContext(Dispatchers.IO) {
         try {
             val wallpaperManager = WallpaperManager.getInstance(context)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                try {
+                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                        wallpaperManager.setStream(stream, null, true, which)
+                        return@withContext true
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
             context.contentResolver.openInputStream(uri)?.use { stream ->
                 val bitmap = BitmapFactory.decodeStream(stream)
                 if (bitmap != null) {
