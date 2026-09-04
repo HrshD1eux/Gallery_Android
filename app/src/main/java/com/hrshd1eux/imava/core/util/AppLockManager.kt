@@ -2,12 +2,22 @@ package com.hrshd1eux.imava.core.util
 
 import android.content.Context
 import android.content.SharedPreferences
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 
 object AppLockManager {
 
     private const val PREFS_NAME = "imava_app_lock_prefs"
     private const val KEY_APP_LOCK_ENABLED = "app_lock_enabled"
     private const val KEY_LOCKED_BUCKETS = "locked_bucket_ids"
+
+    private val _lockStateVersion = MutableStateFlow(0)
+    val lockStateVersion: StateFlow<Int> = _lockStateVersion.asStateFlow()
+
+    private fun notifyLockStateChanged() {
+        _lockStateVersion.value += 1
+    }
 
     // Session cache (resets when app is closed / killed)
     private var isAppUnlockedInSession = false
@@ -27,6 +37,7 @@ object AppLockManager {
         if (!enabled) {
             isAppUnlockedInSession = true
         }
+        notifyLockStateChanged()
     }
 
     fun isAppUnlockedForSession(): Boolean {
@@ -35,6 +46,7 @@ object AppLockManager {
 
     fun markAppUnlocked() {
         isAppUnlockedInSession = true
+        notifyLockStateChanged()
     }
 
     fun onAppResume() {
@@ -44,6 +56,7 @@ object AppLockManager {
             if (elapsed > 30_000L) {
                 isAppUnlockedInSession = false
                 sessionUnlockedBuckets.clear()
+                notifyLockStateChanged()
             }
         }
     }
@@ -66,6 +79,7 @@ object AppLockManager {
         current.add(bucketId)
         sessionUnlockedBuckets.remove(bucketId)
         saveLockedBucketIds(context, current)
+        notifyLockStateChanged()
     }
 
     fun unlockAlbum(context: Context, bucketId: Long) {
@@ -73,10 +87,17 @@ object AppLockManager {
         current.remove(bucketId)
         sessionUnlockedBuckets.remove(bucketId)
         saveLockedBucketIds(context, current)
+        notifyLockStateChanged()
     }
 
     fun markAlbumUnlockedForSession(bucketId: Long) {
         sessionUnlockedBuckets.add(bucketId)
+        notifyLockStateChanged()
+    }
+
+    fun getActiveLockedBucketIds(context: Context): Set<Long> {
+        val locked = getLockedBucketIds(context)
+        return locked.filter { it !in sessionUnlockedBuckets }.toSet()
     }
 
     fun getLockedBucketIds(context: Context): Set<Long> {

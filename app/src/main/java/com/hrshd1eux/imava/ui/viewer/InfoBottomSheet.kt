@@ -17,6 +17,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
@@ -55,6 +61,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.exifinterface.media.ExifInterface
 import com.hrshd1eux.imava.data.model.MediaItem
+import com.hrshd1eux.imava.core.util.ExifLocationUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -95,12 +102,27 @@ fun InfoBottomSheet(
     var showEditLocationDialog by remember { mutableStateOf(false) }
     var newLatInput by remember { mutableStateOf("") }
     var newLngInput by remember { mutableStateOf("") }
+    var locationSearchQuery by remember { mutableStateOf("") }
+    var isSearchingLocation by remember { mutableStateOf(false) }
+    var resolvedLocationName by remember { mutableStateOf<String?>(null) }
     var showRemoveGpsConfirm by remember { mutableStateOf(false) }
+    var displayedPlaceName by remember(item.id) { mutableStateOf<String?>(null) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
 
     LaunchedEffect(item) {
         withContext(Dispatchers.IO) {
             details = readExifDetails(context, item)
+        }
+    }
+
+    LaunchedEffect(details?.latitude, details?.longitude) {
+        val lat = details?.latitude
+        val lng = details?.longitude
+        if (details?.hasGps == true && lat != null && lng != null) {
+            val name = ExifLocationUtil.reverseGeocode(context, lat, lng)
+            displayedPlaceName = name
+        } else {
+            displayedPlaceName = null
         }
     }
 
@@ -299,7 +321,11 @@ fun InfoBottomSheet(
                     InfoRow(
                         icon = Icons.Default.LocationOn,
                         title = "Location",
-                        subtitle = "GPS coordinates: ${info.location}"
+                        subtitle = if (!displayedPlaceName.isNullOrBlank()) {
+                            "${displayedPlaceName}\nGPS: ${info.location}"
+                        } else {
+                            "GPS coordinates: ${info.location}"
+                        }
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -325,6 +351,8 @@ fun InfoBottomSheet(
                             onClick = {
                                 newLatInput = info.latitude.toString()
                                 newLngInput = info.longitude.toString()
+                                locationSearchQuery = ""
+                                resolvedLocationName = displayedPlaceName
                                 showEditLocationDialog = true
                             },
                             modifier = Modifier.weight(0.9f)
@@ -345,6 +373,8 @@ fun InfoBottomSheet(
                         onClick = {
                             newLatInput = ""
                             newLngInput = ""
+                            locationSearchQuery = ""
+                            resolvedLocationName = null
                             showEditLocationDialog = true
                         },
                         modifier = Modifier.fillMaxWidth()
@@ -440,6 +470,28 @@ fun InfoBottomSheet(
             val lngVal = newLngInput.toDoubleOrNull()
             val isValid = latVal != null && latVal in -90.0..90.0 && lngVal != null && lngVal in -180.0..180.0
 
+            val executeLocationSearch: () -> Unit = {
+                val trimmed = locationSearchQuery.trim()
+                if (trimmed.isNotEmpty()) {
+                    isSearchingLocation = true
+                    scope.launch {
+                        val res = ExifLocationUtil.geocode(context, trimmed)
+                        isSearchingLocation = false
+                        if (res != null) {
+                            newLatInput = res.latitude.toString()
+                            newLngInput = res.longitude.toString()
+                            resolvedLocationName = res.displayName
+                        } else {
+                            android.widget.Toast.makeText(
+                                context,
+                                "Location not found. Try another place name or coordinates.",
+                                android.widget.Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                }
+            }
+
             AlertDialog(
                 onDismissRequest = { showEditLocationDialog = false },
                 title = { Text("Add / Edit Location 📍") },
@@ -450,9 +502,76 @@ fun InfoBottomSheet(
                             .verticalScroll(rememberScrollState())
                             .imePadding()
                     ) {
+                        Text(
+                            text = "Search by place name (e.g. \"Tokyo\", \"Eiffel Tower\") or coordinates, or enter latitude/longitude directly below.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        OutlinedTextField(
+                            value = locationSearchQuery,
+                            onValueChange = { locationSearchQuery = it },
+                            label = { Text("Search Place Name or Coords") },
+                            placeholder = { Text("e.g. Paris or 37.77, -122.41") },
+                            singleLine = true,
+                            trailingIcon = {
+                                if (isSearchingLocation) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    IconButton(
+                                        enabled = locationSearchQuery.isNotBlank(),
+                                        onClick = executeLocationSearch
+                                    ) {
+                                        Icon(Icons.Default.Search, contentDescription = "Search place")
+                                    }
+                                }
+                            },
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = { executeLocationSearch() }),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        if (!resolvedLocationName.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Surface(
+                                shape = MaterialTheme.shapes.small,
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.LocationOn,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = resolvedLocationName ?: "",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+                        HorizontalDivider()
+                        Spacer(modifier = Modifier.height(14.dp))
+
                         OutlinedTextField(
                             value = newLatInput,
-                            onValueChange = { newLatInput = it },
+                            onValueChange = {
+                                newLatInput = it
+                                resolvedLocationName = null
+                            },
                             label = { Text("Latitude (-90 to 90)") },
                             placeholder = { Text("e.g. 37.7749") },
                             singleLine = true,
@@ -462,7 +581,10 @@ fun InfoBottomSheet(
                         Spacer(modifier = Modifier.height(8.dp))
                         OutlinedTextField(
                             value = newLngInput,
-                            onValueChange = { newLngInput = it },
+                            onValueChange = {
+                                newLngInput = it
+                                resolvedLocationName = null
+                            },
                             label = { Text("Longitude (-180 to 180)") },
                             placeholder = { Text("e.g. -122.4194") },
                             singleLine = true,
@@ -482,6 +604,7 @@ fun InfoBottomSheet(
                                 val success = com.hrshd1eux.imava.core.util.ExifLocationUtil.setGeotag(context, item.uri, item.path, lat, lng)
                                 if (success) {
                                     details = withContext(Dispatchers.IO) { readExifDetails(context, item) }
+                                    displayedPlaceName = resolvedLocationName ?: withContext(Dispatchers.IO) { ExifLocationUtil.reverseGeocode(context, lat, lng) }
                                     android.widget.Toast.makeText(context, "Location updated! 📍", android.widget.Toast.LENGTH_SHORT).show()
                                 } else {
                                     android.widget.Toast.makeText(context, "Failed to update location", android.widget.Toast.LENGTH_SHORT).show()

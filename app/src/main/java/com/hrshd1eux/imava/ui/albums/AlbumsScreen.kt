@@ -690,6 +690,7 @@ fun AlbumsScreen(
                                             subtitle = "Verify biometric to unlock ${bucket.name}",
                                             onSuccess = {
                                                 com.hrshd1eux.imava.core.util.AppLockManager.unlockAlbum(context, bucket.id)
+                                                viewModel.refreshAll()
                                                 activeOptionsBucket = null
                                                 android.widget.Toast.makeText(context, "Album unlocked", android.widget.Toast.LENGTH_SHORT).show()
                                             },
@@ -699,6 +700,7 @@ fun AlbumsScreen(
                                         )
                                     } else {
                                         com.hrshd1eux.imava.core.util.AppLockManager.unlockAlbum(context, bucket.id)
+                                        viewModel.refreshAll()
                                         activeOptionsBucket = null
                                     }
                                 } else {
@@ -709,6 +711,7 @@ fun AlbumsScreen(
                                             subtitle = "Verify biometric to lock ${bucket.name}",
                                             onSuccess = {
                                                 com.hrshd1eux.imava.core.util.AppLockManager.lockAlbum(context, bucket.id)
+                                                viewModel.refreshAll()
                                                 activeOptionsBucket = null
                                                 android.widget.Toast.makeText(context, "Album locked with Biometrics 🔒", android.widget.Toast.LENGTH_SHORT).show()
                                             },
@@ -718,6 +721,7 @@ fun AlbumsScreen(
                                         )
                                     } else {
                                         com.hrshd1eux.imava.core.util.AppLockManager.lockAlbum(context, bucket.id)
+                                        viewModel.refreshAll()
                                         activeOptionsBucket = null
                                     }
                                 }
