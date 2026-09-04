@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -403,6 +405,7 @@ fun AlbumsScreen(
                     title = "Photo Map 🗺️",
                     count = 0,
                     subtitle = "Explore photos plotted geographically",
+                    actionLabel = "Explore ↗",
                     onClick = onMapExplorerClick
                 )
             }
@@ -641,7 +644,11 @@ fun AlbumsScreen(
                 onDismissRequest = { activeOptionsBucket = null },
                 title = { Text(bucket.name) },
                 text = {
-                    Column {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                    ) {
                         TextButton(
                             onClick = {
                                 viewModel.togglePinBucket(bucket.id)
@@ -989,6 +996,7 @@ fun AlbumRowItem(
     title: String,
     count: Int,
     subtitle: String? = null,
+    actionLabel: String? = null,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null
 ) {
@@ -1044,7 +1052,14 @@ fun AlbumRowItem(
                 )
             }
         }
-        if (count > 0 || subtitle == null) {
+        if (actionLabel != null) {
+            Text(
+                text = actionLabel,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Medium
+            )
+        } else if (count > 0 || subtitle == null) {
             Text(
                 text = if (subtitle != null && count == 0) "Scan" else count.toString(),
                 style = MaterialTheme.typography.bodyMedium,

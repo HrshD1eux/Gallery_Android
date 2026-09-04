@@ -48,6 +48,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.hrshd1eux.imava.core.util.HapticUtil
 import com.hrshd1eux.imava.core.util.MotionPhotoUtil
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -65,6 +68,7 @@ fun MotionPhotoExportDialog(
     var previewBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var isProcessing by remember { mutableStateOf(false) }
     var processingMsg by remember { mutableStateOf("") }
+    var extractJob by remember { mutableStateOf<Job?>(null) }
 
     LaunchedEffect(videoFile) {
         val dur = MotionPhotoUtil.getVideoDurationUs(videoFile)
@@ -82,14 +86,16 @@ fun MotionPhotoExportDialog(
         },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // Frame Preview
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(200.dp)
+                        .height(180.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center
@@ -137,7 +143,8 @@ fun MotionPhotoExportDialog(
                     onValueChange = { pos ->
                         currentSliderPos = pos
                         val targetUs = (pos * durationUs).toLong()
-                        scope.launch {
+                        extractJob?.cancel()
+                        extractJob = scope.launch {
                             val frame = MotionPhotoUtil.extractFrameAt(videoFile, targetUs)
                             if (frame != null) {
                                 previewBitmap = frame
@@ -229,8 +236,7 @@ fun MotionPhotoExportDialog(
                 }
             }
         },
-        confirmButton = {},
-        dismissButton = {
+        confirmButton = {
             TextButton(
                 onClick = onDismiss,
                 enabled = !isProcessing

@@ -577,6 +577,45 @@ fun PhotoViewerScreen(
 
                         if (item is com.hrshd1eux.imava.data.model.MediaItem.Photo) {
                             DropdownMenuItem(
+                                text = { Text("Copy Text from Photo (OCR) 📝") },
+                                leadingIcon = { Icon(Icons.Default.DocumentScanner, contentDescription = null) },
+                                onClick = {
+                                    showMoreMenu = false
+                                    scope.launch {
+                                        android.widget.Toast.makeText(context, "Scanning image for text...", android.widget.Toast.LENGTH_SHORT).show()
+                                        val result = com.hrshd1eux.imava.core.util.OcrHelper.recognizeTextFromUri(context, item.uri)
+                                        if (result != null && result.fullText.isNotBlank()) {
+                                            ocrRecognizedText = result.fullText
+                                            showOcrSheet = true
+                                            viewModel.saveOcrText(item.id, result.fullText)
+                                        } else {
+                                            android.widget.Toast.makeText(context, "No readable text detected", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }
+                            )
+
+                            if (isMotionPhoto) {
+                                DropdownMenuItem(
+                                    text = { Text("Motion Photo Tools 🎞️") },
+                                    leadingIcon = { Icon(Icons.Default.MovieFilter, contentDescription = null) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        scope.launch {
+                                            val info = com.hrshd1eux.imava.core.util.MotionPhotoUtil.checkMotionPhoto(context, item.uri)
+                                            val file = com.hrshd1eux.imava.core.util.MotionPhotoUtil.extractMotionVideo(context, item.uri, info)
+                                            if (file != null) {
+                                                motionVideoFile = file
+                                                showMotionExportDialog = true
+                                            } else {
+                                                android.widget.Toast.makeText(context, "Motion video not available", android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+
+                            DropdownMenuItem(
                                 text = { Text("Print Photo 🖨️") },
                                 leadingIcon = { Icon(Icons.Default.Print, contentDescription = null) },
                                 onClick = {

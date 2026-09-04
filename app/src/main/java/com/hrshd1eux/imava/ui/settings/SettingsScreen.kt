@@ -349,14 +349,14 @@ fun SettingsScreen(
                         checked = appLockEnabled,
                         onCheckedChange = { enabled ->
                             val act = context as? androidx.fragment.app.FragmentActivity
-                            if (enabled && act != null) {
+                            if (act != null) {
                                 com.hrshd1eux.imava.core.util.BiometricAuthHelper.authenticate(
                                     activity = act,
-                                    title = "Enable App Lock",
-                                    subtitle = "Verify your identity to lock the app",
+                                    title = if (enabled) "Enable App Lock" else "Disable App Lock",
+                                    subtitle = if (enabled) "Verify your identity to lock the app" else "Verify your identity to disable app lock",
                                     onSuccess = {
-                                        com.hrshd1eux.imava.core.util.AppLockManager.setAppLockEnabled(context, true)
-                                        appLockEnabled = true
+                                        com.hrshd1eux.imava.core.util.AppLockManager.setAppLockEnabled(context, enabled)
+                                        appLockEnabled = enabled
                                         com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
                                     },
                                     onError = { err ->
@@ -364,8 +364,8 @@ fun SettingsScreen(
                                     }
                                 )
                             } else {
-                                com.hrshd1eux.imava.core.util.AppLockManager.setAppLockEnabled(context, false)
-                                appLockEnabled = false
+                                com.hrshd1eux.imava.core.util.AppLockManager.setAppLockEnabled(context, enabled)
+                                appLockEnabled = enabled
                             }
                         }
                     )

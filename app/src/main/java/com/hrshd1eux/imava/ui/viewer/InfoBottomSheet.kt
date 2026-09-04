@@ -48,6 +48,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.exifinterface.media.ExifInterface
 import com.hrshd1eux.imava.data.model.MediaItem
 import kotlinx.coroutines.Dispatchers
@@ -309,24 +314,39 @@ fun InfoBottomSheet(
                                 } catch (_: android.content.ActivityNotFoundException) {
                                 }
                             },
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1.2f)
                         ) {
                             Icon(imageVector = Icons.Default.LocationOn, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text("Open Maps")
                         }
 
                         androidx.compose.material3.OutlinedButton(
-                            onClick = { showRemoveGpsConfirm = true },
-                            modifier = Modifier.weight(1f)
+                            onClick = {
+                                newLatInput = info.latitude.toString()
+                                newLngInput = info.longitude.toString()
+                                showEditLocationDialog = true
+                            },
+                            modifier = Modifier.weight(0.9f)
                         ) {
-                            Text("Remove GPS")
+                            Text("Edit")
+                        }
+
+                        androidx.compose.material3.OutlinedButton(
+                            onClick = { showRemoveGpsConfirm = true },
+                            modifier = Modifier.weight(0.9f)
+                        ) {
+                            Text("Remove")
                         }
                     }
                 } else {
                     Spacer(modifier = Modifier.height(16.dp))
                     androidx.compose.material3.OutlinedButton(
-                        onClick = { showEditLocationDialog = true },
+                        onClick = {
+                            newLatInput = ""
+                            newLngInput = ""
+                            showEditLocationDialog = true
+                        },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(imageVector = Icons.Default.LocationOn, contentDescription = null)
@@ -416,34 +436,47 @@ fun InfoBottomSheet(
         }
 
         if (showEditLocationDialog) {
+            val latVal = newLatInput.toDoubleOrNull()
+            val lngVal = newLngInput.toDoubleOrNull()
+            val isValid = latVal != null && latVal in -90.0..90.0 && lngVal != null && lngVal in -180.0..180.0
+
             AlertDialog(
                 onDismissRequest = { showEditLocationDialog = false },
                 title = { Text("Add / Edit Location 📍") },
                 text = {
-                    Column {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                            .imePadding()
+                    ) {
                         OutlinedTextField(
                             value = newLatInput,
                             onValueChange = { newLatInput = it },
-                            label = { Text("Latitude (e.g. 37.7749)") },
+                            label = { Text("Latitude (-90 to 90)") },
+                            placeholder = { Text("e.g. 37.7749") },
                             singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.fillMaxWidth()
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         OutlinedTextField(
                             value = newLngInput,
                             onValueChange = { newLngInput = it },
-                            label = { Text("Longitude (e.g. -122.4194)") },
+                            label = { Text("Longitude (-180 to 180)") },
+                            placeholder = { Text("e.g. -122.4194") },
                             singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
                 },
                 confirmButton = {
                     Button(
-                        enabled = newLatInput.toDoubleOrNull() != null && newLngInput.toDoubleOrNull() != null,
+                        enabled = isValid,
                         onClick = {
-                            val lat = newLatInput.toDoubleOrNull() ?: return@Button
-                            val lng = newLngInput.toDoubleOrNull() ?: return@Button
+                            val lat = latVal ?: return@Button
+                            val lng = lngVal ?: return@Button
                             showEditLocationDialog = false
                             scope.launch {
                                 val success = com.hrshd1eux.imava.core.util.ExifLocationUtil.setGeotag(context, item.uri, item.path, lat, lng)

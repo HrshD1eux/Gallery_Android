@@ -371,6 +371,8 @@ fun MainScreenLayout(viewModel: MainViewModel) {
         } else if (viewModel.currentBucketId != null) {
             viewModel.selectBucket(null, null)
             viewModel.currentScreen = Screen.Albums
+        } else if (currentScreen == Screen.Map) {
+            viewModel.currentScreen = Screen.Albums
         } else if (currentScreen != Screen.Photos) {
             viewModel.currentScreen = Screen.Photos
         }

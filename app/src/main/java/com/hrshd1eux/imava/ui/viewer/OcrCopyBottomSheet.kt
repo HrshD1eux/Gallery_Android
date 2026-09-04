@@ -34,6 +34,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.hrshd1eux.imava.core.util.HapticUtil
 
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.IconButton
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OcrCopyBottomSheet(
@@ -50,8 +55,9 @@ fun OcrCopyBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .navigationBarsPadding()
                 .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp)
+                .padding(bottom = 24.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -62,9 +68,12 @@ fun OcrCopyBottomSheet(
                     text = "Recognized Text 📝",
                     style = MaterialTheme.typography.titleLarge
                 )
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = "Close")
+                }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -106,7 +115,7 @@ fun OcrCopyBottomSheet(
             SelectionContainer(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(280.dp)
+                    .heightIn(min = 60.dp, max = 340.dp)
                     .verticalScroll(rememberScrollState())
             ) {
                 Text(
