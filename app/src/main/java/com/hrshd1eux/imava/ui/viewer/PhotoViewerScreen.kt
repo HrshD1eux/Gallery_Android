@@ -74,6 +74,9 @@ import com.hrshd1eux.imava.core.util.FormatUtils
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Crop
+import androidx.compose.material.icons.filled.DocumentScanner
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.MovieFilter
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.DropdownMenu
@@ -202,6 +205,9 @@ fun PhotoViewerScreen(
     var isSlideshowActive by remember { mutableStateOf(false) }
     var showWallpaperDialog by remember { mutableStateOf(false) }
     var showCompressDialog by remember { mutableStateOf(false) }
+    var showMotionExportDialog by remember { mutableStateOf(false) }
+    var showOcrSheet by remember { mutableStateOf(false) }
+    var ocrRecognizedText by remember { mutableStateOf("") }
     var targetKbInput by remember { mutableStateOf("15") }
     var videoResizeMode by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
 
@@ -424,6 +430,59 @@ fun PhotoViewerScreen(
                         label = { Text(if (isPlayingMotionPhoto) "Playing ⏸️" else "Motion 🎞️", color = Color.White) },
                         modifier = Modifier.padding(end = 4.dp)
                     )
+
+                    IconButton(
+                        onClick = {
+                            scope.launch {
+                                val info = com.hrshd1eux.imava.core.util.MotionPhotoUtil.checkMotionPhoto(context, currentItem.uri)
+                                val file = com.hrshd1eux.imava.core.util.MotionPhotoUtil.extractMotionVideo(context, currentItem.uri, info)
+                                if (file != null) {
+                                    motionVideoFile = file
+                                    showMotionExportDialog = true
+                                } else {
+                                    android.widget.Toast.makeText(context, "Motion video not available", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    ) {
+                        Icon(imageVector = Icons.Default.MovieFilter, contentDescription = "Motion Tools", tint = Color.White)
+                    }
+                }
+
+                if (currentItem is com.hrshd1eux.imava.data.model.MediaItem.Photo) {
+                    IconButton(onClick = {
+                        scope.launch {
+                            android.widget.Toast.makeText(context, "Scanning image for text...", android.widget.Toast.LENGTH_SHORT).show()
+                            val result = com.hrshd1eux.imava.core.util.OcrHelper.recognizeTextFromUri(context, currentItem.uri)
+                            if (result != null && result.fullText.isNotBlank()) {
+                                ocrRecognizedText = result.fullText
+                                showOcrSheet = true
+                                viewModel.saveOcrText(currentItem.id, result.fullText)
+                            } else {
+                                android.widget.Toast.makeText(context, "No readable text detected", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }) {
+                        Icon(imageVector = Icons.Default.DocumentScanner, contentDescription = "Copy Text", tint = Color.White)
+                    }
+                }
+
+                if (currentItem is com.hrshd1eux.imava.data.model.MediaItem.Video) {
+                    IconButton(onClick = {
+                        scope.launch {
+                            android.widget.Toast.makeText(context, "Muting video losslessly...", android.widget.Toast.LENGTH_SHORT).show()
+                            val mutedUri = com.hrshd1eux.imava.core.util.VideoMuterUtil.muteVideo(context, currentItem.uri)
+                            if (mutedUri != null) {
+                                com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
+                                android.widget.Toast.makeText(context, "Muted video saved to Movies/Muted! 🔇", android.widget.Toast.LENGTH_LONG).show()
+                            } else {
+                                com.hrshd1eux.imava.core.util.HapticUtil.performError(context)
+                                android.widget.Toast.makeText(context, "Could not mute video", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }) {
+                        Icon(imageVector = Icons.Default.VolumeOff, contentDescription = "Mute Video", tint = Color.White)
+                    }
                 }
 
                 IconButton(onClick = { showInfoSheet = true }) {
@@ -559,6 +618,25 @@ fun PhotoViewerScreen(
                                 }
                             )
 
+                            DropdownMenuItem(
+                                text = { Text("Mute Audio & Save Copy 🔇") },
+                                leadingIcon = { Icon(Icons.Default.VolumeOff, contentDescription = null) },
+                                onClick = {
+                                    showMoreMenu = false
+                                    scope.launch {
+                                        android.widget.Toast.makeText(context, "Muting video losslessly...", android.widget.Toast.LENGTH_SHORT).show()
+                                        val mutedUri = com.hrshd1eux.imava.core.util.VideoMuterUtil.muteVideo(context, item.uri)
+                                        if (mutedUri != null) {
+                                            com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
+                                            android.widget.Toast.makeText(context, "Muted video saved to Movies/Muted! 🔇", android.widget.Toast.LENGTH_LONG).show()
+                                        } else {
+                                            com.hrshd1eux.imava.core.util.HapticUtil.performError(context)
+                                            android.widget.Toast.makeText(context, "Could not mute video", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }
+                            )
+
                             val aspectLabel = when (videoResizeMode) {
                                 AspectRatioFrameLayout.RESIZE_MODE_FIT -> "Aspect Ratio: Fit (Tap to Zoom)"
                                 AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> "Aspect Ratio: Zoom (Tap to Fill)"
@@ -587,6 +665,45 @@ fun PhotoViewerScreen(
                                     showCompressDialog = true
                                 }
                             )
+
+                            DropdownMenuItem(
+                                text = { Text("Copy Text from Image 📝") },
+                                leadingIcon = { Icon(Icons.Default.DocumentScanner, contentDescription = null) },
+                                onClick = {
+                                    showMoreMenu = false
+                                    scope.launch {
+                                        android.widget.Toast.makeText(context, "Scanning image for text...", android.widget.Toast.LENGTH_SHORT).show()
+                                        val result = com.hrshd1eux.imava.core.util.OcrHelper.recognizeTextFromUri(context, item.uri)
+                                        if (result != null && result.fullText.isNotBlank()) {
+                                            ocrRecognizedText = result.fullText
+                                            showOcrSheet = true
+                                            viewModel.saveOcrText(item.id, result.fullText)
+                                        } else {
+                                            android.widget.Toast.makeText(context, "No readable text detected", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }
+                            )
+
+                            if (isMotionPhoto) {
+                                DropdownMenuItem(
+                                    text = { Text("Motion Photo Tools (Scrub/GIF) 🎞️") },
+                                    leadingIcon = { Icon(Icons.Default.MovieFilter, contentDescription = null) },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        scope.launch {
+                                            val info = com.hrshd1eux.imava.core.util.MotionPhotoUtil.checkMotionPhoto(context, item.uri)
+                                            val file = com.hrshd1eux.imava.core.util.MotionPhotoUtil.extractMotionVideo(context, item.uri, info)
+                                            if (file != null) {
+                                                motionVideoFile = file
+                                                showMotionExportDialog = true
+                                            } else {
+                                                android.widget.Toast.makeText(context, "Motion video not available", android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
+                                )
+                            }
 
                             if (item.mimeType.contains("gif", ignoreCase = true) || item.mimeType.contains("webp", ignoreCase = true)) {
                                 DropdownMenuItem(
@@ -1485,6 +1602,22 @@ fun PhotoViewerScreen(
                     onSuccess = { viewModel.refreshAll() }
                 )
             }
+        }
+
+        if (showMotionExportDialog && motionVideoFile != null) {
+            val baseName = java.io.File(currentItem.path).nameWithoutExtension.ifEmpty { "motion_photo" }
+            MotionPhotoExportDialog(
+                videoFile = motionVideoFile!!,
+                baseName = baseName,
+                onDismiss = { showMotionExportDialog = false }
+            )
+        }
+
+        if (showOcrSheet && ocrRecognizedText.isNotBlank()) {
+            OcrCopyBottomSheet(
+                recognizedText = ocrRecognizedText,
+                onDismiss = { showOcrSheet = false }
+            )
         }
     }
 }

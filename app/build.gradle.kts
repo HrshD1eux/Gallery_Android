@@ -141,6 +141,9 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.ui)
 
+    // ML Kit OCR (Play Services Unbundled ~350KB)
+    implementation(libs.play.services.mlkit.text.recognition)
+
     // Testing
     testImplementation(libs.junit)
     testImplementation("io.mockk:mockk:1.13.9")

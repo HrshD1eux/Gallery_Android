@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.exifinterface.media.ExifInterface
 import com.hrshd1eux.imava.data.model.MediaItem
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
@@ -86,6 +87,11 @@ fun InfoBottomSheet(
     var tagsList by remember(item.id, item.tags) { mutableStateOf(item.tags) }
     var showAddTagDialog by remember { mutableStateOf(false) }
     var newTagInput by remember { mutableStateOf("") }
+    var showEditLocationDialog by remember { mutableStateOf(false) }
+    var newLatInput by remember { mutableStateOf("") }
+    var newLngInput by remember { mutableStateOf("") }
+    var showRemoveGpsConfirm by remember { mutableStateOf(false) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
 
     LaunchedEffect(item) {
         withContext(Dispatchers.IO) {
@@ -291,9 +297,9 @@ fun InfoBottomSheet(
                         subtitle = "GPS coordinates: ${info.location}"
                     )
 
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
-                    Row(modifier = Modifier.fillMaxWidth()) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
                             onClick = {
                                 val mapIntent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:${info.latitude},${info.longitude}?q=${info.latitude},${info.longitude}(Photo Location)"))
@@ -307,11 +313,27 @@ fun InfoBottomSheet(
                         ) {
                             Icon(imageVector = Icons.Default.LocationOn, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Open in Maps")
+                            Text("Open Maps")
+                        }
+
+                        androidx.compose.material3.OutlinedButton(
+                            onClick = { showRemoveGpsConfirm = true },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Remove GPS")
                         }
                     }
                 } else {
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
+                    androidx.compose.material3.OutlinedButton(
+                        onClick = { showEditLocationDialog = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(imageVector = Icons.Default.LocationOn, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Add Location / GPS Tag 📍")
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
             } ?: Text(
                 text = "Loading metadata...",
@@ -356,6 +378,89 @@ fun InfoBottomSheet(
                 },
                 dismissButton = {
                     TextButton(onClick = { showAddTagDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        if (showRemoveGpsConfirm) {
+            AlertDialog(
+                onDismissRequest = { showRemoveGpsConfirm = false },
+                title = { Text("Remove GPS Geotag?") },
+                text = { Text("This will permanently scrub latitude, longitude, and altitude EXIF tags from this photo for privacy.") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showRemoveGpsConfirm = false
+                            scope.launch {
+                                val success = com.hrshd1eux.imava.core.util.ExifLocationUtil.removeGeotag(context, item.uri, item.path)
+                                if (success) {
+                                    details = withContext(Dispatchers.IO) { readExifDetails(context, item) }
+                                    android.widget.Toast.makeText(context, "GPS geotag removed! 🗑️", android.widget.Toast.LENGTH_SHORT).show()
+                                } else {
+                                    android.widget.Toast.makeText(context, "Failed to remove GPS tags", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    ) {
+                        Text("Remove")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showRemoveGpsConfirm = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        if (showEditLocationDialog) {
+            AlertDialog(
+                onDismissRequest = { showEditLocationDialog = false },
+                title = { Text("Add / Edit Location 📍") },
+                text = {
+                    Column {
+                        OutlinedTextField(
+                            value = newLatInput,
+                            onValueChange = { newLatInput = it },
+                            label = { Text("Latitude (e.g. 37.7749)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        OutlinedTextField(
+                            value = newLngInput,
+                            onValueChange = { newLngInput = it },
+                            label = { Text("Longitude (e.g. -122.4194)") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        enabled = newLatInput.toDoubleOrNull() != null && newLngInput.toDoubleOrNull() != null,
+                        onClick = {
+                            val lat = newLatInput.toDoubleOrNull() ?: return@Button
+                            val lng = newLngInput.toDoubleOrNull() ?: return@Button
+                            showEditLocationDialog = false
+                            scope.launch {
+                                val success = com.hrshd1eux.imava.core.util.ExifLocationUtil.setGeotag(context, item.uri, item.path, lat, lng)
+                                if (success) {
+                                    details = withContext(Dispatchers.IO) { readExifDetails(context, item) }
+                                    android.widget.Toast.makeText(context, "Location updated! 📍", android.widget.Toast.LENGTH_SHORT).show()
+                                } else {
+                                    android.widget.Toast.makeText(context, "Failed to update location", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    ) {
+                        Text("Save")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showEditLocationDialog = false }) {
                         Text("Cancel")
                     }
                 }

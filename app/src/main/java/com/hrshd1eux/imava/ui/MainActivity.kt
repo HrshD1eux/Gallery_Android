@@ -187,7 +187,9 @@ class MainActivity : FragmentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    if (hasPermissions) {
+                    if (isAppLockedState.value) {
+                        com.hrshd1eux.imava.ui.common.AppLockScreen(onUnlockClick = { promptAppUnlock() })
+                    } else if (hasPermissions) {
                         MainScreenLayout(viewModel)
                         
                         val editingItem = viewModel.editingMediaItem
@@ -210,13 +212,42 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    private var isAppLockedState = mutableStateOf(false)
+
+    private fun promptAppUnlock() {
+        com.hrshd1eux.imava.core.util.BiometricAuthHelper.authenticate(
+            activity = this,
+            title = "Imava is Locked",
+            subtitle = "Authenticate to access gallery",
+            onSuccess = {
+                com.hrshd1eux.imava.core.util.AppLockManager.markAppUnlocked()
+                isAppLockedState.value = false
+            },
+            onError = {
+                // Keep locked
+            }
+        )
+    }
+
     override fun onResume() {
         super.onResume()
+        com.hrshd1eux.imava.core.util.AppLockManager.onAppResume()
+        if (com.hrshd1eux.imava.core.util.AppLockManager.isAppLockEnabled(this) &&
+            !com.hrshd1eux.imava.core.util.AppLockManager.isAppUnlockedForSession()
+        ) {
+            isAppLockedState.value = true
+            promptAppUnlock()
+        }
         viewModel.onAppForegrounded(this)
         checkPermissions()
         if (hasPermissionsState.value) {
             viewModel.refreshAll()
         }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        com.hrshd1eux.imava.core.util.AppLockManager.onAppPause()
     }
 
     override fun onStop() {
@@ -379,6 +410,7 @@ fun MainScreenLayout(viewModel: MainViewModel) {
             slideshowItems != null ||
             showStorageDoctor ||
             currentScreen == Screen.DuplicateFinder ||
+            currentScreen == Screen.Map ||
             currentScreen == Screen.Search
 
     Scaffold(
@@ -809,7 +841,8 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                         Screen.Photos -> TimelineScreen(viewModel = viewModel)
                         Screen.Albums -> AlbumsScreen(
                             viewModel = viewModel,
-                            onStorageDoctorClick = { showStorageDoctor = true }
+                            onStorageDoctorClick = { showStorageDoctor = true },
+                            onMapExplorerClick = { viewModel.currentScreen = Screen.Map }
                         )
                         Screen.Settings -> com.hrshd1eux.imava.ui.settings.SettingsScreen(viewModel = viewModel)
                         else -> TimelineScreen(viewModel = viewModel)
@@ -833,6 +866,24 @@ fun MainScreenLayout(viewModel: MainViewModel) {
                 com.hrshd1eux.imava.ui.search.DuplicateFinderScreen(
                     viewModel = viewModel,
                     onBackClick = { viewModel.currentScreen = Screen.Albums }
+                )
+            }
+
+            AnimatedVisibility(
+                visible = currentScreen == Screen.Map,
+                enter = fadeIn() + scaleIn(initialScale = 0.95f),
+                exit = fadeOut() + scaleOut(targetScale = 0.95f)
+            ) {
+                val allMedia by viewModel.visibleMediaItems.collectAsState()
+                com.hrshd1eux.imava.ui.map.MapExplorerScreen(
+                    mediaItems = allMedia,
+                    onBack = { viewModel.currentScreen = Screen.Albums },
+                    onPhotoClick = { mediaId ->
+                        val item = allMedia.find { it.id == mediaId }
+                        if (item != null) {
+                            viewModel.activeMediaItem = item
+                        }
+                    }
                 )
             }
 

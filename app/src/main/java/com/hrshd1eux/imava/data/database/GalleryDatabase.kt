@@ -6,7 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.hrshd1eux.imava.core.di.DatabaseModule
 
-@Database(entities = [MediaMetadataEntity::class], version = 4, exportSchema = true)
+@Database(entities = [MediaMetadataEntity::class, OcrTextEntity::class], version = 5, exportSchema = true)
 abstract class GalleryDatabase : RoomDatabase() {
     abstract fun metadataDao(): MetadataDao
 
@@ -21,7 +21,7 @@ abstract class GalleryDatabase : RoomDatabase() {
                     GalleryDatabase::class.java,
                     "private_gallery.db"
                 )
-                .addMigrations(DatabaseModule.MIGRATION_2_3, DatabaseModule.MIGRATION_3_4)
+                .addMigrations(DatabaseModule.MIGRATION_2_3, DatabaseModule.MIGRATION_3_4, DatabaseModule.MIGRATION_4_5)
                 .fallbackToDestructiveMigration()
                 .build()
                 .also { INSTANCE = it }

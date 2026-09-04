@@ -602,19 +602,21 @@ class MediaRepositoryImpl @Inject constructor(
         val rawResults = mediaStoreDataSource.searchMedia(cleanQuery)
         val tagMatchedEntities = metadataDao.getMetadataByTag(cleanQuery)
         val tagMatchedIds = tagMatchedEntities.map { it.mediaId }.toSet()
+        val ocrMatchedIds = try {
+            metadataDao.searchMediaIdsByOcr(cleanQuery).toSet()
+        } catch (_: Exception) {
+            emptySet()
+        }
 
-        val allIds = (rawResults.map { it.id } + tagMatchedIds).toList()
+        val allIds = (rawResults.map { it.id } + tagMatchedIds + ocrMatchedIds).toList()
         if (allIds.isEmpty()) return@withContext emptyList()
 
         val metadataList = getMetadataForMediaIdsChunked(allIds)
         val metadataMap = metadataList.associateBy { it.mediaId }
 
-        val extraItems = if (tagMatchedIds.isNotEmpty()) {
-            val existingIds = rawResults.map { it.id }.toSet()
-            val missingIds = tagMatchedIds - existingIds
-            if (missingIds.isNotEmpty()) {
-                mediaStoreDataSource.fetchMediaByIds(missingIds)
-            } else emptyList<MediaItem>()
+        val extraIds = (tagMatchedIds + ocrMatchedIds) - rawResults.map { it.id }.toSet()
+        val extraItems = if (extraIds.isNotEmpty()) {
+            mediaStoreDataSource.fetchMediaByIds(extraIds)
         } else emptyList<MediaItem>()
 
         (rawResults + extraItems).distinctBy { it.id }.map { item ->
@@ -1013,5 +1015,28 @@ class MediaRepositoryImpl @Inject constructor(
             if (success) count++
         }
         Result.success(count)
+    }
+
+    override suspend fun saveOcrText(mediaId: Long, text: String) = withContext(Dispatchers.IO) {
+        try {
+            metadataDao.insertOcrText(com.hrshd1eux.imava.data.database.OcrTextEntity(mediaId, text))
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    override suspend fun searchByOcr(query: String): List<MediaItem> = withContext(Dispatchers.IO) {
+        try {
+            val matchingIds = metadataDao.searchMediaIdsByOcr(query)
+            if (matchingIds.isEmpty()) return@withContext emptyList()
+            val mediaItems = mediaStoreDataSource.fetchMediaByIds(matchingIds.toSet())
+            val metadataList = getMetadataForMediaIdsChunked(matchingIds)
+            val metadataMap = metadataList.associateBy { it.mediaId }
+            mediaItems.map { applyMetadata(it, metadataMap[it.id]) }
+                .filter { !it.isHidden && !it.isTrashed }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
     }
 }

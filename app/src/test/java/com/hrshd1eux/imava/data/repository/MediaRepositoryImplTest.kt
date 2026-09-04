@@ -114,6 +114,20 @@ class MediaRepositoryImplTest {
             val cur = dbMap[mediaId] ?: MediaMetadataEntity(mediaId = mediaId)
             dbMap[mediaId] = cur.copy(tags = tags)
         }
+
+        val ocrMap = mutableMapOf<Long, String>()
+
+        override suspend fun insertOcrText(entity: com.hrshd1eux.imava.data.database.OcrTextEntity) {
+            ocrMap[entity.mediaId] = entity.ocrText
+        }
+
+        override suspend fun getOcrText(mediaId: Long): String? {
+            return ocrMap[mediaId]
+        }
+
+        override suspend fun searchMediaIdsByOcr(query: String): List<Long> {
+            return ocrMap.filter { it.value.contains(query, ignoreCase = true) }.keys.toList()
+        }
     }
 
     @Test
@@ -611,5 +625,43 @@ class MediaRepositoryImplTest {
         } finally {
             unmockkStatic(android.media.MediaScannerConnection::class)
         }
+    }
+
+    @Test
+    fun testSaveAndRetrieveOcrText() = runBlocking {
+        val fakeDao = FakeMetadataDao()
+        val mockContext = mockk<Context>(relaxed = true)
+        val repository = MediaRepositoryImpl(
+            context = mockContext,
+            mediaStoreDataSource = MediaStoreDataSource(mockContext),
+            metadataDao = fakeDao
+        )
+
+        repository.saveOcrText(42L, "Invoice total: $150.00")
+        val retrieved = fakeDao.getOcrText(42L)
+        assertEquals("Invoice total: $150.00", retrieved)
+    }
+
+    @Test
+    fun testSearchMediaIdsByOcr() = runBlocking {
+        val fakeDao = FakeMetadataDao()
+        val mockContext = mockk<Context>(relaxed = true)
+        val repository = MediaRepositoryImpl(
+            context = mockContext,
+            mediaStoreDataSource = MediaStoreDataSource(mockContext),
+            metadataDao = fakeDao
+        )
+
+        repository.saveOcrText(10L, "Receipt from Walmart store #1234")
+        repository.saveOcrText(20L, "Flight boarding pass JFK to LHR")
+        repository.saveOcrText(30L, "Walmart grocery receipt apples and milk")
+
+        val walmartIds = fakeDao.searchMediaIdsByOcr("Walmart")
+        assertEquals(2, walmartIds.size)
+        assertTrue(walmartIds.contains(10L))
+        assertTrue(walmartIds.contains(30L))
+
+        val flightIds = fakeDao.searchMediaIdsByOcr("LHR")
+        assertEquals(listOf(20L), flightIds)
     }
 }

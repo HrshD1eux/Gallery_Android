@@ -65,4 +65,13 @@ interface MetadataDao {
 
     @Query("UPDATE media_metadata SET tags = :tags WHERE mediaId = :mediaId")
     suspend fun updateTags(mediaId: Long, tags: String)
+
+    @androidx.room.Insert(onConflict = androidx.room.OnConflictStrategy.REPLACE)
+    suspend fun insertOcrText(entity: OcrTextEntity)
+
+    @Query("SELECT ocrText FROM media_ocr WHERE mediaId = :mediaId")
+    suspend fun getOcrText(mediaId: Long): String?
+
+    @Query("SELECT mediaId FROM media_ocr WHERE ocrText LIKE '%' || :query || '%'")
+    suspend fun searchMediaIdsByOcr(query: String): List<Long>
 }

@@ -323,6 +323,53 @@ fun SettingsScreen(
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }
+
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+
+                var appLockEnabled by remember { mutableStateOf(com.hrshd1eux.imava.core.util.AppLockManager.isAppLockEnabled(context)) }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "App Lock (Biometric / PIN) 🔒",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            text = "Require fingerprint, face, or device PIN every time Imava is opened",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = appLockEnabled,
+                        onCheckedChange = { enabled ->
+                            val act = context as? androidx.fragment.app.FragmentActivity
+                            if (enabled && act != null) {
+                                com.hrshd1eux.imava.core.util.BiometricAuthHelper.authenticate(
+                                    activity = act,
+                                    title = "Enable App Lock",
+                                    subtitle = "Verify your identity to lock the app",
+                                    onSuccess = {
+                                        com.hrshd1eux.imava.core.util.AppLockManager.setAppLockEnabled(context, true)
+                                        appLockEnabled = true
+                                        com.hrshd1eux.imava.core.util.HapticUtil.performSuccess(context)
+                                    },
+                                    onError = { err ->
+                                        android.widget.Toast.makeText(context, err, android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                            } else {
+                                com.hrshd1eux.imava.core.util.AppLockManager.setAppLockEnabled(context, false)
+                                appLockEnabled = false
+                            }
+                        }
+                    )
+                }
             }
 
             if (showManageExcludedDialog) {

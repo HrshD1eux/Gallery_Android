@@ -185,6 +185,16 @@ class MainViewModel @Inject constructor(
         set(value) {
             _currentBucketIdState.value = value
             savedStateHandle["current_bucket_id"] = value
+            val targetOrder = if (value != null) {
+                val albumOrder = prefs.getString("album_sort_order_$value", null)
+                if (albumOrder != null) {
+                    try { SortOrder.valueOf(albumOrder) } catch (_: Exception) { null }
+                } else null
+            } else null
+            val globalOrder = try {
+                SortOrder.valueOf(prefs.getString("sort_order", SortOrder.NEWEST_FIRST.name) ?: SortOrder.NEWEST_FIRST.name)
+            } catch (_: Exception) { SortOrder.NEWEST_FIRST }
+            _sortOrderState.value = targetOrder ?: globalOrder
         }
 
     private var _currentBucketNameState = mutableStateOf(savedStateHandle.get<String>("current_bucket_name"))
@@ -494,10 +504,24 @@ class MainViewModel @Inject constructor(
         } catch (_: Exception) { SortOrder.NEWEST_FIRST }
     )
     var sortOrder: SortOrder
-        get() = _sortOrderState.value
+        get() {
+            val bId = currentBucketId
+            if (bId != null) {
+                val albumOrderName = prefs.getString("album_sort_order_$bId", null)
+                if (albumOrderName != null) {
+                    try { return SortOrder.valueOf(albumOrderName) } catch (_: Exception) {}
+                }
+            }
+            return _sortOrderState.value
+        }
         set(value) {
             _sortOrderState.value = value
-            prefs.edit().putString("sort_order", value.name).apply()
+            val bId = currentBucketId
+            if (bId != null) {
+                prefs.edit().putString("album_sort_order_$bId", value.name).apply()
+            } else {
+                prefs.edit().putString("sort_order", value.name).apply()
+            }
             refreshTrigger.value++
         }
 
@@ -1235,6 +1259,12 @@ class MainViewModel @Inject constructor(
         }
     }
 
+    fun saveOcrText(mediaId: Long, text: String) {
+        viewModelScope.launch {
+            repository.saveOcrText(mediaId, text)
+        }
+    }
+
     fun emptyTrash(context: Context) {
         viewModelScope.launch {
             val trashedItems = trashed.value
@@ -1739,7 +1769,7 @@ class MainViewModel @Inject constructor(
 }
 
 enum class Screen {
-    Photos, Albums, Search, Settings, DuplicateFinder
+    Photos, Albums, Search, Settings, DuplicateFinder, Map
 }
 
 enum class SortOrder {

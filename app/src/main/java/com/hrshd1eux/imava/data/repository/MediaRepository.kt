@@ -48,5 +48,7 @@ interface MediaRepository {
     suspend fun moveOrCopyMedia(context: android.content.Context, items: List<MediaItem>, targetDirectory: java.io.File, isCopy: Boolean): Result<MoveCopyResult>
     suspend fun shiftMediaTimestamps(context: android.content.Context, items: List<MediaItem>, offsetMillis: Long, exactTimestamp: Long? = null): Result<Int>
     suspend fun updateMediaTags(mediaId: Long, tags: List<String>)
+    suspend fun saveOcrText(mediaId: Long, text: String)
+    suspend fun searchByOcr(query: String): List<MediaItem>
     fun observeMediaChanges(): Flow<Unit>
 }

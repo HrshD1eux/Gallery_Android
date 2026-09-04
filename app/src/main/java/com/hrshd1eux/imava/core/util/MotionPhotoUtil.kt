@@ -242,4 +242,171 @@ object MotionPhotoUtil {
             }
         }
     }
+
+    suspend fun getVideoDurationUs(videoFile: File): Long = withContext(Dispatchers.IO) {
+        val retriever = android.media.MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(videoFile.absolutePath)
+            val durStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
+            (durStr?.toLongOrNull() ?: 0L) * 1000L
+        } catch (_: Exception) {
+            0L
+        } finally {
+            try { retriever.release() } catch (_: Exception) {}
+        }
+    }
+
+    suspend fun extractFrameAt(videoFile: File, timeUs: Long): android.graphics.Bitmap? = withContext(Dispatchers.IO) {
+        val retriever = android.media.MediaMetadataRetriever()
+        try {
+            retriever.setDataSource(videoFile.absolutePath)
+            retriever.getFrameAtTime(timeUs, android.media.MediaMetadataRetriever.OPTION_CLOSEST)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        } finally {
+            try { retriever.release() } catch (_: Exception) {}
+        }
+    }
+
+    suspend fun saveExtractedFrame(context: Context, bitmap: android.graphics.Bitmap, baseName: String): Uri? = withContext(Dispatchers.IO) {
+        try {
+            val fileName = "${baseName}_frame_${System.currentTimeMillis()}.jpg"
+            val resolver = context.contentResolver
+            val values = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                put(android.provider.MediaStore.Images.Media.DATE_ADDED, System.currentTimeMillis() / 1000L)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "${android.os.Environment.DIRECTORY_PICTURES}/MotionPhotos")
+                    put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
+                }
+            }
+            val uri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return@withContext null
+            resolver.openOutputStream(uri)?.use { out ->
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, out)
+            }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                values.clear()
+                values.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0)
+                resolver.update(uri, values, null, null)
+            }
+            uri
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    suspend fun exportMotionVideo(context: Context, videoFile: File, baseName: String): Uri? = withContext(Dispatchers.IO) {
+        try {
+            val fileName = "${baseName}_clip_${System.currentTimeMillis()}.mp4"
+            val resolver = context.contentResolver
+            val values = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.Video.Media.DISPLAY_NAME, fileName)
+                put(android.provider.MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+                put(android.provider.MediaStore.Video.Media.DATE_ADDED, System.currentTimeMillis() / 1000L)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    put(android.provider.MediaStore.Video.Media.RELATIVE_PATH, "${android.os.Environment.DIRECTORY_MOVIES}/MotionPhotos")
+                    put(android.provider.MediaStore.Video.Media.IS_PENDING, 1)
+                }
+            }
+            val uri = resolver.insert(android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values) ?: return@withContext null
+            resolver.openOutputStream(uri)?.use { out ->
+                java.io.FileInputStream(videoFile).use { input ->
+                    input.copyTo(out)
+                }
+            }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                values.clear()
+                values.put(android.provider.MediaStore.Video.Media.IS_PENDING, 0)
+                resolver.update(uri, values, null, null)
+            }
+            uri
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    suspend fun exportMotionToGif(context: Context, videoFile: File, baseName: String, fps: Int = 10): Uri? = withContext(Dispatchers.IO) {
+        val retriever = android.media.MediaMetadataRetriever()
+        val tempGifFile = File(context.cacheDir, "temp_${System.currentTimeMillis()}.gif")
+        try {
+            retriever.setDataSource(videoFile.absolutePath)
+            val durStr = retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
+            val durationMs = durStr?.toLongOrNull() ?: 2000L
+            val totalFrames = ((durationMs / 1000f) * fps).toInt().coerceIn(6, 40)
+            val intervalUs = (durationMs * 1000L) / totalFrames
+
+            val encoder = GifEncoder()
+            val fos = java.io.FileOutputStream(tempGifFile)
+            encoder.setDelay(1000 / fps)
+            encoder.setRepeat(0)
+            encoder.start(fos)
+
+            for (i in 0 until totalFrames) {
+                val timeUs = i * intervalUs
+                val rawBitmap = retriever.getFrameAtTime(timeUs, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                if (rawBitmap != null) {
+                    // Scale down to max 640px wide for optimal GIF performance and file size
+                    val maxDim = 640
+                    val scale = if (rawBitmap.width > maxDim || rawBitmap.height > maxDim) {
+                        maxDim.toFloat() / maxOf(rawBitmap.width, rawBitmap.height)
+                    } else {
+                        1f
+                    }
+                    val scaled = if (scale < 1f) {
+                        android.graphics.Bitmap.createScaledBitmap(
+                            rawBitmap,
+                            (rawBitmap.width * scale).toInt(),
+                            (rawBitmap.height * scale).toInt(),
+                            true
+                        )
+                    } else {
+                        rawBitmap
+                    }
+                    encoder.addFrame(scaled)
+                    if (scaled != rawBitmap) scaled.recycle()
+                    rawBitmap.recycle()
+                }
+            }
+            encoder.finish()
+            fos.close()
+
+            // Save GIF to MediaStore
+            val fileName = "${baseName}_motion_${System.currentTimeMillis()}.gif"
+            val resolver = context.contentResolver
+            val values = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/gif")
+                put(android.provider.MediaStore.Images.Media.DATE_ADDED, System.currentTimeMillis() / 1000L)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "${android.os.Environment.DIRECTORY_PICTURES}/MotionPhotos")
+                    put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
+                }
+            }
+            val uri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            if (uri != null) {
+                resolver.openOutputStream(uri)?.use { out ->
+                    java.io.FileInputStream(tempGifFile).use { input ->
+                        input.copyTo(out)
+                    }
+                }
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    values.clear()
+                    values.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0)
+                    resolver.update(uri, values, null, null)
+                }
+            }
+            tempGifFile.delete()
+            uri
+        } catch (e: Exception) {
+            e.printStackTrace()
+            if (tempGifFile.exists()) tempGifFile.delete()
+            null
+        } finally {
+            try { retriever.release() } catch (_: Exception) {}
+        }
+    }
 }

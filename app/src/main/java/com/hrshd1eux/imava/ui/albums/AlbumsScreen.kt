@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
@@ -76,7 +77,8 @@ import com.hrshd1eux.imava.ui.MainViewModel
 fun AlbumsScreen(
     viewModel: MainViewModel,
     modifier: Modifier = Modifier,
-    onStorageDoctorClick: () -> Unit = {}
+    onStorageDoctorClick: () -> Unit = {},
+    onMapExplorerClick: () -> Unit = {}
 ) {
     val favorites by viewModel.favorites.collectAsState()
     val trashed by viewModel.trashed.collectAsState()
@@ -111,6 +113,30 @@ fun AlbumsScreen(
     }
     val unpinnedBuckets = remember(visibleBuckets, pinnedBucketIds) {
         visibleBuckets.filter { !pinnedBucketIds.contains(it.id.toString()) }
+    }
+
+    val openBucket: (BucketInfo) -> Unit = { bucket ->
+        if (com.hrshd1eux.imava.core.util.AppLockManager.isAlbumLocked(context, bucket.id)) {
+            val act = context as? androidx.fragment.app.FragmentActivity
+            if (act != null) {
+                com.hrshd1eux.imava.core.util.BiometricAuthHelper.authenticate(
+                    activity = act,
+                    title = "Locked Album",
+                    subtitle = "Authenticate to open ${bucket.name}",
+                    onSuccess = {
+                        com.hrshd1eux.imava.core.util.AppLockManager.markAlbumUnlockedForSession(bucket.id)
+                        viewModel.selectBucket(bucket.id, bucket.name)
+                    },
+                    onError = { err ->
+                        android.widget.Toast.makeText(context, "Album locked: $err", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                )
+            } else {
+                viewModel.selectBucket(bucket.id, bucket.name)
+            }
+        } else {
+            viewModel.selectBucket(bucket.id, bucket.name)
+        }
     }
 
     val vaultPrefs = remember(context) { context.getSharedPreferences("vault_prefs", Context.MODE_PRIVATE) }
@@ -372,6 +398,16 @@ fun AlbumsScreen(
             }
 
             item {
+                AlbumRowItem(
+                    icon = Icons.Default.Map,
+                    title = "Photo Map 🗺️",
+                    count = 0,
+                    subtitle = "Explore photos plotted geographically",
+                    onClick = onMapExplorerClick
+                )
+            }
+
+            item {
                 Spacer(modifier = Modifier.height(16.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
                 Spacer(modifier = Modifier.height(12.dp))
@@ -500,7 +536,7 @@ fun AlbumsScreen(
                             coverUri = coverUri,
                             title = "${bucket.name} 📌",
                             count = bucket.count,
-                            onClick = { viewModel.selectBucket(bucket.id, bucket.name) },
+                            onClick = { openBucket(bucket) },
                             onLongClick = { viewModel.togglePinBucket(bucket.id) }
                         )
                     }
@@ -522,7 +558,7 @@ fun AlbumsScreen(
                                         bucket = bucket,
                                         coverUri = coverUri,
                                         isPinned = true,
-                                        onClick = { viewModel.selectBucket(bucket.id, bucket.name) },
+                                        onClick = { openBucket(bucket) },
                                         onLongClick = { viewModel.togglePinBucket(bucket.id) },
                                         layoutMode = albumLayoutMode
                                     )
@@ -559,7 +595,7 @@ fun AlbumsScreen(
                             coverUri = coverUri,
                             title = bucket.name,
                             count = bucket.count,
-                            onClick = { viewModel.selectBucket(bucket.id, bucket.name) },
+                            onClick = { openBucket(bucket) },
                             onLongClick = { activeOptionsBucket = bucket }
                         )
                     }
@@ -581,7 +617,7 @@ fun AlbumsScreen(
                                         bucket = bucket,
                                         coverUri = coverUri,
                                         isPinned = false,
-                                        onClick = { viewModel.selectBucket(bucket.id, bucket.name) },
+                                        onClick = { openBucket(bucket) },
                                         onLongClick = { activeOptionsBucket = bucket },
                                         layoutMode = albumLayoutMode
                                     )
@@ -632,6 +668,59 @@ fun AlbumsScreen(
                                 Icon(Icons.Default.LockOpen, contentDescription = null)
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Text("Exclude / Hide Album 🚫")
+                            }
+                        }
+
+                        val isAlbumLockedConfigured = com.hrshd1eux.imava.core.util.AppLockManager.isAlbumConfiguredLocked(context, bucket.id)
+                        TextButton(
+                            onClick = {
+                                val act = context as? androidx.fragment.app.FragmentActivity
+                                if (isAlbumLockedConfigured) {
+                                    if (act != null) {
+                                        com.hrshd1eux.imava.core.util.BiometricAuthHelper.authenticate(
+                                            activity = act,
+                                            title = "Unlock Album",
+                                            subtitle = "Verify biometric to unlock ${bucket.name}",
+                                            onSuccess = {
+                                                com.hrshd1eux.imava.core.util.AppLockManager.unlockAlbum(context, bucket.id)
+                                                activeOptionsBucket = null
+                                                android.widget.Toast.makeText(context, "Album unlocked", android.widget.Toast.LENGTH_SHORT).show()
+                                            },
+                                            onError = { err ->
+                                                android.widget.Toast.makeText(context, err, android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                        )
+                                    } else {
+                                        com.hrshd1eux.imava.core.util.AppLockManager.unlockAlbum(context, bucket.id)
+                                        activeOptionsBucket = null
+                                    }
+                                } else {
+                                    if (act != null) {
+                                        com.hrshd1eux.imava.core.util.BiometricAuthHelper.authenticate(
+                                            activity = act,
+                                            title = "Lock Album",
+                                            subtitle = "Verify biometric to lock ${bucket.name}",
+                                            onSuccess = {
+                                                com.hrshd1eux.imava.core.util.AppLockManager.lockAlbum(context, bucket.id)
+                                                activeOptionsBucket = null
+                                                android.widget.Toast.makeText(context, "Album locked with Biometrics 🔒", android.widget.Toast.LENGTH_SHORT).show()
+                                            },
+                                            onError = { err ->
+                                                android.widget.Toast.makeText(context, err, android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                        )
+                                    } else {
+                                        com.hrshd1eux.imava.core.util.AppLockManager.lockAlbum(context, bucket.id)
+                                        activeOptionsBucket = null
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                Icon(if (isAlbumLockedConfigured) Icons.Default.LockOpen else Icons.Default.Lock, contentDescription = null)
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(if (isAlbumLockedConfigured) "Unlock Album 🔓" else "Lock Album with Biometrics 🔒")
                             }
                         }
 
@@ -849,6 +938,22 @@ fun AlbumGridCard(
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Text("📌", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+
+                val isAlbumLocked = com.hrshd1eux.imava.core.util.AppLockManager.isAlbumConfiguredLocked(LocalContext.current, bucket.id)
+                if (isAlbumLocked) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        shape = CircleShape,
+                        modifier = Modifier
+                            .align(if (isPinned) Alignment.TopStart else Alignment.TopEnd)
+                            .padding(6.dp)
+                            .size(22.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(Icons.Default.Lock, contentDescription = "Locked", modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onErrorContainer)
                         }
                     }
                 }

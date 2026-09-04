@@ -34,6 +34,12 @@ object DatabaseModule {
         }
     }
 
+    val MIGRATION_4_5 = object : androidx.room.migration.Migration(4, 5) {
+        override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS media_ocr (mediaId INTEGER PRIMARY KEY NOT NULL, ocrText TEXT NOT NULL)")
+        }
+    }
+
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): GalleryDatabase {
