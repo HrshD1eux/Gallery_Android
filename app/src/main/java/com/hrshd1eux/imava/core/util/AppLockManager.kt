@@ -11,6 +11,8 @@ object AppLockManager {
     private const val PREFS_NAME = "imava_app_lock_prefs"
     private const val KEY_APP_LOCK_ENABLED = "app_lock_enabled"
     private const val KEY_LOCKED_BUCKETS = "locked_bucket_ids"
+    private const val KEY_LOCKED_NAMES = "locked_bucket_names"
+    private const val KEY_LOCKED_PATHS = "locked_folder_paths"
 
     private val _lockStateVersion = MutableStateFlow(0)
     val lockStateVersion: StateFlow<Int> = _lockStateVersion.asStateFlow()
@@ -65,28 +67,91 @@ object AppLockManager {
         lastBackgroundTimestamp = System.currentTimeMillis()
     }
 
-    fun isAlbumLocked(context: Context, bucketId: Long): Boolean {
+    fun isAlbumLocked(context: Context, bucketId: Long, bucketName: String? = null): Boolean {
         val lockedIds = getLockedBucketIds(context)
-        return bucketId in lockedIds && bucketId !in sessionUnlockedBuckets
+        val lockedNames = getLockedBucketNames(context)
+        val isConfigured = bucketId in lockedIds || (bucketName != null && bucketName.lowercase() in lockedNames)
+        return isConfigured && bucketId !in sessionUnlockedBuckets
     }
 
-    fun isAlbumConfiguredLocked(context: Context, bucketId: Long): Boolean {
-        return bucketId in getLockedBucketIds(context)
+    fun isAlbumConfiguredLocked(context: Context, bucketId: Long, bucketName: String? = null): Boolean {
+        val lockedIds = getLockedBucketIds(context)
+        val lockedNames = getLockedBucketNames(context)
+        return bucketId in lockedIds || (bucketName != null && bucketName.lowercase() in lockedNames)
     }
 
-    fun lockAlbum(context: Context, bucketId: Long) {
-        val current = getLockedBucketIds(context).toMutableSet()
-        current.add(bucketId)
+    fun isMediaItemLocked(context: Context, bucketId: Long, bucketName: String? = null): Boolean {
+        return isAlbumConfiguredLocked(context, bucketId, bucketName)
+    }
+
+    fun lockAlbum(context: Context, bucketId: Long, bucketName: String? = null, folderPath: String? = null) {
+        val currentIds = getLockedBucketIds(context).toMutableSet().apply { add(bucketId) }
+        saveLockedBucketIds(context, currentIds)
+
+        if (!bucketName.isNullOrBlank()) {
+            val currentNames = getLockedBucketNames(context).toMutableSet().apply { add(bucketName.trim().lowercase()) }
+            saveLockedBucketNames(context, currentNames)
+        }
+
+        if (!folderPath.isNullOrBlank()) {
+            val currentPaths = getLockedFolderPaths(context).toMutableSet().apply { add(folderPath) }
+            saveLockedFolderPaths(context, currentPaths)
+
+            // Create .nomedia in folder so Android system and other apps remove it from system media
+            try {
+                val dir = java.io.File(folderPath)
+                if (dir.exists() && dir.isDirectory) {
+                    val noMedia = java.io.File(dir, ".nomedia")
+                    if (!noMedia.exists()) {
+                        noMedia.createNewFile()
+                        android.media.MediaScannerConnection.scanFile(
+                            context,
+                            arrayOf(noMedia.absolutePath, dir.absolutePath),
+                            null,
+                            null
+                        )
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
         sessionUnlockedBuckets.remove(bucketId)
-        saveLockedBucketIds(context, current)
         notifyLockStateChanged()
     }
 
-    fun unlockAlbum(context: Context, bucketId: Long) {
-        val current = getLockedBucketIds(context).toMutableSet()
-        current.remove(bucketId)
+    fun unlockAlbum(context: Context, bucketId: Long, bucketName: String? = null, folderPath: String? = null) {
+        val currentIds = getLockedBucketIds(context).toMutableSet().apply { remove(bucketId) }
+        saveLockedBucketIds(context, currentIds)
+
+        if (!bucketName.isNullOrBlank()) {
+            val currentNames = getLockedBucketNames(context).toMutableSet().apply { remove(bucketName.trim().lowercase()) }
+            saveLockedBucketNames(context, currentNames)
+        }
+
+        val resolvedPath = folderPath ?: getLockedFolderPaths(context).find { it.endsWith(bucketName ?: "", ignoreCase = true) }
+        if (!resolvedPath.isNullOrBlank()) {
+            val currentPaths = getLockedFolderPaths(context).toMutableSet().apply { remove(resolvedPath) }
+            saveLockedFolderPaths(context, currentPaths)
+
+            // Remove .nomedia so system restores it
+            try {
+                val dir = java.io.File(resolvedPath)
+                if (dir.exists() && dir.isDirectory) {
+                    val noMedia = java.io.File(dir, ".nomedia")
+                    if (noMedia.exists()) {
+                        noMedia.delete()
+                        android.media.MediaScannerConnection.scanFile(
+                            context,
+                            arrayOf(noMedia.absolutePath, dir.absolutePath),
+                            null,
+                            null
+                        )
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
         sessionUnlockedBuckets.remove(bucketId)
-        saveLockedBucketIds(context, current)
         notifyLockStateChanged()
     }
 
@@ -105,9 +170,29 @@ object AppLockManager {
         return rawSet.mapNotNull { it.toLongOrNull() }.toSet()
     }
 
+    fun getLockedBucketNames(context: Context): Set<String> {
+        return getPrefs(context).getStringSet(KEY_LOCKED_NAMES, emptySet()) ?: emptySet()
+    }
+
+    fun getLockedFolderPaths(context: Context): Set<String> {
+        return getPrefs(context).getStringSet(KEY_LOCKED_PATHS, emptySet()) ?: emptySet()
+    }
+
     private fun saveLockedBucketIds(context: Context, ids: Set<Long>) {
         getPrefs(context).edit()
             .putStringSet(KEY_LOCKED_BUCKETS, ids.map { it.toString() }.toSet())
+            .apply()
+    }
+
+    private fun saveLockedBucketNames(context: Context, names: Set<String>) {
+        getPrefs(context).edit()
+            .putStringSet(KEY_LOCKED_NAMES, names)
+            .apply()
+    }
+
+    private fun saveLockedFolderPaths(context: Context, paths: Set<String>) {
+        getPrefs(context).edit()
+            .putStringSet(KEY_LOCKED_PATHS, paths)
             .apply()
     }
 }

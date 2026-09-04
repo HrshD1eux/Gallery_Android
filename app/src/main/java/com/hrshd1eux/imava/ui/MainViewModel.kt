@@ -397,8 +397,19 @@ class MainViewModel @Inject constructor(
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), StorageStats())
 
-    val videosCount: StateFlow<Int> = mediaItems.map { list ->
-        list.count { it is MediaItem.Video }
+    val videosCount: StateFlow<Int> = combine(
+        mediaItems,
+        _excludedBucketIds,
+        com.hrshd1eux.imava.core.util.AppLockManager.lockStateVersion
+    ) { list, excluded, _ ->
+        list.count {
+            it is MediaItem.Video && (
+                currentBucketId != null || (
+                    !excluded.contains(it.bucketId.toString()) &&
+                    !com.hrshd1eux.imava.core.util.AppLockManager.isMediaItemLocked(application, it.bucketId, it.bucketName)
+                )
+            )
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     val visibleMediaItems: StateFlow<List<MediaItem>> = combine(
@@ -409,15 +420,27 @@ class MainViewModel @Inject constructor(
         com.hrshd1eux.imava.core.util.AppLockManager.lockStateVersion
     ) { (raw, favs), (trash, vault), category, excluded, _ ->
         val list = when (category) {
-            "Favorites" -> favs.filter { currentBucketId != null || !com.hrshd1eux.imava.core.util.AppLockManager.isAlbumLocked(application, it.bucketId) }
+            "Favorites" -> favs.filter {
+                if (currentBucketId != null) it.bucketId == currentBucketId
+                else !com.hrshd1eux.imava.core.util.AppLockManager.isMediaItemLocked(application, it.bucketId, it.bucketName)
+            }
             "Trash" -> trash
             "Hidden Vault" -> if (isDecoyVault) emptyList() else vault
-            "Videos" -> raw.filterIsInstance<MediaItem.Video>().let {
-                if (currentBucketId != null) it
-                else it.filter { item -> !excluded.contains(item.bucketId.toString()) && !com.hrshd1eux.imava.core.util.AppLockManager.isAlbumLocked(application, item.bucketId) }
+            "Videos" -> raw.filterIsInstance<MediaItem.Video>().let { videos ->
+                if (currentBucketId != null) {
+                    if (com.hrshd1eux.imava.core.util.AppLockManager.isAlbumLocked(application, currentBucketId!!, currentBucketName)) emptyList()
+                    else videos
+                } else videos.filter { item ->
+                    !excluded.contains(item.bucketId.toString()) &&
+                    !com.hrshd1eux.imava.core.util.AppLockManager.isMediaItemLocked(application, item.bucketId, item.bucketName)
+                }
             }
-            else -> if (currentBucketId != null) raw else raw.filter {
-                !excluded.contains(it.bucketId.toString()) && !com.hrshd1eux.imava.core.util.AppLockManager.isAlbumLocked(application, it.bucketId)
+            else -> if (currentBucketId != null) {
+                if (com.hrshd1eux.imava.core.util.AppLockManager.isAlbumLocked(application, currentBucketId!!, currentBucketName)) emptyList()
+                else raw
+            } else raw.filter {
+                !excluded.contains(it.bucketId.toString()) &&
+                !com.hrshd1eux.imava.core.util.AppLockManager.isMediaItemLocked(application, it.bucketId, it.bucketName)
             }
         }
         if (sortOrder == SortOrder.OLDEST_FIRST) {
@@ -481,7 +504,7 @@ class MainViewModel @Inject constructor(
         } else {
             repository.searchMedia(query).filter { item ->
                 !excluded.contains(item.bucketId.toString()) &&
-                !com.hrshd1eux.imava.core.util.AppLockManager.isAlbumLocked(application, item.bucketId)
+                !com.hrshd1eux.imava.core.util.AppLockManager.isMediaItemLocked(application, item.bucketId, item.bucketName)
             }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -606,7 +629,10 @@ class MainViewModel @Inject constructor(
     ) { (bucketId, category), (mode, order), excluded, _, _ ->
         val itemsFlow: Flow<PagingData<MediaItem>> = when (category) {
             "Favorites" -> favorites.map { list ->
-                val filtered = if (bucketId != null) list else list.filter { !excluded.contains(it.bucketId.toString()) && !com.hrshd1eux.imava.core.util.AppLockManager.isAlbumLocked(application, it.bucketId) }
+                val filtered = if (bucketId != null) {
+                    if (com.hrshd1eux.imava.core.util.AppLockManager.isAlbumLocked(application, bucketId, currentBucketName)) emptyList()
+                    else list.filter { it.bucketId == bucketId }
+                } else list.filter { !excluded.contains(it.bucketId.toString()) && !com.hrshd1eux.imava.core.util.AppLockManager.isMediaItemLocked(application, it.bucketId, it.bucketName) }
                 val sorted = if (order == SortOrder.OLDEST_FIRST) filtered.sortedBy { it.dateTaken } else filtered.sortedByDescending { it.dateTaken }
                 PagingData.from(sorted)
             }
@@ -622,13 +648,19 @@ class MainViewModel @Inject constructor(
                 config = PagingConfig(pageSize = 60, prefetchDistance = 40, enablePlaceholders = false),
                 pagingSourceFactory = { MediaPagingSource(repository, bucketId, order, com.hrshd1eux.imava.data.media.MediaTypeFilter.VIDEOS) }
             ).flow.map { pagingData ->
-                if (bucketId != null) pagingData else pagingData.filter { !excluded.contains(it.bucketId.toString()) && !com.hrshd1eux.imava.core.util.AppLockManager.isAlbumLocked(application, it.bucketId) }
+                if (bucketId != null) {
+                    if (com.hrshd1eux.imava.core.util.AppLockManager.isAlbumLocked(application, bucketId, currentBucketName)) PagingData.empty()
+                    else pagingData
+                } else pagingData.filter { !excluded.contains(it.bucketId.toString()) && !com.hrshd1eux.imava.core.util.AppLockManager.isMediaItemLocked(application, it.bucketId, it.bucketName) }
             }
             else -> Pager(
                 config = PagingConfig(pageSize = 60, prefetchDistance = 40, enablePlaceholders = false),
                 pagingSourceFactory = { MediaPagingSource(repository, bucketId, order) }
             ).flow.map { pagingData ->
-                if (bucketId != null) pagingData else pagingData.filter { !excluded.contains(it.bucketId.toString()) && !com.hrshd1eux.imava.core.util.AppLockManager.isAlbumLocked(application, it.bucketId) }
+                if (bucketId != null) {
+                    if (com.hrshd1eux.imava.core.util.AppLockManager.isAlbumLocked(application, bucketId, currentBucketName)) PagingData.empty()
+                    else pagingData
+                } else pagingData.filter { !excluded.contains(it.bucketId.toString()) && !com.hrshd1eux.imava.core.util.AppLockManager.isMediaItemLocked(application, it.bucketId, it.bucketName) }
             }
         }
         itemsFlow.map { pagingData ->
@@ -837,7 +869,10 @@ class MainViewModel @Inject constructor(
                 bucketId = currentBucketId,
                 sortOrder = sortOrder
             )
-            _mediaItems.value = if (currentBucketId != null) items else items.filter { !_excludedBucketIds.value.contains(it.bucketId.toString()) }
+            _mediaItems.value = if (currentBucketId != null) items else items.filter {
+                !_excludedBucketIds.value.contains(it.bucketId.toString()) &&
+                !com.hrshd1eux.imava.core.util.AppLockManager.isMediaItemLocked(application, it.bucketId, it.bucketName)
+            }
         }
     }
 

@@ -100,6 +100,7 @@ fun InfoBottomSheet(
     var showAddTagDialog by remember { mutableStateOf(false) }
     var newTagInput by remember { mutableStateOf("") }
     var showEditLocationDialog by remember { mutableStateOf(false) }
+    var customLocationNameInput by remember { mutableStateOf("") }
     var newLatInput by remember { mutableStateOf("") }
     var newLngInput by remember { mutableStateOf("") }
     var locationSearchQuery by remember { mutableStateOf("") }
@@ -115,14 +116,21 @@ fun InfoBottomSheet(
         }
     }
 
-    LaunchedEffect(details?.latitude, details?.longitude) {
-        val lat = details?.latitude
-        val lng = details?.longitude
-        if (details?.hasGps == true && lat != null && lng != null) {
-            val name = ExifLocationUtil.reverseGeocode(context, lat, lng)
-            displayedPlaceName = name
+    LaunchedEffect(item.id, details?.latitude, details?.longitude) {
+        val customLoc = withContext(Dispatchers.IO) {
+            ExifLocationUtil.getCustomLocation(context, item.id, item.path)
+        }
+        if (!customLoc.isNullOrBlank()) {
+            displayedPlaceName = customLoc
         } else {
-            displayedPlaceName = null
+            val lat = details?.latitude
+            val lng = details?.longitude
+            if (details?.hasGps == true && lat != null && lng != null) {
+                val name = withContext(Dispatchers.IO) { ExifLocationUtil.reverseGeocode(context, lat, lng) }
+                displayedPlaceName = name
+            } else {
+                displayedPlaceName = null
+            }
         }
     }
 
@@ -315,16 +323,17 @@ fun InfoBottomSheet(
                     }
                 }
 
-                if (info.hasGps) {
+                if (info.hasGps || !displayedPlaceName.isNullOrBlank()) {
                     Spacer(modifier = Modifier.height(12.dp))
 
                     InfoRow(
                         icon = Icons.Default.LocationOn,
                         title = "Location",
-                        subtitle = if (!displayedPlaceName.isNullOrBlank()) {
-                            "${displayedPlaceName}\nGPS: ${info.location}"
-                        } else {
-                            "GPS coordinates: ${info.location}"
+                        subtitle = when {
+                            !displayedPlaceName.isNullOrBlank() && info.hasGps -> "${displayedPlaceName}\nGPS: ${info.location}"
+                            !displayedPlaceName.isNullOrBlank() -> displayedPlaceName!!
+                            info.hasGps -> "GPS coordinates: ${info.location}"
+                            else -> "Location added"
                         }
                     )
 
@@ -333,7 +342,12 @@ fun InfoBottomSheet(
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
                             onClick = {
-                                val mapIntent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:${info.latitude},${info.longitude}?q=${info.latitude},${info.longitude}(Photo Location)"))
+                                val uriStr = if (info.hasGps && info.latitude != 0.0) {
+                                    "geo:${info.latitude},${info.longitude}?q=${info.latitude},${info.longitude}(${Uri.encode(displayedPlaceName ?: "Photo Location")})"
+                                } else {
+                                    "geo:0,0?q=${Uri.encode(displayedPlaceName ?: "")}"
+                                }
+                                val mapIntent = Intent(Intent.ACTION_VIEW, Uri.parse(uriStr))
                                 mapIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
                                 try {
                                     context.startActivity(mapIntent)
@@ -349,8 +363,9 @@ fun InfoBottomSheet(
 
                         androidx.compose.material3.OutlinedButton(
                             onClick = {
-                                newLatInput = info.latitude.toString()
-                                newLngInput = info.longitude.toString()
+                                customLocationNameInput = displayedPlaceName ?: ""
+                                newLatInput = if (info.hasGps && info.latitude != 0.0) info.latitude.toString() else ""
+                                newLngInput = if (info.hasGps && info.longitude != 0.0) info.longitude.toString() else ""
                                 locationSearchQuery = ""
                                 resolvedLocationName = displayedPlaceName
                                 showEditLocationDialog = true
@@ -371,6 +386,7 @@ fun InfoBottomSheet(
                     Spacer(modifier = Modifier.height(16.dp))
                     androidx.compose.material3.OutlinedButton(
                         onClick = {
+                            customLocationNameInput = ""
                             newLatInput = ""
                             newLngInput = ""
                             locationSearchQuery = ""
@@ -381,7 +397,7 @@ fun InfoBottomSheet(
                     ) {
                         Icon(imageVector = Icons.Default.LocationOn, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Add Location / GPS Tag 📍")
+                        Text("Add Location / Place Name 📍")
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                 }
@@ -437,19 +453,20 @@ fun InfoBottomSheet(
         if (showRemoveGpsConfirm) {
             AlertDialog(
                 onDismissRequest = { showRemoveGpsConfirm = false },
-                title = { Text("Remove GPS Geotag?") },
-                text = { Text("This will permanently scrub latitude, longitude, and altitude EXIF tags from this photo for privacy.") },
+                title = { Text("Remove Location?") },
+                text = { Text("This will permanently remove the custom place description and scrub GPS latitude, longitude, and altitude tags from this photo.") },
                 confirmButton = {
                     Button(
                         onClick = {
                             showRemoveGpsConfirm = false
                             scope.launch {
-                                val success = com.hrshd1eux.imava.core.util.ExifLocationUtil.removeGeotag(context, item.uri, item.path)
+                                val success = com.hrshd1eux.imava.core.util.ExifLocationUtil.removeAllLocation(context, item.id, item.uri, item.path)
                                 if (success) {
+                                    displayedPlaceName = null
                                     details = withContext(Dispatchers.IO) { readExifDetails(context, item) }
-                                    android.widget.Toast.makeText(context, "GPS geotag removed! 🗑️", android.widget.Toast.LENGTH_SHORT).show()
+                                    android.widget.Toast.makeText(context, "Location removed! 🗑️", android.widget.Toast.LENGTH_SHORT).show()
                                 } else {
-                                    android.widget.Toast.makeText(context, "Failed to remove GPS tags", android.widget.Toast.LENGTH_SHORT).show()
+                                    android.widget.Toast.makeText(context, "Failed to remove location", android.widget.Toast.LENGTH_SHORT).show()
                                 }
                             }
                         }
@@ -466,26 +483,31 @@ fun InfoBottomSheet(
         }
 
         if (showEditLocationDialog) {
-            val latVal = newLatInput.toDoubleOrNull()
-            val lngVal = newLngInput.toDoubleOrNull()
-            val isValid = latVal != null && latVal in -90.0..90.0 && lngVal != null && lngVal in -180.0..180.0
+            val latVal = newLatInput.trim().toDoubleOrNull()
+            val lngVal = newLngInput.trim().toDoubleOrNull()
+            val hasValidCoords = latVal != null && latVal in -90.0..90.0 && lngVal != null && lngVal in -180.0..180.0
+            val hasCustomName = customLocationNameInput.trim().isNotEmpty()
+            val canSave = hasCustomName || hasValidCoords
 
             val executeLocationSearch: () -> Unit = {
-                val trimmed = locationSearchQuery.trim()
-                if (trimmed.isNotEmpty()) {
+                val queryToSearch = locationSearchQuery.ifBlank { customLocationNameInput }.trim()
+                if (queryToSearch.isNotEmpty()) {
                     isSearchingLocation = true
                     scope.launch {
-                        val res = ExifLocationUtil.geocode(context, trimmed)
+                        val res = ExifLocationUtil.geocode(context, queryToSearch)
                         isSearchingLocation = false
                         if (res != null) {
                             newLatInput = res.latitude.toString()
                             newLngInput = res.longitude.toString()
                             resolvedLocationName = res.displayName
+                            if (customLocationNameInput.isBlank()) {
+                                customLocationNameInput = res.displayName
+                            }
                         } else {
                             android.widget.Toast.makeText(
                                 context,
-                                "Location not found. Try another place name or coordinates.",
-                                android.widget.Toast.LENGTH_SHORT
+                                "Online lookup couldn't find exact coordinates. You can still save your place name as a custom description!",
+                                android.widget.Toast.LENGTH_LONG
                             ).show()
                         }
                     }
@@ -503,17 +525,29 @@ fun InfoBottomSheet(
                             .imePadding()
                     ) {
                         Text(
-                            text = "Search by place name (e.g. \"Tokyo\", \"Eiffel Tower\") or coordinates, or enter latitude/longitude directly below.",
+                            text = "Enter any custom location / place description (e.g. \"delhi rohtak madina village raju printing press meham\") or GPS coordinates. Both are fully supported!",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        OutlinedTextField(
+                            value = customLocationNameInput,
+                            onValueChange = { customLocationNameInput = it },
+                            label = { Text("Place Name / Custom Description") },
+                            placeholder = { Text("e.g. Madina Village, Meham or Eiffel Tower") },
+                            singleLine = false,
+                            maxLines = 3,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
                         Spacer(modifier = Modifier.height(10.dp))
 
                         OutlinedTextField(
                             value = locationSearchQuery,
                             onValueChange = { locationSearchQuery = it },
-                            label = { Text("Search Place Name or Coords") },
-                            placeholder = { Text("e.g. Paris or 37.77, -122.41") },
+                            label = { Text("Find GPS Coords Online (Optional)") },
+                            placeholder = { Text("Search town, place or coordinates") },
                             singleLine = true,
                             trailingIcon = {
                                 if (isSearchingLocation) {
@@ -523,10 +557,10 @@ fun InfoBottomSheet(
                                     )
                                 } else {
                                     IconButton(
-                                        enabled = locationSearchQuery.isNotBlank(),
+                                        enabled = locationSearchQuery.isNotBlank() || customLocationNameInput.isNotBlank(),
                                         onClick = executeLocationSearch
                                     ) {
-                                        Icon(Icons.Default.Search, contentDescription = "Search place")
+                                        Icon(Icons.Default.Search, contentDescription = "Search GPS")
                                     }
                                 }
                             },
@@ -554,7 +588,7 @@ fun InfoBottomSheet(
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = resolvedLocationName ?: "",
+                                        text = "Pinpointed: $resolvedLocationName",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onPrimaryContainer
                                     )
@@ -564,50 +598,63 @@ fun InfoBottomSheet(
 
                         Spacer(modifier = Modifier.height(14.dp))
                         HorizontalDivider()
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
 
-                        OutlinedTextField(
-                            value = newLatInput,
-                            onValueChange = {
-                                newLatInput = it
-                                resolvedLocationName = null
-                            },
-                            label = { Text("Latitude (-90 to 90)") },
-                            placeholder = { Text("e.g. 37.7749") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            modifier = Modifier.fillMaxWidth()
+                        Text(
+                            text = "GPS Coordinates (Optional)",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = newLngInput,
-                            onValueChange = {
-                                newLngInput = it
-                                resolvedLocationName = null
-                            },
-                            label = { Text("Longitude (-180 to 180)") },
-                            placeholder = { Text("e.g. -122.4194") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = newLatInput,
+                                onValueChange = { newLatInput = it },
+                                label = { Text("Lat (-90..90)") },
+                                placeholder = { Text("28.6139") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedTextField(
+                                value = newLngInput,
+                                onValueChange = { newLngInput = it },
+                                label = { Text("Lng (-180..180)") },
+                                placeholder = { Text("77.2090") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
                 },
                 confirmButton = {
                     Button(
-                        enabled = isValid,
+                        enabled = canSave,
                         onClick = {
-                            val lat = latVal ?: return@Button
-                            val lng = lngVal ?: return@Button
+                            val locName = customLocationNameInput.trim().ifEmpty { resolvedLocationName }
+                            val lat = if (hasValidCoords) latVal else null
+                            val lng = if (hasValidCoords) lngVal else null
                             showEditLocationDialog = false
                             scope.launch {
-                                val success = com.hrshd1eux.imava.core.util.ExifLocationUtil.setGeotag(context, item.uri, item.path, lat, lng)
+                                val success = com.hrshd1eux.imava.core.util.ExifLocationUtil.setCustomLocation(
+                                    context = context,
+                                    mediaId = item.id,
+                                    uri = item.uri,
+                                    path = item.path,
+                                    locationName = locName,
+                                    latitude = lat,
+                                    longitude = lng
+                                )
                                 if (success) {
+                                    displayedPlaceName = locName ?: if (lat != null && lng != null) {
+                                        withContext(Dispatchers.IO) { ExifLocationUtil.reverseGeocode(context, lat, lng) }
+                                    } else null
                                     details = withContext(Dispatchers.IO) { readExifDetails(context, item) }
-                                    displayedPlaceName = resolvedLocationName ?: withContext(Dispatchers.IO) { ExifLocationUtil.reverseGeocode(context, lat, lng) }
-                                    android.widget.Toast.makeText(context, "Location updated! 📍", android.widget.Toast.LENGTH_SHORT).show()
+                                    android.widget.Toast.makeText(context, "Location saved! 📍", android.widget.Toast.LENGTH_SHORT).show()
                                 } else {
-                                    android.widget.Toast.makeText(context, "Failed to update location", android.widget.Toast.LENGTH_SHORT).show()
+                                    android.widget.Toast.makeText(context, "Failed to save location", android.widget.Toast.LENGTH_SHORT).show()
                                 }
                             }
                         }

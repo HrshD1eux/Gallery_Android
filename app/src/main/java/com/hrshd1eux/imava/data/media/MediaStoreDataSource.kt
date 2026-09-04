@@ -348,12 +348,14 @@ class MediaStoreDataSource @Inject constructor(
         val collection = MediaStore.Files.getContentUri("external")
         val projection = arrayOf(
             MediaStore.Files.FileColumns.BUCKET_ID,
-            MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME
+            MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME,
+            MediaStore.Files.FileColumns.DATA
         )
         val selection = "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (${MediaStore.Files.FileColumns.MEDIA_TYPE_IMAGE}, ${MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO})"
 
         val bucketCounts = mutableMapOf<Long, Int>()
         val bucketNames = mutableMapOf<Long, String>()
+        val bucketPaths = mutableMapOf<Long, String>()
 
         val cursor = try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -372,6 +374,7 @@ class MediaStoreDataSource @Inject constructor(
         cursor?.use {
             val idCol = it.getColumnIndex(MediaStore.Files.FileColumns.BUCKET_ID)
             val nameCol = it.getColumnIndex(MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME)
+            val pathCol = it.getColumnIndex(MediaStore.Files.FileColumns.DATA)
 
             if (idCol != -1 && nameCol != -1) {
                 while (it.moveToNext()) {
@@ -379,13 +382,22 @@ class MediaStoreDataSource @Inject constructor(
                     val bucketName = it.getString(nameCol) ?: "Unknown"
                     bucketCounts[bucketId] = (bucketCounts[bucketId] ?: 0) + 1
                     bucketNames[bucketId] = bucketName
+                    if (pathCol != -1 && !bucketPaths.containsKey(bucketId)) {
+                        val filePath = it.getString(pathCol)
+                        if (!filePath.isNullOrBlank()) {
+                            val parent = java.io.File(filePath).parent
+                            if (parent != null) {
+                                bucketPaths[bucketId] = parent
+                            }
+                        }
+                    }
                 }
             }
         }
 
         val buckets = mutableListOf<BucketInfo>()
         bucketCounts.forEach { (id, count) ->
-            buckets.add(BucketInfo(id, bucketNames[id] ?: "Unknown", count))
+            buckets.add(BucketInfo(id, bucketNames[id] ?: "Unknown", count, bucketPaths[id]))
         }
         buckets.sortedByDescending { it.count }
     }
@@ -588,5 +600,6 @@ class MediaStoreDataSource @Inject constructor(
 data class BucketInfo(
     val id: Long,
     val name: String,
-    val count: Int
+    val count: Int,
+    val path: String? = null
 )

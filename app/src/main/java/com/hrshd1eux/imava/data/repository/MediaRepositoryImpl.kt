@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.map
 import android.content.Context
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -110,15 +111,15 @@ class MediaRepositoryImpl @Inject constructor(
         val processedBuckets = rawBuckets.map { bucket ->
             val subtractCount = hiddenOrTrashedCounts[bucket.id] ?: 0
             val newCount = (bucket.count - subtractCount).coerceAtLeast(0)
-            BucketInfo(bucket.id, bucket.name, newCount)
+            BucketInfo(bucket.id, bucket.name, newCount, bucket.path)
         }.toMutableList()
-
 
         val existingNames = processedBuckets.map { it.name }.toSet()
         for (albumName in createdAlbums) {
             if (!existingNames.contains(albumName)) {
                 val bucketId = albumName.hashCode().toLong()
-                processedBuckets.add(BucketInfo(bucketId, albumName, 0))
+                val albumPath = java.io.File(android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES), albumName).absolutePath
+                processedBuckets.add(BucketInfo(bucketId, albumName, 0, albumPath))
             }
         }
 
@@ -607,14 +608,24 @@ class MediaRepositoryImpl @Inject constructor(
         } catch (_: Exception) {
             emptySet()
         }
+        val customLocationMatchedIds = try {
+            val prefs = context.getSharedPreferences("imava_custom_locations", Context.MODE_PRIVATE)
+            prefs.all.mapNotNull { (key, value) ->
+                if (key.startsWith("media_") && value is String && value.contains(cleanQuery, ignoreCase = true)) {
+                    key.removePrefix("media_").toLongOrNull()
+                } else null
+            }.toSet()
+        } catch (_: Exception) {
+            emptySet()
+        }
 
-        val allIds = (rawResults.map { it.id } + tagMatchedIds + ocrMatchedIds).toList()
+        val allIds = (rawResults.map { it.id } + tagMatchedIds + ocrMatchedIds + customLocationMatchedIds).toList()
         if (allIds.isEmpty()) return@withContext emptyList()
 
         val metadataList = getMetadataForMediaIdsChunked(allIds)
         val metadataMap = metadataList.associateBy { it.mediaId }
 
-        val extraIds = (tagMatchedIds + ocrMatchedIds) - rawResults.map { it.id }.toSet()
+        val extraIds = (tagMatchedIds + ocrMatchedIds + customLocationMatchedIds) - rawResults.map { it.id }.toSet()
         val extraItems = if (extraIds.isNotEmpty()) {
             mediaStoreDataSource.fetchMediaByIds(extraIds)
         } else emptyList<MediaItem>()
@@ -955,6 +966,8 @@ class MediaRepositoryImpl @Inject constructor(
                     counter++
                 }
 
+                val originalDate = if (item.dateTaken > 0) item.dateTaken else sourceFile.lastModified()
+
                 sourceFile.inputStream().use { input ->
                     finalTarget.outputStream().use { output ->
                         input.copyTo(output)
@@ -962,8 +975,79 @@ class MediaRepositoryImpl @Inject constructor(
                 }
 
                 if (finalTarget.exists() && finalTarget.length() == sourceFile.length()) {
-                    scannedPaths.add(finalTarget.absolutePath)
+                    // 1. Explicitly ensure EXIF dates match originalDate
+                    try {
+                        val targetExif = androidx.exifinterface.media.ExifInterface(finalTarget.absolutePath)
+                        val sdf = java.text.SimpleDateFormat("yyyy:MM:dd HH:mm:ss", java.util.Locale.US).apply {
+                            timeZone = java.util.TimeZone.getDefault()
+                        }
+                        val formattedDate = sdf.format(java.util.Date(originalDate))
+
+                        var dt = targetExif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_DATETIME_ORIGINAL)
+                        if (dt.isNullOrBlank()) {
+                            dt = targetExif.getAttribute(androidx.exifinterface.media.ExifInterface.TAG_DATETIME)
+                        }
+                        if (dt.isNullOrBlank()) {
+                            dt = formattedDate
+                        }
+                        targetExif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_DATETIME_ORIGINAL, dt)
+                        targetExif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_DATETIME, dt)
+                        targetExif.setAttribute(androidx.exifinterface.media.ExifInterface.TAG_DATETIME_DIGITIZED, dt)
+                        targetExif.saveAttributes()
+                    } catch (_: Exception) {}
+
+                    // 2. Preserve filesystem last modified (after EXIF saveAttributes)
+                    try {
+                        finalTarget.setLastModified(originalDate)
+                    } catch (_: Exception) {}
+
                     count++
+
+                    // 3. Scan new target into MediaStore, stamp original dates, and migrate Room metadata
+                    val oldMeta = if (!isCopy) metadataDao.getMetadataForMedia(item.id) else null
+                    val customLoc = com.hrshd1eux.imava.core.util.ExifLocationUtil.getCustomLocation(context, item.id, item.path)
+
+                    android.media.MediaScannerConnection.scanFile(
+                        context,
+                        arrayOf(finalTarget.absolutePath),
+                        null
+                    ) { path, uri ->
+                        if (uri != null) {
+                            try {
+                                val contentValues = android.content.ContentValues().apply {
+                                    put(android.provider.MediaStore.MediaColumns.DATE_TAKEN, originalDate)
+                                    put(android.provider.MediaStore.MediaColumns.DATE_ADDED, originalDate / 1000L)
+                                    put(android.provider.MediaStore.MediaColumns.DATE_MODIFIED, originalDate / 1000L)
+                                }
+                                context.contentResolver.update(uri, contentValues, null, null)
+                            } catch (_: Exception) {}
+
+                            val newMediaId = try { android.content.ContentUris.parseId(uri) } catch (_: Exception) { 0L }
+                            if (newMediaId > 0L) {
+                                if (customLoc != null) {
+                                    kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                                        com.hrshd1eux.imava.core.util.ExifLocationUtil.setCustomLocation(
+                                            context, newMediaId, uri, path, customLoc
+                                        )
+                                    }
+                                }
+                                if (oldMeta != null) {
+                                    kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                                        try {
+                                            metadataDao.insertOrUpdate(
+                                                oldMeta.copy(
+                                                    mediaId = newMediaId,
+                                                    originalPath = path,
+                                                    dateTaken = originalDate
+                                                )
+                                            )
+                                            metadataDao.delete(oldMeta)
+                                        } catch (_: Exception) {}
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     if (!isCopy) {
                         val oldPath = sourceFile.absolutePath
@@ -978,7 +1062,9 @@ class MediaRepositoryImpl @Inject constructor(
 
                         if (directDeleted || resolverDeleted) {
                             scannedPaths.add(oldPath)
-                            deleteMetadataPermanently(item.id)
+                            if (oldMeta == null) {
+                                deleteMetadataPermanently(item.id)
+                            }
                         } else {
                             failedDeleteItems.add(item)
                             createdTargetsForFailed.add(finalTarget)

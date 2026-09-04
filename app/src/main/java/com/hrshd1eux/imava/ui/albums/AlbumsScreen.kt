@@ -118,7 +118,7 @@ fun AlbumsScreen(
     }
 
     val openBucket: (BucketInfo) -> Unit = { bucket ->
-        if (com.hrshd1eux.imava.core.util.AppLockManager.isAlbumLocked(context, bucket.id)) {
+        if (com.hrshd1eux.imava.core.util.AppLockManager.isAlbumLocked(context, bucket.id, bucket.name)) {
             val act = context as? androidx.fragment.app.FragmentActivity
             if (act != null) {
                 com.hrshd1eux.imava.core.util.BiometricAuthHelper.authenticate(
@@ -678,7 +678,7 @@ fun AlbumsScreen(
                             }
                         }
 
-                        val isAlbumLockedConfigured = com.hrshd1eux.imava.core.util.AppLockManager.isAlbumConfiguredLocked(context, bucket.id)
+                        val isAlbumLockedConfigured = com.hrshd1eux.imava.core.util.AppLockManager.isAlbumConfiguredLocked(context, bucket.id, bucket.name)
                         TextButton(
                             onClick = {
                                 val act = context as? androidx.fragment.app.FragmentActivity
@@ -689,7 +689,7 @@ fun AlbumsScreen(
                                             title = "Unlock Album",
                                             subtitle = "Verify biometric to unlock ${bucket.name}",
                                             onSuccess = {
-                                                com.hrshd1eux.imava.core.util.AppLockManager.unlockAlbum(context, bucket.id)
+                                                com.hrshd1eux.imava.core.util.AppLockManager.unlockAlbum(context, bucket.id, bucket.name, bucket.path)
                                                 viewModel.refreshAll()
                                                 activeOptionsBucket = null
                                                 android.widget.Toast.makeText(context, "Album unlocked", android.widget.Toast.LENGTH_SHORT).show()
@@ -699,7 +699,7 @@ fun AlbumsScreen(
                                             }
                                         )
                                     } else {
-                                        com.hrshd1eux.imava.core.util.AppLockManager.unlockAlbum(context, bucket.id)
+                                        com.hrshd1eux.imava.core.util.AppLockManager.unlockAlbum(context, bucket.id, bucket.name, bucket.path)
                                         viewModel.refreshAll()
                                         activeOptionsBucket = null
                                     }
@@ -710,7 +710,7 @@ fun AlbumsScreen(
                                             title = "Lock Album",
                                             subtitle = "Verify biometric to lock ${bucket.name}",
                                             onSuccess = {
-                                                com.hrshd1eux.imava.core.util.AppLockManager.lockAlbum(context, bucket.id)
+                                                com.hrshd1eux.imava.core.util.AppLockManager.lockAlbum(context, bucket.id, bucket.name, bucket.path)
                                                 viewModel.refreshAll()
                                                 activeOptionsBucket = null
                                                 android.widget.Toast.makeText(context, "Album locked with Biometrics 🔒", android.widget.Toast.LENGTH_SHORT).show()
@@ -720,7 +720,7 @@ fun AlbumsScreen(
                                             }
                                         )
                                     } else {
-                                        com.hrshd1eux.imava.core.util.AppLockManager.lockAlbum(context, bucket.id)
+                                        com.hrshd1eux.imava.core.util.AppLockManager.lockAlbum(context, bucket.id, bucket.name, bucket.path)
                                         viewModel.refreshAll()
                                         activeOptionsBucket = null
                                     }
@@ -953,7 +953,7 @@ fun AlbumGridCard(
                     }
                 }
 
-                val isAlbumLocked = com.hrshd1eux.imava.core.util.AppLockManager.isAlbumConfiguredLocked(LocalContext.current, bucket.id)
+                val isAlbumLocked = com.hrshd1eux.imava.core.util.AppLockManager.isAlbumConfiguredLocked(LocalContext.current, bucket.id, bucket.name)
                 if (isAlbumLocked) {
                     Surface(
                         color = MaterialTheme.colorScheme.errorContainer,

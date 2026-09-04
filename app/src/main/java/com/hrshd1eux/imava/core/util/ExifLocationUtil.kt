@@ -30,6 +30,25 @@ object ExifLocationUtil {
 
     fun parseCoordinates(query: String): Pair<Double, Double>? {
         val clean = query.trim()
+            .replace("°", "")
+            .replace("lat:", "", ignoreCase = true)
+            .replace("latitude:", "", ignoreCase = true)
+            .replace("lon:", "", ignoreCase = true)
+            .replace("lng:", "", ignoreCase = true)
+            .replace("longitude:", "", ignoreCase = true)
+            .trim()
+
+        val cardinalRegex = Regex("""([0-9.]+)\s*([NSns])\s*[,;]?\s*([0-9.]+)\s*([EWew])""")
+        val cardMatch = cardinalRegex.find(clean)
+        if (cardMatch != null) {
+            val (latStr, ns, lngStr, ew) = cardMatch.destructured
+            var lat = latStr.toDoubleOrNull() ?: return null
+            var lng = lngStr.toDoubleOrNull() ?: return null
+            if (ns.equals("S", ignoreCase = true)) lat = -lat
+            if (ew.equals("W", ignoreCase = true)) lng = -lng
+            if (lat in -90.0..90.0 && lng in -180.0..180.0) return Pair(lat, lng)
+        }
+
         val parts = clean.split(',', ';', ' ', '\t').filter { it.isNotBlank() }
         if (parts.size == 2) {
             val lat = parts[0].toDoubleOrNull()
@@ -38,6 +57,29 @@ object ExifLocationUtil {
                 return Pair(lat, lng)
             }
         }
+        return null
+    }
+
+    private fun queryNominatim(query: String): GeoResult? {
+        try {
+            val encoded = URLEncoder.encode(query, "UTF-8")
+            val url = URL("https://nominatim.openstreetmap.org/search?format=json&q=$encoded&limit=1")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.setRequestProperty("User-Agent", "ImavaGalleryApp/1.0")
+            conn.connectTimeout = 4000
+            conn.readTimeout = 4000
+            if (conn.responseCode == 200) {
+                val body = conn.inputStream.bufferedReader().use { it.readText() }
+                val array = JSONArray(body)
+                if (array.length() > 0) {
+                    val obj = array.getJSONObject(0)
+                    val lat = obj.getDouble("lat")
+                    val lon = obj.getDouble("lon")
+                    val name = obj.optString("display_name", query)
+                    return GeoResult(lat, lon, name)
+                }
+            }
+        } catch (_: Exception) {}
         return null
     }
 
@@ -68,28 +110,94 @@ object ExifLocationUtil {
         }
 
         // Fallback: OpenStreetMap Nominatim
-        try {
-            val encoded = URLEncoder.encode(trimmed, "UTF-8")
-            val url = URL("https://nominatim.openstreetmap.org/search?format=json&q=$encoded&limit=1")
-            val conn = url.openConnection() as HttpURLConnection
-            conn.setRequestProperty("User-Agent", "ImavaGalleryApp/1.0")
-            conn.connectTimeout = 4000
-            conn.readTimeout = 4000
-            if (conn.responseCode == 200) {
-                val body = conn.inputStream.bufferedReader().use { it.readText() }
-                val array = JSONArray(body)
-                if (array.length() > 0) {
-                    val obj = array.getJSONObject(0)
-                    val lat = obj.getDouble("lat")
-                    val lon = obj.getDouble("lon")
-                    val name = obj.optString("display_name", trimmed)
-                    return@withContext GeoResult(lat, lon, name)
+        val nomResult = queryNominatim(trimmed)
+        if (nomResult != null) return@withContext nomResult
+
+        // Multi-word fallback: if query is complex, try searching major towns/cities mentioned
+        val tokens = trimmed.split(',', ' ').map { it.trim() }.filter { it.length > 2 }
+        if (tokens.size > 1) {
+            val candidates = mutableListOf<String>()
+            if (tokens.size >= 2) candidates.add("${tokens[tokens.size - 2]} ${tokens.last()}")
+            candidates.add(tokens.last())
+            candidates.add(tokens.first())
+            for (candidate in candidates) {
+                val subResult = queryNominatim(candidate)
+                if (subResult != null) {
+                    return@withContext GeoResult(subResult.latitude, subResult.longitude, trimmed)
                 }
             }
-        } catch (_: Exception) {
         }
 
         null
+    }
+
+    fun getCustomLocation(context: Context, mediaId: Long, path: String? = null): String? {
+        val prefs = context.getSharedPreferences("imava_custom_locations", Context.MODE_PRIVATE)
+        val byId = prefs.getString("media_$mediaId", null)
+        if (!byId.isNullOrBlank()) return byId
+        if (!path.isNullOrBlank()) {
+            val byPath = prefs.getString("path_$path", null)
+            if (!byPath.isNullOrBlank()) return byPath
+            try {
+                val f = File(path)
+                if (f.exists() && f.canRead()) {
+                    val exif = ExifInterface(f.absolutePath)
+                    val desc = exif.getAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION)
+                        ?: exif.getAttribute(ExifInterface.TAG_USER_COMMENT)
+                    if (!desc.isNullOrBlank()) return desc
+                }
+            } catch (_: Exception) {}
+        }
+        return null
+    }
+
+    suspend fun setCustomLocation(
+        context: Context,
+        mediaId: Long,
+        uri: Uri,
+        path: String? = null,
+        locationName: String?,
+        latitude: Double? = null,
+        longitude: Double? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        val prefs = context.getSharedPreferences("imava_custom_locations", Context.MODE_PRIVATE)
+        if (locationName.isNullOrBlank()) {
+            prefs.edit()
+                .remove("media_$mediaId")
+                .apply { if (!path.isNullOrBlank()) remove("path_$path") }
+                .apply()
+        } else {
+            val trimmed = locationName.trim()
+            prefs.edit()
+                .putString("media_$mediaId", trimmed)
+                .apply { if (!path.isNullOrBlank()) putString("path_$path", trimmed) }
+                .apply()
+        }
+
+        if (latitude != null && longitude != null) {
+            setGeotag(context, uri, path, latitude, longitude)
+        }
+
+        if (!path.isNullOrBlank()) {
+            try {
+                val file = File(path)
+                if (file.exists() && file.canWrite()) {
+                    val exif = ExifInterface(file.absolutePath)
+                    if (!locationName.isNullOrBlank()) {
+                        exif.setAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION, locationName.trim())
+                    } else {
+                        exif.setAttribute(ExifInterface.TAG_IMAGE_DESCRIPTION, null)
+                    }
+                    exif.saveAttributes()
+                }
+            } catch (_: Exception) {}
+        }
+        true
+    }
+
+    suspend fun removeAllLocation(context: Context, mediaId: Long, uri: Uri, path: String? = null): Boolean = withContext(Dispatchers.IO) {
+        setCustomLocation(context, mediaId, uri, path, null, null, null)
+        removeGeotag(context, uri, path)
     }
 
     suspend fun reverseGeocode(context: Context, latitude: Double, longitude: Double): String? = withContext(Dispatchers.IO) {
