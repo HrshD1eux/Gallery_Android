@@ -13,8 +13,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,6 +39,8 @@ import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -100,6 +103,7 @@ fun VideoPlayerContainer(
     uri: Uri,
     title: String = "",
     isSelectedPage: Boolean,
+    isScrollInProgress: Boolean = false,
     showChrome: Boolean,
     onTap: () -> Unit,
     resizeMode: Int = AspectRatioFrameLayout.RESIZE_MODE_FIT,
@@ -112,6 +116,13 @@ fun VideoPlayerContainer(
     var isPlaying by remember { mutableStateOf(false) }
     var currentPosition by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
+
+    // Pause video immediately when user swipes pager
+    LaunchedEffect(isScrollInProgress) {
+        if (isScrollInProgress && isPlaying) {
+            exoPlayer?.pause()
+        }
+    }
 
     // Seeking State
     var isUserSeeking by remember { mutableStateOf(false) }
@@ -141,7 +152,7 @@ fun VideoPlayerContainer(
         coil.compose.AsyncImage(
             model = coil.request.ImageRequest.Builder(context)
                 .data(uri)
-                .crossfade(true)
+                .crossfade(false)
                 .error(android.R.drawable.ic_menu_report_image)
                 .fallback(android.R.drawable.ic_menu_report_image)
                 .build(),
@@ -174,7 +185,7 @@ fun VideoPlayerContainer(
             }
             repeatMode = Player.REPEAT_MODE_OFF
             prepare()
-            playWhenReady = true
+            playWhenReady = false
         }
 
         val listener = object : Player.Listener {
@@ -289,34 +300,31 @@ fun VideoPlayerContainer(
                 )
             }
             .pointerInput(Unit) {
-                detectDragGestures { change, dragAmount ->
-                    if (abs(dragAmount.y) > abs(dragAmount.x) * 1.2f) {
-                        change.consume()
-                        val width = size.width
-                        val isLeftSide = change.position.x < width / 2f
-                        if (isLeftSide) {
-                            // Left side vertical drag: Adjust Brightness
-                            val delta = -dragAmount.y / 600f
-                            val newBrightness = (currentBrightness + delta).coerceIn(0.01f, 1f)
-                            currentBrightness = newBrightness
-                            (context as? android.app.Activity)?.window?.let { window ->
-                                val lp = window.attributes
-                                lp.screenBrightness = newBrightness
-                                window.attributes = lp
-                            }
-                            gestureOverlayText = "☀️ Brightness: ${(newBrightness * 100).toInt()}%"
-                        } else {
-                            // Right side vertical drag: Adjust Media Volume
-                            val curVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-                            if (dragAmount.y < -10) {
-                                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 0)
-                            } else if (dragAmount.y > 10) {
-                                audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 0)
-                            }
-                            val updatedVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
-                            val volPct = (updatedVol.toFloat() / maxVolume * 100).toInt()
-                            gestureOverlayText = if (updatedVol == 0) "🔇 Volume: 0%" else "🔊 Volume: $volPct%"
+                detectVerticalDragGestures { change, dragAmount ->
+                    change.consume()
+                    val width = size.width
+                    val isLeftSide = change.position.x < width / 2f
+                    if (isLeftSide) {
+                        // Left side vertical drag: Adjust Brightness
+                        val delta = -dragAmount / 600f
+                        val newBrightness = (currentBrightness + delta).coerceIn(0.01f, 1f)
+                        currentBrightness = newBrightness
+                        (context as? android.app.Activity)?.window?.let { window ->
+                            val lp = window.attributes
+                            lp.screenBrightness = newBrightness
+                            window.attributes = lp
                         }
+                        gestureOverlayText = "☀️ Brightness: ${(newBrightness * 100).toInt()}%"
+                    } else {
+                        // Right side vertical drag: Adjust Media Volume
+                        if (dragAmount < -10f) {
+                            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, 0)
+                        } else if (dragAmount > 10f) {
+                            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, 0)
+                        }
+                        val updatedVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                        val volPct = (updatedVol.toFloat() / maxVolume * 100).toInt()
+                        gestureOverlayText = if (updatedVol == 0) "🔇 Volume: 0%" else "🔊 Volume: $volPct%"
                     }
                 }
             }
@@ -329,6 +337,9 @@ fun VideoPlayerContainer(
                         useController = false
                         setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
                         this.resizeMode = resizeMode
+                        isClickable = false
+                        isFocusable = false
+                        setOnTouchListener { _, _ -> false }
                         layoutParams = FrameLayout.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT
@@ -344,6 +355,27 @@ fun VideoPlayerContainer(
                 },
                 modifier = Modifier.fillMaxSize()
             )
+        }
+
+        // Centered Big Play Button when paused
+        if (!isPlaying) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(72.dp)
+                    .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                    .clickable {
+                        exoPlayer?.play()
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = "Play Video",
+                    tint = Color.White,
+                    modifier = Modifier.size(44.dp)
+                )
+            }
         }
 
         // Gesture feedback overlay indicator (Volume, Brightness, 5s seek, 2x speed, play/pause)
@@ -389,11 +421,35 @@ fun VideoPlayerContainer(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = formatVideoTime(displayPosMs),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(
+                            onClick = {
+                                exoPlayer?.let { player ->
+                                    if (player.isPlaying) {
+                                        player.pause()
+                                    } else {
+                                        player.play()
+                                    }
+                                }
+                            },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = if (isPlaying) "Pause" else "Play",
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(4.dp))
+
+                        Text(
+                            text = formatVideoTime(displayPosMs),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White
+                        )
+                    }
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(

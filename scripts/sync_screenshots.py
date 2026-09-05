@@ -200,7 +200,7 @@ def update_website_html(html_path: Path, new_grid_html: str) -> bool:
         return False
     text = html_path.read_text(encoding="utf-8")
 
-    marker_pattern = re.compile(r'<!--\s*SCREENSHOTS_START\s*-->.*?<!--\s*SCREENSHOTS_END\s*-->', re.DOTALL)
+    marker_pattern = re.compile(r'^[ \t]*<!--\s*SCREENSHOTS_START\s*-->.*?<!--\s*SCREENSHOTS_END\s*-->', re.DOTALL | re.MULTILINE)
     if marker_pattern.search(text):
         updated = marker_pattern.sub(new_grid_html, text)
     else:

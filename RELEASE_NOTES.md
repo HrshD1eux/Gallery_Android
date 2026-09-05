@@ -1,4 +1,14 @@
-## 🚀 What's New in Imava v1.1.28
+## 🚀 What's New in Imava v1.1.29
+
+### ⚡ Butter-Smooth 120Hz Swiping & Video Player Controls
+* **Zero-Stutter Photo Swiping**: Overhauled horizontal gesture physics in the photo viewer. Completely removed conflicting swipe-down gesture interceptors and fling-killing snapping for natural, fluid 120Hz pagination.
+* **Instant Transitions**: Eliminated Coil crossfade flicker mid-swipe so adjacent photos render immediately from cache with zero visual stutter.
+* **Smooth Double-Tap Zoom**: Replaced 1-frame scale jumps with a smooth 220ms animated zoom transition targeting tap coordinates.
+* **No Video Autoplay**: Videos now open paused at frame 0 with clean thumbnails and zero unwanted audio playback.
+* **Unimpeded Video Swiping**: Replaced generic drag listeners with vertical-only gesture detection (for brightness and volume). Swiping horizontally over videos now moves seamlessly to adjacent photos or videos.
+* **Dedicated Play Controls & Auto-Pause**: Added a prominent 72dp centered play button, transport bar toggle, and automatic playback pause as soon as you swipe away.
+
+---
 
 ### 🔒 Absolute Privacy for Biometric-Locked Albums
 * **Photos Tab & Feed Isolation**: Media from biometric-locked albums is now completely hidden from the main Photos timeline, Videos tab, and general gallery searches. Even if an album was opened in a session, its contents never leak into general feeds.

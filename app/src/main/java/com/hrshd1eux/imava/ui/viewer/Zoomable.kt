@@ -1,20 +1,27 @@
 package com.hrshd1eux.imava.ui.viewer
 
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
-import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 @Composable
 fun rememberZoomState(
@@ -22,10 +29,14 @@ fun rememberZoomState(
     minScale: Float = 1f,
     doubleTapScale: Float = 3f
 ): ZoomState {
-    return remember(maxScale, minScale, doubleTapScale) { ZoomState(maxScale, minScale, doubleTapScale) }
+    val scope = rememberCoroutineScope()
+    return remember(maxScale, minScale, doubleTapScale) {
+        ZoomState(scope, maxScale, minScale, doubleTapScale)
+    }
 }
 
 class ZoomState(
+    private val scope: CoroutineScope? = null,
     val maxScale: Float = 15f,
     val minScale: Float = 1f,
     val doubleTapScale: Float = 3f
@@ -33,10 +44,12 @@ class ZoomState(
     var scale by mutableStateOf(1f)
     var offsetX by mutableStateOf(0f)
     var offsetY by mutableStateOf(0f)
-    var dismissOffsetY by mutableStateOf(0f)
     var layoutSize by mutableStateOf(IntSize.Zero)
 
+    private var animationJob: Job? = null
+
     fun updateGesture(zoom: Float, pan: Offset) {
+        animationJob?.cancel()
         val newScale = (scale * zoom).coerceIn(minScale, maxScale)
         scale = newScale
         if (newScale > 1f) {
@@ -52,7 +65,6 @@ class ZoomState(
             }
             offsetX = (offsetX + pan.x).coerceIn(-boundX, boundX)
             offsetY = (offsetY + pan.y).coerceIn(-boundY, boundY)
-            dismissOffsetY = 0f
         } else {
             offsetX = 0f
             offsetY = 0f
@@ -61,32 +73,54 @@ class ZoomState(
 
     fun handleDoubleTap(tapOffset: Offset) {
         if (scale > 1.05f) {
-            reset()
+            animateTo(1f, 0f, 0f)
         } else {
             val targetScale = doubleTapScale.coerceIn(minScale, maxScale)
-            scale = targetScale
-            dismissOffsetY = 0f
-            if (layoutSize.width > 0 && layoutSize.height > 0) {
+            val (targetOffsetX, targetOffsetY) = if (layoutSize.width > 0 && layoutSize.height > 0) {
                 val centerX = layoutSize.width / 2f
                 val centerY = layoutSize.height / 2f
                 val boundX = (layoutSize.width * (targetScale - 1f)) / 2f
                 val boundY = (layoutSize.height * (targetScale - 1f)) / 2f
-                val targetOffsetX = (centerX - tapOffset.x) * (targetScale - 1f)
-                val targetOffsetY = (centerY - tapOffset.y) * (targetScale - 1f)
-                offsetX = targetOffsetX.coerceIn(-boundX, boundX)
-                offsetY = targetOffsetY.coerceIn(-boundY, boundY)
+                val tX = ((centerX - tapOffset.x) * (targetScale - 1f)).coerceIn(-boundX, boundX)
+                val tY = ((centerY - tapOffset.y) * (targetScale - 1f)).coerceIn(-boundY, boundY)
+                Pair(tX, tY)
             } else {
-                offsetX = 0f
-                offsetY = 0f
+                Pair(0f, 0f)
             }
+            animateTo(targetScale, targetOffsetX, targetOffsetY)
+        }
+    }
+
+    fun animateTo(targetScale: Float, targetOffsetX: Float, targetOffsetY: Float) {
+        animationJob?.cancel()
+        val currentScope = scope
+        if (currentScope != null) {
+            animationJob = currentScope.launch {
+                val initialScale = scale
+                val initialX = offsetX
+                val initialY = offsetY
+                val animatable = Animatable(0f)
+                animatable.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                ) {
+                    scale = initialScale + (targetScale - initialScale) * value
+                    offsetX = initialX + (targetOffsetX - initialX) * value
+                    offsetY = initialY + (targetOffsetY - initialY) * value
+                }
+            }
+        } else {
+            scale = targetScale
+            offsetX = targetOffsetX
+            offsetY = targetOffsetY
         }
     }
 
     fun reset() {
+        animationJob?.cancel()
         scale = 1f
         offsetX = 0f
         offsetY = 0f
-        dismissOffsetY = 0f
     }
 
     fun canConsumePan(panX: Float): Boolean {
@@ -96,7 +130,7 @@ class ZoomState(
         } else {
             1500f * (scale - 1f)
         }
-        val tolerance = 1.5f
+        val tolerance = 2f
         if (panX > 0 && offsetX >= boundX - tolerance) return false
         if (panX < 0 && offsetX <= -boundX + tolerance) return false
         return true
@@ -106,7 +140,6 @@ class ZoomState(
 fun Modifier.zoomable(
     state: ZoomState,
     onTap: () -> Unit = {},
-    onDismiss: (() -> Unit)? = null,
     onDoubleTap: (Offset) -> Unit = { state.handleDoubleTap(it) }
 ): Modifier = this
     .onSizeChanged { state.layoutSize = it }
@@ -124,13 +157,12 @@ fun Modifier.zoomable(
                 val pressedPointers = event.changes.filter { it.pressed }
 
                 if (pressedPointers.isEmpty()) {
-                    // All fingers lifted
-                    if (state.scale <= 1.05f && state.dismissOffsetY > 160f) {
-                        onDismiss?.invoke()
+                    if (state.scale < state.minScale) {
+                        state.animateTo(state.minScale, 0f, 0f)
+                    } else if (state.scale > state.maxScale) {
+                        state.animateTo(state.maxScale, state.offsetX, state.offsetY)
                     }
-                    state.dismissOffsetY = 0f
                 } else if (state.scale > 1.01f || count > 1) {
-                    state.dismissOffsetY = 0f
                     val zoom = event.calculateZoom()
                     val pan = event.calculatePan()
 
@@ -149,30 +181,14 @@ fun Modifier.zoomable(
                     }
 
                     state.updateGesture(zoom, pan)
-                } else if (count == 1 && state.scale <= 1.05f) {
-                    // Single finger at 1.0x scale: check for swipe-down to dismiss
-                    val pan = event.calculatePan()
-                    if (pan.y > 0 || state.dismissOffsetY > 0) {
-                        val isVerticalDown = pan.y > 0 && kotlin.math.abs(pan.y) > kotlin.math.abs(pan.x) * 1.2f
-                        if (isVerticalDown || state.dismissOffsetY > 0) {
-                            state.dismissOffsetY = (state.dismissOffsetY + pan.y).coerceAtLeast(0f)
-                            event.changes.forEach { change ->
-                                if (change.positionChanged()) {
-                                    change.consume()
-                                }
-                            }
-                        }
-                    }
                 }
+                // When count == 1 and scale <= 1.01f: do not consume, allow HorizontalPager and vertical drag dismiss full priority!
             }
         }
     }
     .graphicsLayer {
-        val dismissFraction = (state.dismissOffsetY / 1200f).coerceIn(0f, 0.4f)
-        val currentScale = state.scale * (1f - dismissFraction)
-        scaleX = currentScale
-        scaleY = currentScale
+        scaleX = state.scale
+        scaleY = state.scale
         translationX = state.offsetX
-        translationY = state.offsetY + state.dismissOffsetY
-        alpha = (1f - (state.dismissOffsetY / 600f)).coerceIn(0.2f, 1f)
+        translationY = state.offsetY
     }

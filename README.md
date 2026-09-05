@@ -85,7 +85,10 @@
 - Side-by-side split viewer (vertical or horizontal)
 - Synchronized or independent zoom/pan
 
-### Photo Viewer
+### Photo & Video Viewer
+- **120Hz Fluid Gesture Swiping**: Butter-smooth horizontal pagination with pre-cached adjacent pages, zero-crossfade instant paints, and smooth 220ms animated double-tap zoom
+- **Manual Video Playback**: Videos start paused at frame 0 with centered play button, bottom transport bar, and auto-pause on scroll
+- **Conflict-Free Gestures**: Vertical drags control volume/brightness while horizontal swipes slide unimpeded across photos and videos
 - Swipe-down-to-dismiss with scaling and alpha fade
 - Sub-sampling tile decoder for large images
 - Custom tags (`#Receipt`, `#Travel`) stored in Room, searchable

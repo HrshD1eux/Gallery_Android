@@ -136,16 +136,19 @@ fun PhotoViewerScreen(
 
     val activeItem = viewModel.activeMediaItem ?: return
 
-    val mediaItems = remember(visibleMediaItems, activeItem.id) {
-        if (visibleMediaItems.none { it.id == activeItem.id }) {
-            listOf(activeItem) + visibleMediaItems
+    val initialActiveItem = remember { activeItem }
+    var isCurrentPageZoomed by remember { mutableStateOf(false) }
+
+    val mediaItems = remember(visibleMediaItems) {
+        if (visibleMediaItems.none { it.id == initialActiveItem.id }) {
+            listOf(initialActiveItem) + visibleMediaItems
         } else {
             visibleMediaItems
         }
     }
 
-    val initialIndex = remember(activeItem.id) {
-        mediaItems.indexOfFirst { it.id == activeItem.id }.coerceAtLeast(0)
+    val initialIndex = remember {
+        mediaItems.indexOfFirst { it.id == initialActiveItem.id }.coerceAtLeast(0)
     }
     
     val pagerState = rememberPagerState(
@@ -153,15 +156,19 @@ fun PhotoViewerScreen(
         pageCount = { mediaItems.size }
     )
 
+    // Reset zoom state on page navigation
+    LaunchedEffect(pagerState.currentPage) {
+        isCurrentPageZoomed = false
+    }
 
-    LaunchedEffect(activeItem.id) {
-        val targetIndex = mediaItems.indexOfFirst { it.id == activeItem.id }
-        if (targetIndex >= 0 && pagerState.currentPage != targetIndex) {
-            pagerState.scrollToPage(targetIndex)
+    // Auto-dismiss if media list becomes empty
+    LaunchedEffect(mediaItems.isEmpty()) {
+        if (mediaItems.isEmpty()) {
+            viewModel.activeMediaItem = null
         }
     }
 
-
+    // Update viewModel.activeMediaItem only when settled, with zero scroll interruption
     LaunchedEffect(pagerState.settledPage) {
         val currentMedia = mediaItems.getOrNull(pagerState.settledPage)
         if (currentMedia != null && currentMedia.id != viewModel.activeMediaItem?.id) {
@@ -190,12 +197,13 @@ fun PhotoViewerScreen(
     val scope = rememberCoroutineScope()
 
     val currentItem = mediaItems.getOrNull(pagerState.currentPage) ?: activeItem
+    val settledItem = mediaItems.getOrNull(pagerState.settledPage) ?: activeItem
 
-    LaunchedEffect(currentItem.id) {
+    LaunchedEffect(settledItem.id) {
         isPlayingMotionPhoto = false
         motionVideoFile = null
-        if (currentItem is com.hrshd1eux.imava.data.model.MediaItem.Photo) {
-            val info = com.hrshd1eux.imava.core.util.MotionPhotoUtil.checkMotionPhoto(context, currentItem.uri)
+        if (settledItem is com.hrshd1eux.imava.data.model.MediaItem.Photo) {
+            val info = com.hrshd1eux.imava.core.util.MotionPhotoUtil.checkMotionPhoto(context, settledItem.uri)
             isMotionPhoto = info.isMotionPhoto
         } else {
             isMotionPhoto = false
@@ -231,9 +239,6 @@ fun PhotoViewerScreen(
     }
 
     val infoSheetState = rememberModalBottomSheetState()
-
-
-    var isCurrentPageZoomed by remember { mutableStateOf(false) }
 
 
     var dragOffsetY by remember { mutableStateOf(0f) }
@@ -272,7 +277,8 @@ fun PhotoViewerScreen(
             state = pagerState,
             key = { page -> mediaItems.getOrNull(page)?.id ?: page },
             userScrollEnabled = !isCurrentPageZoomed && !isSlideshowActive,
-            beyondBoundsPageCount = 1,
+            beyondBoundsPageCount = 2,
+            pageSpacing = 16.dp,
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer(
@@ -288,7 +294,7 @@ fun PhotoViewerScreen(
                     val maxTextureDim = 4096
                     val builder = coil.request.ImageRequest.Builder(context)
                         .data(item.uri)
-                        .crossfade(true)
+                        .crossfade(false)
                         .diskCachePolicy(coil.request.CachePolicy.ENABLED)
                         .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
                         .allowHardware(true)
@@ -321,7 +327,8 @@ fun PhotoViewerScreen(
                         VideoPlayerContainer(
                             uri = item.uri,
                             title = item.path.substringAfterLast('/'),
-                            isSelectedPage = (page == pagerState.currentPage),
+                            isSelectedPage = (page == pagerState.settledPage),
+                            isScrollInProgress = pagerState.isScrollInProgress,
                             showChrome = showChrome,
                             onTap = { showChrome = !showChrome },
                             resizeMode = videoResizeMode,
@@ -332,6 +339,7 @@ fun PhotoViewerScreen(
                             uri = android.net.Uri.fromFile(motionVideoFile),
                             title = "Motion Photo",
                             isSelectedPage = true,
+                            isScrollInProgress = pagerState.isScrollInProgress,
                             showChrome = showChrome,
                             onTap = { showChrome = !showChrome },
                             resizeMode = videoResizeMode,
@@ -341,13 +349,11 @@ fun PhotoViewerScreen(
 
                         val pageZoomState = rememberZoomState()
 
-
                         LaunchedEffect(pagerState.currentPage) {
                             if (page != pagerState.currentPage) {
                                 pageZoomState.reset()
                             }
                         }
-
 
                         LaunchedEffect(pageZoomState.scale) {
                             if (page == pagerState.currentPage) {
@@ -363,8 +369,7 @@ fun PhotoViewerScreen(
                                 .fillMaxSize()
                                 .zoomable(
                                     state = pageZoomState,
-                                    onTap = { showChrome = !showChrome },
-                                    onDismiss = { viewModel.activeMediaItem = null }
+                                    onTap = { showChrome = !showChrome }
                                 )
                         )
                     }
@@ -379,7 +384,6 @@ fun PhotoViewerScreen(
             exit = fadeOut() + slideOutVertically { -it },
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
-            val currentItem = mediaItems.getOrNull(pagerState.currentPage) ?: activeItem
             val fileName = currentItem.path.substringAfterLast('/')
 
             Row(
