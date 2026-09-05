@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Git pre-commit hook to automatically sync screenshots
+
+# Check if any files in screenshots/ are added, modified, or deleted in the index
+CHANGED=$(git diff --cached --name-only | grep -E '^screenshots/')
+
+if [ -n "$CHANGED" ]; then
+    echo "📸 Screenshot changes detected! Running auto-sync..."
+    if command -v python >/dev/null 2>&1; then
+        python scripts/sync_screenshots.py
+    elif command -v python3 >/dev/null 2>&1; then
+        python3 scripts/sync_screenshots.py
+    elif command -v py >/dev/null 2>&1; then
+        py scripts/sync_screenshots.py
+    fi
+
+    # Automatically stage synced files
+    git add docs/screenshots/ docs/index.html README.md
+    echo "✅ Staged docs/screenshots, docs/index.html, and README.md with updated screenshots."
+fi

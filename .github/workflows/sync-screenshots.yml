@@ -1,0 +1,41 @@
+name: Auto-Sync Screenshots
+
+on:
+  push:
+    paths:
+      - 'screenshots/**'
+  workflow_dispatch:
+
+jobs:
+  sync-screenshots:
+    name: Sync Screenshots to Website & README
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Run Screenshots Sync Script
+        run: python scripts/sync_screenshots.py
+
+      - name: Commit & Push Changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          if [ -n "$(git status --porcelain docs/ README.md)" ]; then
+            git add docs/screenshots/ docs/index.html README.md
+            git commit -m "chore: auto-sync screenshots to website and README [skip ci]"
+            git push
+            echo "Successfully committed and pushed updated screenshots."
+          else
+            echo "Everything already in sync. No changes."
+          fi

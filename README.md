@@ -10,14 +10,32 @@
 
 ---
 
+<!-- SCREENSHOTS_START -->
 ## Screenshots
 
-<p align="center">
-  <img src="screenshots/photos.png" width="23%" alt="Photos" />
-  <img src="screenshots/album.png" width="23%" alt="Albums" />
-  <img src="screenshots/vault.png" width="23%" alt="Vault" />
-  <img src="screenshots/setting.png" width="23%" alt="Settings" />
-</p>
+<div align="center">
+  <table>
+    <tr>
+      <td align="center" width="25%">
+        <b>Photos</b><br><br>
+        <img src="screenshots/photos.png" width="100%" alt="Photos" />
+      </td>
+      <td align="center" width="25%">
+        <b>Albums</b><br><br>
+        <img src="screenshots/album.png" width="100%" alt="Albums" />
+      </td>
+      <td align="center" width="25%">
+        <b>Vault</b><br><br>
+        <img src="screenshots/vault.png" width="100%" alt="Vault" />
+      </td>
+      <td align="center" width="25%">
+        <b>Settings</b><br><br>
+        <img src="screenshots/setting.png" width="100%" alt="Settings" />
+      </td>
+    </tr>
+  </table>
+</div>
+<!-- SCREENSHOTS_END -->
 
 ---
 
@@ -75,11 +93,50 @@
 - Set as wallpaper, set as album cover
 - EXIF metadata viewer with "Open in Maps"
 
-### Albums
-- List, 2/3/4 column grid layouts
-- Sort by name, count, or recent activity
-- Pin and exclude folders
-- Storage usage overview
+### Albums & Privacy Lock
+- List, 2/3/4 column grid layouts with custom per-album sort orders
+- **Biometric Album Lock**: Lock individual albums with fingerprint/face/PIN
+- **Total Timeline Isolation**: Locked album photos are completely excluded from main timeline, videos, and search feeds
+- **System-Wide `.nomedia` Protection**: Automatically creates `.nomedia` inside locked album folders to hide contents from all other apps and system MediaStore
+- Pin, hide, and exclude folders with storage usage overview
+
+### Motion Photos & Looping GIF Studio
+- Embedded micro-video playback with interactive frame scrubber
+- **Best-Shot Extraction**: Extract full-sensor, uncompressed stills from motion photos
+- **Looping GIF Export**: Convert motion photos to shareable GIFs using a zero-bloat Kotlin GIF89a encoder with Octree quantization
+- **Standalone MP4 Export**: Save motion photo video clips to Movies
+
+### Lossless Video Tools
+- **1-Second Audio Stripper**: Instantly remove audio tracks losslessly via hardware `MediaMuxer` and `MediaExtractor` without re-encoding (supports 4K/60fps)
+- Lossless video trimmer and frame grabber
+- 0.25x–3.0x playback speed, swipe gestures, and audio/subtitle track selector
+
+### Interactive Geo Map Explorer
+- Zero-overhead in-app Leaflet + OpenStreetMap map viewer (<150 KB, 0 native `.so` binaries)
+- Interactive marker clustering for all geotagged photos
+- **Dual Querying**: Search by landmark, city, village, or GPS coordinates (`37.77, -122.41`) with smooth flight animations
+- Tap any marker to view or open the photo directly
+
+### Custom Location Descriptions & EXIF Editor
+- **Free-Form Place Descriptions**: Attach custom place names (e.g. *"delhi rohtak madina village raju printing press meham"*) without requiring numeric coordinates
+- **GPS Coordinates Editor**: Add, edit, or scrub latitude/longitude directly in the photo details sheet
+- **Gallery Search Indexing**: Find photos instantly by searching any word from custom location descriptions
+- Asynchronous reverse geocoding with 1-tap "Open in Maps"
+
+### On-Device OCR & Selective Text Copy
+- Privacy-first on-device text recognition via Google Play Services ML Kit (~350 KB footprint)
+- **Selective Highlighting**: Drag selection handles or double-tap words to copy exact text snippets
+- **Smart Quick-Copy Chips**: 1-tap copy for detected phone numbers, URLs, addresses, and line totals
+- **Searchable Gallery**: Search for text visible inside photos directly from the main gallery search bar
+
+### Lossless Move/Copy & Timestamp Preservation
+- Moving or copying photos between albums preserves exact original capture timestamps
+- Copies original EXIF datetime tags, preserves filesystem `lastModified` down to the millisecond, and synchronizes MediaStore `DATE_TAKEN`
+- Migrates favorites, custom tags, and custom locations seamlessly
+
+### Automated Documentation Sync
+- Automated synchronization of screenshots from `screenshots/` to `docs/screenshots/`, GitHub Pages website, and `README.md`
+- Integrated Git pre-commit hook and Gradle `:syncScreenshots` task
 
 ### Batch Rename
 - Numbered sequence (`Trip_001.jpg`, `Trip_002.jpg`)
@@ -91,14 +148,6 @@
 - Filter presets (B&W, Warm, Cool, Sepia, Vivid)
 - Freeform crop with aspect presets, 90° rotation, flip
 - Target-size compressor
-
-### Video Player
-- 0.25x–3.0x playback speed, long-press 2x hold
-- Swipe brightness/volume gestures
-- Audio/subtitle track selector
-- Audio extractor (`.m4a` via MediaExtractor + MediaMuxer)
-- Lossless video trimmer
-- GIF generator
 
 ### Encrypted Vault
 - AES-256-GCM via AndroidKeyStore (12-byte IV, 128-bit tag)

@@ -815,25 +815,26 @@
         <h2 class="section-title">Built with Material 3 & Jetpack Compose</h2>
         <p class="section-desc">Designed for modern Android with fluid gestures, crisp typography, and clean navigation.</p>
       </div>
-
+                                                      <!-- SCREENSHOTS_START -->
       <div class="screenshots-grid">
         <div class="phone-card">
-          <img src="screenshots/photos.png" alt="Photos Timeline">
-          <div class="phone-caption">120Hz Photos Timeline</div>
+          <img src="screenshots/photos.png" alt="Photos" loading="lazy">
+          <div class="phone-caption">Photos</div>
         </div>
         <div class="phone-card">
-          <img src="screenshots/album.png" alt="Albums & Folders">
-          <div class="phone-caption">Albums & Storage Breakdown</div>
+          <img src="screenshots/album.png" alt="Albums" loading="lazy">
+          <div class="phone-caption">Albums</div>
         </div>
         <div class="phone-card">
-          <img src="screenshots/vault.png" alt="AES-256 Encrypted Vault">
-          <div class="phone-caption">Hardware-Encrypted Vault</div>
+          <img src="screenshots/vault.png" alt="Vault" loading="lazy">
+          <div class="phone-caption">Vault</div>
         </div>
         <div class="phone-card">
-          <img src="screenshots/setting.png" alt="Settings & Privacy">
-          <div class="phone-caption">Settings & Preferences</div>
+          <img src="screenshots/setting.png" alt="Settings" loading="lazy">
+          <div class="phone-caption">Settings</div>
         </div>
       </div>
+      <!-- SCREENSHOTS_END -->
     </div>
   </section>
 
@@ -899,6 +900,42 @@
           <div class="feature-icon">🏷️</div>
           <h3 class="feature-title">Offline Tags & Hashtags</h3>
           <p class="feature-text">Add custom tags (#Receipt, #Travel) to any photo, indexed locally in SQLite Room for instant offline search.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">🔒</div>
+          <h3 class="feature-title">Per-Album Biometric Lock</h3>
+          <p class="feature-text">Protect sensitive folders with Fingerprint or Device Credential lock, 30s background auto-relock, and native .nomedia creation to hide media from other apps.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">🎞️</div>
+          <h3 class="feature-title">Motion Photo & GIF Studio</h3>
+          <p class="feature-text">Scrub frame-by-frame through Pixel & Samsung live photos to extract full-resolution stills or export seamless looping animated GIFs with zero re-compression artifacts.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">🗺️</div>
+          <h3 class="feature-title">Interactive Map Explorer</h3>
+          <p class="feature-text">Cluster and browse your geotagged memories across the globe using privacy-first OpenStreetMap or satellite views with dynamic location search.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">🔍</div>
+          <h3 class="feature-title">On-Device OCR & Copy</h3>
+          <p class="feature-text">Recognize and extract text from receipts, documents, and signs with a single tap. Select and copy individual lines without sending images to cloud APIs.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">🔇</div>
+          <h3 class="feature-title">1-Second Video Muter</h3>
+          <p class="feature-text">Losslessly demux and strip audio tracks from videos using native Android MediaMuxer without re-encoding the video stream—instantaneous even on 4K files.</p>
+        </div>
+
+        <div class="feature-card">
+          <div class="feature-icon">📍</div>
+          <h3 class="feature-title">Location Geotagging & Dates</h3>
+          <p class="feature-text">Set custom place names or coordinates with reverse geocoding, and preserve exact file modification timestamps and EXIF integrity across file operations.</p>
         </div>
       </div>
     </div>
@@ -987,6 +1024,48 @@
               <td>❌ No</td>
               <td>❌ Screen Capture</td>
               <td>⚠️ Varies</td>
+            </tr>
+            <tr>
+              <td>Per-Album Biometric Lock & .nomedia</td>
+              <td class="highlight-col">✅ Hardware Biometrics + Stealth</td>
+              <td>⚠️ Basic PIN</td>
+              <td>❌ Locked Folder Only</td>
+              <td>⚠️ Varies</td>
+            </tr>
+            <tr>
+              <td>Motion Photo & GIF Studio</td>
+              <td class="highlight-col">✅ Extract Frame & GIF Export</td>
+              <td>❌ No</td>
+              <td>⚠️ Cloud Only</td>
+              <td>⚠️ View Only</td>
+            </tr>
+            <tr>
+              <td>Interactive Map Explorer</td>
+              <td class="highlight-col">✅ OpenStreetMap + Search</td>
+              <td>❌ No</td>
+              <td>⚠️ Cloud Only</td>
+              <td>⚠️ Basic</td>
+            </tr>
+            <tr>
+              <td>On-Device OCR & Selective Copy</td>
+              <td class="highlight-col">✅ 100% On-Device Selective Copy</td>
+              <td>❌ No</td>
+              <td>❌ Cloud Google Lens</td>
+              <td>⚠️ OEM AI</td>
+            </tr>
+            <tr>
+              <td>1-Second Lossless Video Muter</td>
+              <td class="highlight-col">✅ Native Fast Demuxing</td>
+              <td>❌ Re-encodes or No</td>
+              <td>⚠️ Slow Export</td>
+              <td>⚠️ Re-encodes</td>
+            </tr>
+            <tr>
+              <td>Lossless Date & EXIF Preservation</td>
+              <td class="highlight-col">✅ Exact Timestamps & GPS</td>
+              <td>⚠️ Modifies Dates</td>
+              <td>❌ Cloud Stripped</td>
+              <td>⚠️ Modifies Dates</td>
             </tr>
           </tbody>
         </table>

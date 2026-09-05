@@ -109,16 +109,31 @@ jobs:
           path: ${{ env.DIST_APK }}
           if-no-files-found: error
 
+      - name: Prepare Release Notes
+        id: prep_release_notes
+        run: |
+          python3 -c "
+          import os
+          body = ''
+          if os.path.exists('RELEASE_NOTES.md'):
+              with open('RELEASE_NOTES.md', 'r', encoding='utf-8') as f:
+                  body = f.read().strip()
+          
+          if not body:
+              body = '### What\'s New in Imava v${{ env.VERSION_NAME }}\n\nSee commits and release assets below.'
+          
+          with open('release_body.md', 'w', encoding='utf-8') as f:
+              f.write(body)
+          "
+
       - name: Create Git Tag & GitHub Release
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.VERSION_NAME }}
           name: Imava v${{ env.VERSION_NAME }}
-          body: |
-            ## Imava v${{ env.VERSION_NAME }}
-            
-            Download the APK below.
+          body_path: release_body.md
+          generate_release_notes: true
           files: ${{ env.DIST_APK }}
           draft: false
           prerelease: false
